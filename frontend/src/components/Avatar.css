@@ -180,29 +180,38 @@
    PLAYER AVATARS
    ============================================ */
 
-/* Stargazer — soft white glow, calm */
-.avatar-stargazer {
-  background: linear-gradient(135deg, #7788aa, #556688);
+/* Black Hole — dark vortex with glowing accretion disk */
+.avatar-blackhole {
+  background: conic-gradient(from 0deg, #ff6600, #ff3300, #cc2200, #ff8800, #ff5500, #ff6600);
+  animation: blackhole-ring-spin 3s linear infinite;
 }
-.avatar-stargazer .avatar-inner {
-  background: radial-gradient(circle at 40% 35%, #8899bb, #4a5a7a 60%, #2a3a5a);
+.avatar-blackhole .avatar-inner {
+  background: radial-gradient(circle at 50% 50%, #000000, #0a0a0a 40%, #1a0a00 70%, #331100);
   position: relative;
 }
-.avatar-stargazer .avatar-inner::before {
+.avatar-blackhole .avatar-inner::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(1px 1px at 25% 25%, rgba(255,255,255,0.7), transparent),
-    radial-gradient(1px 1px at 65% 35%, rgba(255,255,255,0.5), transparent),
-    radial-gradient(1px 1px at 45% 75%, rgba(255,255,255,0.6), transparent);
+  inset: 15%;
+  border-radius: 50%;
+  background: conic-gradient(from 120deg, rgba(255,100,0,0.3), transparent 30%, rgba(255,60,0,0.2) 50%, transparent 70%, rgba(255,120,0,0.25));
+  animation: blackhole-disk-spin 4s linear infinite reverse;
+  filter: blur(2px);
 }
-.avatar-stargazer .avatar-symbol {
-  background: radial-gradient(circle, #ddeeff, #99aacc);
-  box-shadow: 0 0 10px rgba(180, 200, 240, 0.5);
+.avatar-blackhole .avatar-symbol {
+  background: radial-gradient(circle, #000000, #0a0505);
+  box-shadow: 0 0 12px 4px rgba(0,0,0,0.9), 0 0 20px rgba(255, 80, 0, 0.3);
+  width: 35%;
+  height: 35%;
 }
-.avatar-stargazer.avatar-active {
-  box-shadow: 0 0 18px 5px rgba(150, 180, 220, 0.5);
+.avatar-blackhole.avatar-active {
+  box-shadow: 0 0 20px 6px rgba(255, 80, 0, 0.5);
+}
+@keyframes blackhole-ring-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes blackhole-disk-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Nova — warm golden radiance */

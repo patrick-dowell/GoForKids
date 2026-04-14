@@ -209,19 +209,10 @@ async def _select_with_katago(
             return None
 
         # --- Pass detection ---
+        # Simple rule: only pass if KataGo's #1 move is literally "pass".
+        # No heuristic second-guessing. KataGo knows when to pass.
         best = analysis.candidates[0]
         if best.move[0] < 0:
-            return None
-
-        pass_candidate = next((c for c in analysis.candidates if c.move[0] < 0), None)
-        if pass_candidate:
-            gain_vs_pass = best.score_lead - pass_candidate.score_lead
-            if gain_vs_pass < 0.5:
-                return None
-
-        top_3 = analysis.candidates[:min(3, len(analysis.candidates))]
-        score_spread = max(c.score_lead for c in top_3) - min(c.score_lead for c in top_3)
-        if score_spread < 0.3 and best.visits > 10:
             return None
 
         # --- OPENING: play sensibly ---
