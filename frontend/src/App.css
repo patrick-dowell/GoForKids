@@ -765,6 +765,90 @@ body {
   background: rgba(255, 107, 107, 0.1);
 }
 
+/* Spectator controls (bot vs bot) */
+.spectator-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-top: 12px;
+}
+
+.speed-control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.speed-control label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.speed-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.speed-btn {
+  flex: 1;
+  padding: 5px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.1s;
+}
+
+.speed-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+/* Game mode picker */
+.mode-picker {
+  display: flex;
+  gap: 6px;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 8px 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: border-color 0.15s;
+}
+
+.mode-btn.selected {
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+/* Handicap slider */
+.handicap-slider {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.handicap-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: -4px;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

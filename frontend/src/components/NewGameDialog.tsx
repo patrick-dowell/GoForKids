@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useGameStore } from '../store/gameStore';
+import { useGameStore, type GameMode } from '../store/gameStore';
 import { Color } from '../engine/types';
 import { AvatarPicker } from './AvatarPicker';
 import { Avatar, BOT_AVATARS, type PlayerAvatarType } from './Avatar';
@@ -28,100 +28,167 @@ function getSavedAvatar(): PlayerAvatarType {
 }
 
 export function NewGameDialog({ onClose }: NewGameDialogProps) {
+  const [gameMode, setGameMode] = useState<GameMode>('ai');
   const [playerColor, setPlayerColor] = useState<Color>(Color.Black);
   const [targetRank, setTargetRank] = useState('30k');
+  const [handicap, setHandicap] = useState(0);
   const [isRanked, setIsRanked] = useState(false);
-  const [vsAI, setVsAI] = useState(true);
   const [playerAvatar, setPlayerAvatar] = useState<PlayerAvatarType>(getSavedAvatar());
-  const newGame = useGameStore((s) => s.newGame);
+  // Bot vs bot ranks
+  const [blackRank, setBlackRank] = useState('18k');
+  const [whiteRank, setWhiteRank] = useState('15k');
 
-  const botInfo = BOT_AVATARS[targetRank] || BOT_AVATARS['15k'];
+  const newGame = useGameStore((s) => s.newGame);
+  const botInfo = BOT_AVATARS[gameMode === 'botvsbot' ? whiteRank : targetRank] || BOT_AVATARS['15k'];
 
   const handleStart = () => {
     localStorage.setItem('goforkids_avatar', playerAvatar);
     newGame({
       playerColor,
-      targetRank,
+      targetRank: gameMode === 'botvsbot' ? blackRank : targetRank,
       isRanked,
-      useBackend: vsAI,
+      useBackend: gameMode !== 'local',
       playerAvatar,
+      gameMode,
+      handicap,
+      blackRank: gameMode === 'botvsbot' ? blackRank : undefined,
+      whiteRank: gameMode === 'botvsbot' ? whiteRank : undefined,
     });
     onClose();
   };
 
   return (
     <div className="dialog-overlay">
-      <div className="dialog" style={{ width: 400 }}>
+      <div className="dialog" style={{ width: 420 }}>
         <h2>New Game</h2>
 
+        {/* Game Mode */}
         <div className="dialog-field">
-          <label>Your Avatar</label>
-          <AvatarPicker selected={playerAvatar} onSelect={setPlayerAvatar} />
-        </div>
-
-        <div className="dialog-field">
-          <label>Play as</label>
-          <div className="color-picker">
+          <label>Mode</label>
+          <div className="mode-picker">
             <button
-              className={`color-btn ${playerColor === Color.Black ? 'selected' : ''}`}
-              onClick={() => setPlayerColor(Color.Black)}
+              className={`mode-btn ${gameMode === 'ai' ? 'selected' : ''}`}
+              onClick={() => setGameMode('ai')}
             >
-              <div className="stone-icon black" /> Black
+              Play vs AI
             </button>
             <button
-              className={`color-btn ${playerColor === Color.White ? 'selected' : ''}`}
-              onClick={() => setPlayerColor(Color.White)}
+              className={`mode-btn ${gameMode === 'botvsbot' ? 'selected' : ''}`}
+              onClick={() => setGameMode('botvsbot')}
             >
-              <div className="stone-icon white" /> White
+              Bot vs Bot
+            </button>
+            <button
+              className={`mode-btn ${gameMode === 'local' ? 'selected' : ''}`}
+              onClick={() => setGameMode('local')}
+            >
+              Local
             </button>
           </div>
         </div>
 
+        {/* Avatar picker — not for bot vs bot */}
+        {gameMode !== 'botvsbot' && (
+          <div className="dialog-field">
+            <label>Your Avatar</label>
+            <AvatarPicker selected={playerAvatar} onSelect={setPlayerAvatar} />
+          </div>
+        )}
+
+        {/* Color picker — not for bot vs bot */}
+        {gameMode !== 'botvsbot' && (
+          <div className="dialog-field">
+            <label>Play as</label>
+            <div className="color-picker">
+              <button
+                className={`color-btn ${playerColor === Color.Black ? 'selected' : ''}`}
+                onClick={() => setPlayerColor(Color.Black)}
+              >
+                <div className="stone-icon black" /> Black
+              </button>
+              <button
+                className={`color-btn ${playerColor === Color.White ? 'selected' : ''}`}
+                onClick={() => setPlayerColor(Color.White)}
+              >
+                <div className="stone-icon white" /> White
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Opponent rank (AI mode) */}
+        {gameMode === 'ai' && (
+          <div className="dialog-field">
+            <label>Opponent</label>
+            <div className="opponent-preview">
+              <Avatar type={botInfo.type} size={40} />
+              <select value={targetRank} onChange={(e) => setTargetRank(e.target.value)}>
+                {RANK_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Dual rank selectors (Bot vs Bot mode) */}
+        {gameMode === 'botvsbot' && (
+          <>
+            <div className="dialog-field">
+              <label>Black Bot</label>
+              <div className="opponent-preview">
+                <Avatar type={(BOT_AVATARS[blackRank] || BOT_AVATARS['15k']).type} size={40} />
+                <select value={blackRank} onChange={(e) => setBlackRank(e.target.value)}>
+                  {RANK_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="dialog-field">
+              <label>White Bot</label>
+              <div className="opponent-preview">
+                <Avatar type={(BOT_AVATARS[whiteRank] || BOT_AVATARS['15k']).type} size={40} />
+                <select value={whiteRank} onChange={(e) => setWhiteRank(e.target.value)}>
+                  {RANK_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Handicap stones */}
         <div className="dialog-field">
-          <label>Opponent</label>
-          <div className="opponent-preview">
-            <Avatar type={botInfo.type} size={40} />
-            <select
-              value={targetRank}
-              onChange={(e) => setTargetRank(e.target.value)}
-            >
-              {RANK_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+          <label>Handicap stones: {handicap === 0 ? 'None' : handicap}</label>
+          <input
+            type="range"
+            min={0}
+            max={9}
+            value={handicap}
+            onChange={(e) => setHandicap(parseInt(e.target.value))}
+            className="handicap-slider"
+          />
+          <div className="handicap-labels">
+            <span>Even</span>
+            <span>9</span>
           </div>
         </div>
 
-        <div className="dialog-field">
-          <label>
-            <input
-              type="checkbox"
-              checked={vsAI}
-              onChange={(e) => setVsAI(e.target.checked)}
-            />
-            Play vs AI (requires backend)
-          </label>
-        </div>
-
-        <div className="dialog-field">
-          <label>
-            <input
-              type="checkbox"
-              checked={isRanked}
-              onChange={(e) => setIsRanked(e.target.checked)}
-            />
-            Ranked game
-          </label>
-        </div>
+        {gameMode === 'ai' && (
+          <div className="dialog-field">
+            <label>
+              <input type="checkbox" checked={isRanked} onChange={(e) => setIsRanked(e.target.checked)} />
+              Ranked game
+            </label>
+          </div>
+        )}
 
         <div className="dialog-actions">
-          <button onClick={onClose} className="btn btn-secondary">
-            Cancel
-          </button>
+          <button onClick={onClose} className="btn btn-secondary">Cancel</button>
           <button onClick={handleStart} className="btn btn-primary">
-            Start Game
+            {gameMode === 'botvsbot' ? 'Watch Game' : 'Start Game'}
           </button>
         </div>
       </div>
