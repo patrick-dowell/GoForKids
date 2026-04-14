@@ -1,18 +1,23 @@
 """
 Phase 1 rank-calibrated move selection.
 
-Uses KataGo analysis when available, with heuristic-based move sampling
-to simulate play at a target rank level.
+Uses KataGo analysis with heuristic-based move sampling to simulate play
+at a target rank level.
 
-Key insight: a real 15k doesn't pick "slightly suboptimal" moves from a
-pro's candidate list — they play fundamentally differently. They respond
-locally, ignore whole-board direction, miss reading, and sometimes play
-moves that no engine would even consider. We simulate this with:
+Key lesson from playtesting: the raw Fox dataset stats (57% local, 10% first
+line) describe ALL moves including endgame gote. Applying those rates uniformly
+makes the bot play nonsense in the opening/midgame. Real 15k players:
+  - Play recognizable openings (star points, 3-4 points, approaches)
+  - Have basic shape instincts (don't randomly throw stones on the edge)
+  - Can read 1-3 moves in a fight (won't walk into obvious captures)
+  - Make big strategic errors: wrong direction, overconcentration,
+    ignoring cutting points, saving dead stones
+  - Play too locally in the midgame (miss the big point)
+  - Lose groups they shouldn't through misreading
 
-1. Reduced KataGo visits (weaker analysis = weaker candidates)
-2. High random-move injection (truly random legal moves, not just bad KataGo picks)
-3. Local bias (tend to play near the last move instead of finding the best global point)
-4. Large allowed point losses with high mistake frequency
+The bot should play KataGo moves most of the time but with a loose hand —
+occasionally picking the 3rd or 5th best move instead of the 1st, and
+sometimes making genuinely bad choices in non-tactical positions.
 """
 
 from __future__ import annotations
@@ -27,89 +32,93 @@ from app.game.engine import Board, Color, Point, BOARD_SIZE
 def edge_distance(row: int, col: int) -> int:
     """Distance from the nearest board edge."""
     return min(row, col, BOARD_SIZE - 1 - row, BOARD_SIZE - 1 - col)
+
+
 from app.katago.engine import get_engine, PositionAnalysis
 
 logger = logging.getLogger(__name__)
 
 # Rank-specific tuning parameters
-# Calibrated from analysis of 10,000 real 15k Fox server games:
-#   - 57% of moves are within 2 intersections of the previous move
-#   - 10.5% of moves are on the first line
-#   - Only 15% tenuki rate (>6 away)
-#   - Average distance from previous move: 3.8
-#   - 68% of games end by resignation
+# Revised after playtesting: previous version was too chaotic.
+# 15k should feel like "a player who knows the rules and basic shapes
+# but makes strategic errors and can't read more than 2-3 moves."
 RANK_PROFILES = {
     "15k": {
-        "max_point_loss": 30.0,     # Allow huge mistakes
-        "mistake_freq": 0.65,       # 65% of moves are non-optimal
-        "policy_weight": 0.15,      # Barely follows policy
-        "randomness": 0.85,         # Very high randomness
-        "random_move_chance": 0.20, # 20% truly random legal move
-        "local_bias": 0.55,         # 55% play within 3 of last move (data: 57% within 2)
-        "first_line_chance": 0.08,  # 8% first-line moves (data: 10.5%)
-        "visits": 15,               # Very shallow search
-        "min_candidates": 15,
+        "max_point_loss": 20.0,     # Allow big mistakes, but not suicidal
+        "mistake_freq": 0.40,       # 40% of moves pick a suboptimal candidate
+        "policy_weight": 0.30,      # Loosely follows KataGo policy
+        "randomness": 0.60,         # Moderate randomness in candidate selection
+        "random_move_chance": 0.05, # 5% truly random (rare — not every other move)
+        "local_bias": 0.25,         # 25% local response (midgame only, not opening)
+        "first_line_chance": 0.0,   # No first-line injection (too disruptive)
+        "visits": 30,               # Enough for basic shape, not enough for deep reading
+        "min_candidates": 12,
+        "opening_moves": 30,        # First 30 moves: play KataGo top-3 only (sensible opening)
     },
     "12k": {
-        "max_point_loss": 22.0,
-        "mistake_freq": 0.50,
-        "policy_weight": 0.25,
-        "randomness": 0.70,
-        "random_move_chance": 0.12,
-        "local_bias": 0.45,
-        "first_line_chance": 0.05,
-        "visits": 25,
-        "min_candidates": 12,
-    },
-    "10k": {
         "max_point_loss": 15.0,
-        "mistake_freq": 0.38,
-        "policy_weight": 0.35,
-        "randomness": 0.55,
-        "random_move_chance": 0.06,
-        "local_bias": 0.30,
-        "first_line_chance": 0.03,
+        "mistake_freq": 0.32,
+        "policy_weight": 0.40,
+        "randomness": 0.50,
+        "random_move_chance": 0.03,
+        "local_bias": 0.18,
+        "first_line_chance": 0.0,
         "visits": 50,
         "min_candidates": 10,
+        "opening_moves": 25,
     },
-    "8k": {
+    "10k": {
         "max_point_loss": 10.0,
         "mistake_freq": 0.25,
         "policy_weight": 0.50,
         "randomness": 0.40,
         "random_move_chance": 0.02,
-        "local_bias": 0.15,
-        "first_line_chance": 0.01,
+        "local_bias": 0.12,
+        "first_line_chance": 0.0,
         "visits": 80,
         "min_candidates": 8,
+        "opening_moves": 20,
+    },
+    "8k": {
+        "max_point_loss": 6.0,
+        "mistake_freq": 0.18,
+        "policy_weight": 0.60,
+        "randomness": 0.30,
+        "random_move_chance": 0.01,
+        "local_bias": 0.08,
+        "first_line_chance": 0.0,
+        "visits": 120,
+        "min_candidates": 7,
+        "opening_moves": 15,
     },
     "5k": {
-        "max_point_loss": 5.0,
-        "mistake_freq": 0.14,
-        "policy_weight": 0.70,
-        "randomness": 0.20,
-        "random_move_chance": 0.01,
-        "local_bias": 0.05,
+        "max_point_loss": 4.0,
+        "mistake_freq": 0.10,
+        "policy_weight": 0.75,
+        "randomness": 0.18,
+        "random_move_chance": 0.0,
+        "local_bias": 0.03,
         "first_line_chance": 0.0,
-        "visits": 150,
+        "visits": 200,
         "min_candidates": 6,
+        "opening_moves": 10,
     },
     "3k": {
-        "max_point_loss": 3.0,
-        "mistake_freq": 0.08,
+        "max_point_loss": 2.5,
+        "mistake_freq": 0.06,
         "policy_weight": 0.85,
         "randomness": 0.10,
         "random_move_chance": 0.0,
         "local_bias": 0.0,
         "first_line_chance": 0.0,
-        "visits": 250,
+        "visits": 300,
         "min_candidates": 5,
+        "opening_moves": 5,
     },
 }
 
 
 def get_profile(rank: str) -> dict:
-    """Get the rank profile, defaulting to 15k if unknown."""
     return RANK_PROFILES.get(rank, RANK_PROFILES["15k"])
 
 
@@ -129,7 +138,7 @@ def _get_nearby_moves(board: Board, color: Color, center: Point, radius: int = 3
 
 
 def _pick_random_legal(board: Board, color: Color) -> Optional[Point]:
-    """Pick a random legal move with mild preference for 3rd/4th line."""
+    """Pick a random legal move with preference for 3rd/4th line."""
     moves = []
     weights = []
     for row in range(BOARD_SIZE):
@@ -139,23 +148,27 @@ def _pick_random_legal(board: Board, color: Color) -> Optional[Point]:
             result, _ = test.try_play(color, p)
             if result == "ok":
                 moves.append(p)
-                # Mild preference for 3rd-4th line (where real beginners tend to play)
-                edge_dist = min(row, col, BOARD_SIZE - 1 - row, BOARD_SIZE - 1 - col)
-                if edge_dist in (2, 3):
-                    weights.append(2.0)
-                elif edge_dist in (1, 4, 5):
+                ed = edge_distance(row, col)
+                if ed in (2, 3):
+                    weights.append(2.5)
+                elif ed in (4, 5):
                     weights.append(1.5)
-                elif edge_dist == 0:
-                    weights.append(0.3)  # First line is usually bad
+                elif ed in (1,):
+                    weights.append(0.8)
+                elif ed == 0:
+                    weights.append(0.2)
                 else:
                     weights.append(1.0)
-
     if not moves:
         return None
-
     total = sum(weights)
     weights = [w / total for w in weights]
     return random.choices(moves, weights=weights, k=1)[0]
+
+
+def _count_stones(board: Board) -> int:
+    """Count total stones on the board (proxy for move number)."""
+    return sum(1 for c in board.grid if c != Color.EMPTY)
 
 
 async def select_ai_move(
@@ -163,7 +176,6 @@ async def select_ai_move(
 ) -> Optional[Point]:
     """Select a move for the AI at the given target rank."""
     engine = await get_engine()
-
     if engine:
         return await _select_with_katago(engine, board, color, target_rank)
     else:
@@ -176,27 +188,27 @@ async def _select_with_katago(
     """
     KataGo-backed rank-calibrated move selection.
 
-    For weak ranks (15k-10k), the bot frequently plays:
-    - Truly random legal moves (not from KataGo's candidate list at all)
-    - Local responses near the last move (ignoring global priorities)
-    - Suboptimal moves from a shallow KataGo search
-
-    For stronger ranks (8k-3k), moves are mostly from KataGo's
-    candidate list with occasional small mistakes.
+    Strategy by game phase:
+    - OPENING (first N moves): Play from KataGo's top 3 candidates only.
+      Even 15k players play recognizable openings.
+    - MIDGAME: Mix of KataGo candidates with rank-based mistake injection.
+      Local bias kicks in here (respond near last move instead of global best).
+    - ENDGAME: Play KataGo candidates with moderate mistakes. Auto-pass
+      when no meaningful moves remain.
     """
     profile = get_profile(target_rank)
+    stone_count = _count_stones(board)
+    is_opening = stone_count < profile.get("opening_moves", 20)
 
     try:
         board_2d = board.to_2d()
         player = "B" if color == Color.BLACK else "W"
-
-        # Use rank-appropriate visit count (weaker = fewer visits = weaker candidates)
         analysis = await engine.analyze(board_2d, player, max_visits=profile["visits"])
 
         if not analysis.candidates:
             return None
 
-        # --- Pass detection (same for all ranks) ---
+        # --- Pass detection ---
         best = analysis.candidates[0]
         if best.move[0] < 0:
             return None
@@ -212,58 +224,41 @@ async def _select_with_katago(
         if score_spread < 0.3 and best.visits > 10:
             return None
 
-        # --- Random move injection ---
-        # Real beginners sometimes play moves no engine would consider
+        # --- OPENING: play sensibly ---
+        if is_opening:
+            # Pick from top 3 candidates with slight randomness
+            top_moves = [c for c in analysis.candidates[:3] if c.move[0] >= 0]
+            if top_moves:
+                # Weight by visits (KataGo's confidence)
+                w = [c.visits for c in top_moves]
+                selected = random.choices(top_moves, weights=w, k=1)[0]
+                return Point(selected.move[0], selected.move[1])
+
+        # --- Random move injection (rare) ---
         if random.random() < profile["random_move_chance"]:
             rand_move = _pick_random_legal(board, color)
             if rand_move:
-                logger.debug(f"[{target_rank}] Playing random legal move at ({rand_move.row},{rand_move.col})")
                 return rand_move
 
-        # --- Local bias ---
-        # Beginners tend to respond near the last move instead of finding
-        # the globally best point. Find the last opponent move and play nearby.
-        if random.random() < profile["local_bias"]:
-            # Find the last stone played (any color) by scanning the board
-            # We don't have move history here, so approximate: pick a random
-            # non-empty neighbor-rich area and play near it
-            occupied = []
-            for r in range(BOARD_SIZE):
-                for c in range(BOARD_SIZE):
-                    if board.get(Point(r, c)) != Color.EMPTY:
-                        occupied.append(Point(r, c))
+        # --- Local bias (midgame only) ---
+        if not is_opening and random.random() < profile["local_bias"]:
+            # Find stones near the last-played area and respond locally
+            occupied = [Point(r, c) for r in range(BOARD_SIZE)
+                       for c in range(BOARD_SIZE) if board.get(Point(r, c)) != Color.EMPTY]
             if occupied:
-                anchor = random.choice(occupied)
-                nearby = _get_nearby_moves(board, color, anchor, radius=3)
+                anchor = random.choice(occupied[-10:])  # Bias toward recent stones
+                nearby = _get_nearby_moves(board, color, anchor, radius=2)
                 if nearby:
-                    local_move = random.choice(nearby)
-                    logger.debug(f"[{target_rank}] Playing local move near ({anchor.row},{anchor.col})")
-                    return local_move
+                    return random.choice(nearby)
 
-        # --- First-line play injection ---
-        # Real 15k players play on the first line ~10% of the time (usually bad)
-        first_line_chance = profile.get("first_line_chance", 0)
-        if random.random() < first_line_chance:
-            first_line_moves = []
-            for r in range(BOARD_SIZE):
-                for c in range(BOARD_SIZE):
-                    if edge_distance(r, c) == 0:
-                        p = Point(r, c)
-                        test = board.clone()
-                        result, _ = test.try_play(color, p)
-                        if result == "ok":
-                            first_line_moves.append(p)
-            if first_line_moves:
-                fl_move = random.choice(first_line_moves)
-                logger.debug(f"[{target_rank}] Playing first-line move at ({fl_move.row},{fl_move.col})")
-                return fl_move
-
-        # --- KataGo candidate selection with rank-based sampling ---
+        # --- KataGo candidate selection with rank-based mistakes ---
         best_score = analysis.candidates[0].score_lead
+
+        # Filter candidates within acceptable point loss
         filtered = []
         for c in analysis.candidates[:profile["min_candidates"] + 5]:
             if c.move[0] < 0:
-                continue  # Skip pass in candidate list
+                continue
             point_loss = abs(best_score - c.score_lead)
             if point_loss <= profile["max_point_loss"]:
                 filtered.append((c, point_loss))
@@ -277,23 +272,25 @@ async def _select_with_katago(
         # Build selection weights
         weights = []
         for c, point_loss in filtered:
-            # Policy weight: how much to trust KataGo's policy
+            # Policy influence
             policy_w = max(c.prior, 0.001) ** profile["policy_weight"]
 
-            # Mistake injection: at low ranks, actively boost suboptimal moves
+            # Mistake injection
             if random.random() < profile["mistake_freq"]:
-                # The worse the move, the more we boost it (inversely)
-                # This makes the bot actively seek out mistakes
+                # When making a mistake, prefer moves that are moderately bad
+                # (not the best, not catastrophic — the kind of mistake a human makes)
                 if point_loss > 0:
-                    mistake_w = 1.0 + point_loss / profile["max_point_loss"]
+                    # Bell curve centered around 30-50% of max allowed loss
+                    sweet_spot = profile["max_point_loss"] * 0.35
+                    mistake_w = math.exp(-((point_loss - sweet_spot) ** 2) / (2 * sweet_spot ** 2))
                 else:
-                    mistake_w = 0.5  # De-prioritize the best move when making a mistake
+                    mistake_w = 0.3  # Slightly de-prioritize best move
             else:
-                # When not making a mistake, prefer good moves
-                mistake_w = math.exp(-point_loss * 0.5)
+                # Normal play: strongly prefer good moves
+                mistake_w = math.exp(-point_loss * 0.8)
 
             # Random jitter
-            jitter = random.random() ** (1 - profile["randomness"])
+            jitter = 0.3 + 0.7 * (random.random() ** (1 - profile["randomness"]))
 
             weight = policy_w * mistake_w * jitter
             weights.append(weight)
