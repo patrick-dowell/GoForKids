@@ -58,23 +58,18 @@ RANK_PROFILES = {
     },
     "18k": {
         # Weak but not random. Uses KataGo with very shallow search.
-        # Makes frequent large mistakes but has basic shape instincts.
-        # Calibrated from 10,000 real 18k Fox server games (closest proxy):
-        #   - 53% of moves within 2 of previous move
-        #   - 18% tenuki rate, avg distance 4.2
-        #   - 11% first-line play
-        #   - Average game length only 124 moves (lots of early resignations)
-        #   - Center (K10) is the most popular point
-        "max_point_loss": 25.0,
-        "mistake_freq": 0.52,
-        "policy_weight": 0.20,
-        "randomness": 0.72,
-        "random_move_chance": 0.10,
-        "local_bias": 0.35,
+        # Target: loses to 15k ~75-80% of the time at even games.
+        # v1: 60% loss rate (too strong). v2: 100% (too weak). v3: split the diff.
+        "max_point_loss": 28.0,
+        "mistake_freq": 0.55,
+        "policy_weight": 0.18,
+        "randomness": 0.76,
+        "random_move_chance": 0.12,
+        "local_bias": 0.38,
         "first_line_chance": 0.0,
-        "visits": 15,
+        "visits": 12,
         "min_candidates": 15,
-        "opening_moves": 15,
+        "opening_moves": 12,
     },
     "15k": {
         "max_point_loss": 20.0,     # Allow big mistakes, but not suicidal
