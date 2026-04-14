@@ -55,7 +55,7 @@ def edge_distance(row: int, col: int) -> int:
     return min(row, col, BOARD_SIZE - 1 - row, BOARD_SIZE - 1 - col)
 
 
-def test_game(client: httpx.Client, sgf_path: str, positions_per_game: int = 6) -> list[dict]:
+def test_game(client: httpx.Client, sgf_path: str, positions_per_game: int = 6, target_rank: str = "15k") -> list[dict]:
     """Test several positions from one real game against the bot."""
     with open(sgf_path, 'r', errors='ignore') as f:
         sgf = f.read()
@@ -82,7 +82,7 @@ def test_game(client: httpx.Client, sgf_path: str, positions_per_game: int = 6) 
     for test_idx in sorted(test_indices):
         # Create a fresh game for each test position
         r = client.post(f"{API}/games", json={
-            "target_rank": "15k", "mode": "casual",
+            "target_rank": target_rank, "mode": "casual",
             "komi": 7.5, "player_color": "black"
         })
         if r.status_code != 200:
@@ -155,7 +155,21 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--games', type=int, default=20, help='Number of games to sample')
     parser.add_argument('--positions', type=int, default=6, help='Positions per game to test')
+    parser.add_argument('--rank', type=str, default='15k', help='Bot rank to test (e.g. 15k, 18k, 30k)')
+    parser.add_argument('--sgf-dir', type=str, default=None, help='SGF directory (defaults to {rank}/)')
     args = parser.parse_args()
+
+    sgf_dir = args.sgf_dir or os.path.join(os.path.dirname(__file__), args.rank)
+    if not os.path.isdir(sgf_dir):
+        # Try the closest available dataset
+        fallbacks = {'20k': '18k', '30k': '18k', '25k': '18k'}
+        fb = fallbacks.get(args.rank)
+        if fb:
+            sgf_dir = os.path.join(os.path.dirname(__file__), fb)
+        if not os.path.isdir(sgf_dir):
+            print(f"ERROR: SGF directory not found: {sgf_dir}")
+            sys.exit(1)
+        print(f"Note: No {args.rank} dataset, using {fb} games as proxy\n")
 
     # Check backend is running
     client = httpx.Client(timeout=30)
@@ -166,17 +180,17 @@ def main():
         print("ERROR: Backend not running on localhost:8000. Start it first.")
         sys.exit(1)
 
-    files = [f for f in os.listdir(SGF_DIR) if f.endswith('.sgf')]
+    files = [f for f in os.listdir(sgf_dir) if f.endswith('.sgf')]
     if len(files) > args.games:
         files = random.sample(files, args.games)
 
-    print(f"Testing 15k bot against {len(files)} real games ({args.positions} positions each)")
+    print(f"Testing {args.rank} bot against {len(files)} real games ({args.positions} positions each)")
     print(f"Using backend API at {API}\n")
 
     all_results = []
     for i, fname in enumerate(files):
-        path = os.path.join(SGF_DIR, fname)
-        results = test_game(client, path, args.positions)
+        path = os.path.join(sgf_dir, fname)
+        results = test_game(client, path, args.positions, target_rank=args.rank)
         all_results.extend(results)
         sys.stdout.write(f"\r  {i+1}/{len(files)} games, {len(all_results)} positions tested")
         sys.stdout.flush()

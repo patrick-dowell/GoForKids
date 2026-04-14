@@ -45,6 +45,45 @@
    BOT AVATARS — escalating presence by rank
    ============================================ */
 
+/* 30k: Seedling — tiny, cute, harmless. Soft green glow like a little sprout of light */
+.avatar-seedling {
+  background: linear-gradient(135deg, #5a8a5a, #3a6a3a);
+}
+.avatar-seedling .avatar-inner {
+  background: radial-gradient(circle at 50% 55%, #3a5a3a, #2a4a2a 60%, #1a3a1a);
+}
+.avatar-seedling .avatar-symbol {
+  background: radial-gradient(circle at 50% 40%, #88cc88, #55aa55);
+  width: 30%;
+  height: 30%;
+  box-shadow: 0 0 8px rgba(100, 200, 100, 0.4);
+  animation: seedling-bob 3s ease-in-out infinite;
+}
+.avatar-seedling.avatar-active {
+  box-shadow: 0 0 12px 3px rgba(100, 200, 100, 0.4);
+}
+@keyframes seedling-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+/* 20k: Sprout — small but growing. Brighter green, slightly larger presence */
+.avatar-sprout {
+  background: linear-gradient(135deg, #4a9a5a, #2a7a3a);
+}
+.avatar-sprout .avatar-inner {
+  background: radial-gradient(circle at 45% 45%, #4a8a5a, #2a6a3a 55%, #1a4a2a);
+}
+.avatar-sprout .avatar-symbol {
+  background: radial-gradient(circle at 45% 40%, #77dd77, #44aa44);
+  width: 36%;
+  height: 36%;
+  box-shadow: 0 0 10px rgba(80, 200, 80, 0.5);
+}
+.avatar-sprout.avatar-active {
+  box-shadow: 0 0 14px 4px rgba(80, 200, 80, 0.45);
+}
+
 /* 15k: Pebble — small, friendly, soft */
 .avatar-pebble {
   background: linear-gradient(135deg, #5a6a8a, #3d4d6d);

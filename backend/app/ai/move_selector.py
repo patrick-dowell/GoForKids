@@ -43,6 +43,39 @@ logger = logging.getLogger(__name__)
 # 15k should feel like "a player who knows the rules and basic shapes
 # but makes strategic errors and can't read more than 2-3 moves."
 RANK_PROFILES = {
+    "30k": {
+        # True beginner bot. Doesn't use KataGo at all — purely heuristic.
+        # Plays random legal moves with basic survival instincts:
+        # - Responds locally to the last move
+        # - Tries to save groups in atari
+        # - Avoids obvious self-captures
+        # - Prefers 3rd/4th line over edges
+        # Easy for any beginner to beat.
+        "use_katago": False,
+        "local_bias": 0.60,
+        "save_atari_chance": 0.50,  # 50% chance to save own group in atari
+        "capture_chance": 0.40,     # 40% chance to capture opponent in atari
+    },
+    "18k": {
+        # Weak but not random. Uses KataGo with very shallow search.
+        # Makes frequent large mistakes but has basic shape instincts.
+        # Calibrated from 10,000 real 18k Fox server games (closest proxy):
+        #   - 53% of moves within 2 of previous move
+        #   - 18% tenuki rate, avg distance 4.2
+        #   - 11% first-line play
+        #   - Average game length only 124 moves (lots of early resignations)
+        #   - Center (K10) is the most popular point
+        "max_point_loss": 25.0,
+        "mistake_freq": 0.52,
+        "policy_weight": 0.20,
+        "randomness": 0.72,
+        "random_move_chance": 0.10,
+        "local_bias": 0.35,
+        "first_line_chance": 0.0,
+        "visits": 15,
+        "min_candidates": 15,
+        "opening_moves": 15,
+    },
     "15k": {
         "max_point_loss": 20.0,     # Allow big mistakes, but not suicidal
         "mistake_freq": 0.40,       # 40% of moves pick a suboptimal candidate
@@ -175,11 +208,104 @@ async def select_ai_move(
     board: Board, color: Color, target_rank: str
 ) -> Optional[Point]:
     """Select a move for the AI at the given target rank."""
+    profile = get_profile(target_rank)
+
+    # 30k bot: pure heuristic, no KataGo needed
+    if not profile.get("use_katago", True):
+        return _select_beginner_move(board, color, profile)
+
     engine = await get_engine()
     if engine:
         return await _select_with_katago(engine, board, color, target_rank)
     else:
         return _pick_random_legal(board, color)
+
+
+def _select_beginner_move(
+    board: Board, color: Color, profile: dict
+) -> Optional[Point]:
+    """
+    30k-level bot: plays random legal moves with basic survival instincts.
+
+    Priorities (checked in order, with probability gates):
+    1. If own group is in atari → save it (extend/connect)
+    2. If opponent group is in atari → capture it
+    3. Play near the last stone (local response)
+    4. Play a random legal move (prefer 3rd/4th line)
+    """
+    opponent = Color.WHITE if color == Color.BLACK else Color.BLACK
+
+    # 1. Save own groups in atari
+    if random.random() < profile.get("save_atari_chance", 0.5):
+        own_atari_groups = []
+        visited: set[int] = set()
+        for r in range(BOARD_SIZE):
+            for c in range(BOARD_SIZE):
+                p = Point(r, c)
+                if board.get(p) == color and p.index() not in visited:
+                    group = board._get_group(p)
+                    for s in group:
+                        visited.add(s.index())
+                    if board._count_liberties(group) == 1:
+                        own_atari_groups.append(group)
+
+        if own_atari_groups:
+            # Try to extend into the liberty
+            group = random.choice(own_atari_groups)
+            liberties = []
+            lib_set: set[int] = set()
+            for s in group:
+                for nb in s.neighbors():
+                    if board.get(nb) == Color.EMPTY and nb.index() not in lib_set:
+                        lib_set.add(nb.index())
+                        liberties.append(nb)
+            if liberties:
+                lib = liberties[0]
+                test = board.clone()
+                result, _ = test.try_play(color, lib)
+                if result == "ok":
+                    return lib
+
+    # 2. Capture opponent groups in atari
+    if random.random() < profile.get("capture_chance", 0.4):
+        opp_atari_groups = []
+        visited2: set[int] = set()
+        for r in range(BOARD_SIZE):
+            for c in range(BOARD_SIZE):
+                p = Point(r, c)
+                if board.get(p) == opponent and p.index() not in visited2:
+                    group = board._get_group(p)
+                    for s in group:
+                        visited2.add(s.index())
+                    if board._count_liberties(group) == 1:
+                        opp_atari_groups.append(group)
+
+        if opp_atari_groups:
+            # Play at the liberty to capture
+            group = random.choice(opp_atari_groups)
+            lib_set2: set[int] = set()
+            for s in group:
+                for nb in s.neighbors():
+                    if board.get(nb) == Color.EMPTY and nb.index() not in lib_set2:
+                        lib_set2.add(nb.index())
+                        test = board.clone()
+                        result, _ = test.try_play(color, nb)
+                        if result == "ok":
+                            return nb
+
+    # 3. Local response — play near existing stones
+    if random.random() < profile.get("local_bias", 0.6):
+        occupied = [Point(r, c) for r in range(BOARD_SIZE)
+                    for c in range(BOARD_SIZE) if board.get(Point(r, c)) != Color.EMPTY]
+        if occupied:
+            # Pick a random recent stone and play nearby
+            anchor = random.choice(occupied[-8:]) if len(occupied) > 8 else random.choice(occupied)
+            nearby = _get_nearby_moves(board, color, anchor, radius=2)
+            if nearby:
+                return random.choice(nearby)
+
+    # 4. Random legal move
+    return _pick_random_legal(board, color)
 
 
 async def _select_with_katago(
