@@ -151,7 +151,7 @@ class KataGoEngine:
 
         query = {
             "id": query_id,
-            "rules": "chinese",
+            "rules": "japanese",
             "komi": komi,
             "boardXSize": BOARD_SIZE,
             "boardYSize": BOARD_SIZE,

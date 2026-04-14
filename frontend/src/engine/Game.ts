@@ -101,14 +101,17 @@ export class Game {
     };
   }
 
-  /** Score the game using Chinese rules (area scoring) */
+  /** Score the game using Japanese rules (territory scoring).
+   *  Score = empty territory + captured stones + komi.
+   *  Simpler for kids: "count the empty space you surround, add your captures." */
   score(): GameResult {
     const { blackTerritory, whiteTerritory } = this.board.scoreTerritory();
-    const stones = this.board.countStones();
 
-    // Chinese scoring: territory + stones on board
-    const blackScore = blackTerritory.size + stones.black;
-    const whiteScore = whiteTerritory.size + stones.white + this.komi;
+    // Japanese scoring: territory + captures
+    const blackCaptures = this.board.captures[Color.Black];
+    const whiteCaptures = this.board.captures[Color.White];
+    const blackScore = blackTerritory.size + blackCaptures;
+    const whiteScore = whiteTerritory.size + whiteCaptures + this.komi;
 
     const winner = blackScore > whiteScore ? Color.Black : Color.White;
 
@@ -118,8 +121,8 @@ export class Game {
       whiteScore,
       blackTerritory: blackTerritory.size,
       whiteTerritory: whiteTerritory.size,
-      blackCaptures: this.board.captures[Color.Black],
-      whiteCaptures: this.board.captures[Color.White],
+      blackCaptures,
+      whiteCaptures,
       komi: this.komi,
     };
 
@@ -174,7 +177,7 @@ export class Game {
     let sgf = '(;GM[1]FF[4]CA[UTF-8]';
     sgf += `SZ[19]`;
     sgf += `KM[${this.komi}]`;
-    sgf += `RU[Chinese]`;
+    sgf += `RU[Japanese]`;
 
     if (this.result) {
       const winner = this.result.winner === Color.Black ? 'B' : 'W';

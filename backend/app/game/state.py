@@ -253,12 +253,13 @@ class GameManager:
             elif stone_color == Color.WHITE:
                 scoring_board.captures[Color.BLACK] += 1
 
-        # Score on the cleaned board
+        # Japanese scoring: territory + captures (not stones on board)
         black_terr, white_terr, _ = scoring_board.score_territory()
-        black_stones, white_stones = scoring_board.count_stones()
+        black_caps = scoring_board.captures[Color.BLACK]
+        white_caps = scoring_board.captures[Color.WHITE]
 
-        black_score = len(black_terr) + black_stones
-        white_score = len(white_terr) + white_stones + game.komi
+        black_score = len(black_terr) + black_caps
+        white_score = len(white_terr) + white_caps + game.komi
 
         winner = "black" if black_score > white_score else "white"
         game.phase = "finished"
@@ -268,8 +269,8 @@ class GameManager:
             "white_score": white_score,
             "black_territory": len(black_terr),
             "white_territory": len(white_terr),
-            "black_captures": scoring_board.captures[Color.BLACK],
-            "white_captures": scoring_board.captures[Color.WHITE],
+            "black_captures": black_caps,
+            "white_captures": white_caps,
             "dead_stones": [{"row": ds.row, "col": ds.col} for ds in dead_stones],
             "margin": abs(black_score - white_score),
         }
@@ -283,10 +284,11 @@ class GameManager:
     def _score_game_sync(self, game: ActiveGame):
         """Fallback synchronous scoring without dead stone detection."""
         black_terr, white_terr, _ = game.board.score_territory()
-        black_stones, white_stones = game.board.count_stones()
+        black_caps = game.board.captures[Color.BLACK]
+        white_caps = game.board.captures[Color.WHITE]
 
-        black_score = len(black_terr) + black_stones
-        white_score = len(white_terr) + white_stones + game.komi
+        black_score = len(black_terr) + black_caps
+        white_score = len(white_terr) + white_caps + game.komi
 
         winner = "black" if black_score > white_score else "white"
         game.phase = "finished"
@@ -296,6 +298,8 @@ class GameManager:
             "white_score": white_score,
             "black_territory": len(black_terr),
             "white_territory": len(white_terr),
+            "black_captures": black_caps,
+            "white_captures": white_caps,
             "margin": abs(black_score - white_score),
         }
 
@@ -303,7 +307,7 @@ class GameManager:
         """Save a finished game to SQLite."""
         try:
             # Build SGF
-            sgf = f"(;GM[1]FF[4]SZ[19]KM[{game.komi}]RU[Chinese]"
+            sgf = f"(;GM[1]FF[4]SZ[19]KM[{game.komi}]RU[Japanese]"
             if game.result:
                 winner = game.result.get("winner", "?")[0].upper()
                 margin = game.result.get("margin", 0)
