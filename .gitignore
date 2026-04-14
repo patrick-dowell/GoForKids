@@ -30,4 +30,7 @@ analysis_logs/
 
 # Claude
 .claude/
-data/
+
+# Game data (large SGF datasets)
+data/15k/
+data/*.7z
