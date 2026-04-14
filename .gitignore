@@ -1,0 +1,32 @@
+# Dependencies
+frontend/node_modules/
+backend/venv/
+
+# Build output
+frontend/dist/
+
+# Database
+*.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# KataGo logs
+analysis_logs/
+
+# Claude
+.claude/
