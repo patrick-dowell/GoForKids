@@ -34,6 +34,44 @@ def edge_distance(row: int, col: int) -> int:
     return min(row, col, BOARD_SIZE - 1 - row, BOARD_SIZE - 1 - col)
 
 
+def _is_eye_fill(board: Board, color: Color, point: Point) -> bool:
+    """
+    Check if playing at `point` would fill a friendly eye.
+    An eye is an empty point where all adjacent points are the same color
+    (or board edge) and at least 3 of the 4 diagonals are the same color.
+    No human above 30k would do this.
+    """
+    # Must be empty
+    if board.get(point) != Color.EMPTY:
+        return False
+
+    # All orthogonal neighbors must be our color or off-board
+    for nb in point.neighbors():
+        c = board.get(nb)
+        if c != color:
+            return False
+
+    # Check diagonals — at least 3 of 4 must be our color (or off-board)
+    diagonals = [
+        Point(point.row - 1, point.col - 1),
+        Point(point.row - 1, point.col + 1),
+        Point(point.row + 1, point.col - 1),
+        Point(point.row + 1, point.col + 1),
+    ]
+    friendly_diags = 0
+    total_diags = 0
+    for d in diagonals:
+        if d.is_valid():
+            total_diags += 1
+            if board.get(d) == color:
+                friendly_diags += 1
+        else:
+            friendly_diags += 1  # Board edge counts as friendly
+
+    # For corner eyes (2 diags), need both. For edge (3), need 2+. For center (4), need 3+.
+    return friendly_diags >= max(total_diags - 1, 1) if total_diags > 0 else True
+
+
 from app.katago.engine import get_engine, PositionAnalysis
 
 logger = logging.getLogger(__name__)
@@ -203,6 +241,26 @@ async def select_ai_move(
     board: Board, color: Color, target_rank: str
 ) -> Optional[Point]:
     """Select a move for the AI at the given target rank."""
+    move = await _select_ai_move_inner(board, color, target_rank)
+
+    # Safety check: NEVER fill your own eye. No human above 30k does this.
+    if move and _is_eye_fill(board, color, move):
+        logger.info(f"[{target_rank}] Rejected eye-filling move at ({move.row},{move.col})")
+        # Try to find a non-eye-filling alternative
+        for _ in range(5):
+            alt = await _select_ai_move_inner(board, color, target_rank)
+            if alt and not _is_eye_fill(board, color, alt):
+                return alt
+        # All attempts fill eyes — just pass
+        return None
+
+    return move
+
+
+async def _select_ai_move_inner(
+    board: Board, color: Color, target_rank: str
+) -> Optional[Point]:
+    """Inner move selection (before eye-fill safety check)."""
     profile = get_profile(target_rank)
 
     # 30k bot: pure heuristic, no KataGo needed
@@ -299,7 +357,11 @@ def _select_beginner_move(
             if nearby:
                 return random.choice(nearby)
 
-    # 4. Random legal move
+    # 4. Random legal move (avoid eyes)
+    for _ in range(10):
+        move = _pick_random_legal(board, color)
+        if move and not _is_eye_fill(board, color, move):
+            return move
     return _pick_random_legal(board, color)
 
 
