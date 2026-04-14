@@ -204,8 +204,49 @@ body {
 .result-detail {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   font-size: 14px;
+}
+
+.result-headline {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.score-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.score-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.score-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.score-values {
+  display: flex;
+  gap: 8px;
+  padding-left: 21px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.score-values span {
+  white-space: nowrap;
 }
 
 /* Dialog */

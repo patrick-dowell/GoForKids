@@ -93,13 +93,39 @@ export function GameControls() {
       {phase === 'finished' && result && (
         <div className="game-result">
           <div className="result-detail">
-            {result.blackScore > 0 && (
+            {result.blackScore === 0 && result.whiteScore === 0 ? (
+              // Resignation — no score to show
+              <div className="result-headline">
+                {isAIGame
+                  ? result.winner === playerColor ? 'You win by resignation!' : 'AI wins by resignation'
+                  : `${result.winner === Color.Black ? 'Black' : 'White'} wins by resignation`}
+              </div>
+            ) : (
+              // Scored game — show territory breakdown
               <>
-                <div>Black: {result.blackScore} points</div>
-                <div>White: {result.whiteScore} points</div>
-                <div>
-                  {result.winner === Color.Black ? 'Black' : 'White'} wins by{' '}
+                <div className="result-headline">
+                  {isAIGame
+                    ? result.winner === playerColor ? 'You win!' : 'AI wins'
+                    : `${result.winner === Color.Black ? 'Black' : 'White'} wins`}
+                  {' by '}
                   {Math.abs(result.blackScore - result.whiteScore).toFixed(1)} points
+                </div>
+                <div className="score-breakdown">
+                  <div className="score-row">
+                    <div className="score-label"><div className="stone-icon black" /> Black</div>
+                    <div className="score-values">
+                      <span>{result.blackTerritory} territory</span>
+                      <span>{result.blackCaptures} captures</span>
+                    </div>
+                  </div>
+                  <div className="score-row">
+                    <div className="score-label"><div className="stone-icon white" /> White</div>
+                    <div className="score-values">
+                      <span>{result.whiteTerritory} territory</span>
+                      <span>{result.whiteCaptures} captures</span>
+                      <span>{result.komi} komi</span>
+                    </div>
+                  </div>
                 </div>
               </>
             )}
