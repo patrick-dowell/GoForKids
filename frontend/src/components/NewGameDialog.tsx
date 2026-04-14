@@ -9,6 +9,8 @@ interface NewGameDialogProps {
 }
 
 const RANK_OPTIONS = [
+  { value: '30k', label: '30 kyu — Seedling' },
+  { value: '18k', label: '18 kyu — Sprout' },
   { value: '15k', label: '15 kyu — Pebble' },
   { value: '12k', label: '12 kyu — Stream' },
   { value: '10k', label: '10 kyu — Boulder' },
@@ -27,7 +29,7 @@ function getSavedAvatar(): PlayerAvatarType {
 
 export function NewGameDialog({ onClose }: NewGameDialogProps) {
   const [playerColor, setPlayerColor] = useState<Color>(Color.Black);
-  const [targetRank, setTargetRank] = useState('15k');
+  const [targetRank, setTargetRank] = useState('30k');
   const [isRanked, setIsRanked] = useState(false);
   const [vsAI, setVsAI] = useState(true);
   const [playerAvatar, setPlayerAvatar] = useState<PlayerAvatarType>(getSavedAvatar());

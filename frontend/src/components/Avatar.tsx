@@ -6,11 +6,13 @@
 
 import './Avatar.css';
 
-export type BotAvatarType = 'pebble' | 'stream' | 'boulder' | 'ember' | 'storm' | 'void';
+export type BotAvatarType = 'seedling' | 'sprout' | 'pebble' | 'stream' | 'boulder' | 'ember' | 'storm' | 'void';
 export type PlayerAvatarType = 'blackhole' | 'nova' | 'nebula';
 export type AvatarType = BotAvatarType | PlayerAvatarType;
 
 export const BOT_AVATARS: Record<string, { type: BotAvatarType; name: string }> = {
+  '30k': { type: 'seedling', name: 'Seedling' },
+  '18k': { type: 'sprout', name: 'Sprout' },
   '15k': { type: 'pebble', name: 'Pebble' },
   '12k': { type: 'stream', name: 'Stream' },
   '10k': { type: 'boulder', name: 'Boulder' },
