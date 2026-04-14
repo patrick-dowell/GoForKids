@@ -173,16 +173,15 @@ body {
 }
 
 .prisoner-stones {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-  min-height: 20px;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 2px;
+  min-height: 14px;
 }
 
 .prisoner-stone {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
   animation: prisoner-drop 0.3s ease-out;
 }
@@ -198,15 +197,18 @@ body {
 }
 
 .prisoner-overflow {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
-  padding: 0 4px;
+  grid-column: 1 / -1;
+  text-align: center;
+  padding-top: 2px;
 }
 
 .prisoner-empty {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
   font-style: italic;
+  grid-column: 1 / -1;
 }
 
 @keyframes prisoner-drop {

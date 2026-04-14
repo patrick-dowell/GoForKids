@@ -20,9 +20,8 @@ export function PlayerCard({
   isThinking = false,
   isTop = false,
 }: PlayerCardProps) {
-  // Generate prisoner stones (small circles representing captured enemies)
   const prisonerColor = stoneColor === Color.Black ? 'white' : 'black';
-  const maxVisible = 15; // Show up to 15 individual stones
+  const maxVisible = 50; // 10 per row × 5 rows
   const visibleCount = Math.min(captures, maxVisible);
   const hasOverflow = captures > maxVisible;
 
@@ -54,7 +53,7 @@ export function PlayerCard({
             />
           ))}
           {hasOverflow && (
-            <div className="prisoner-overflow">+{captures - maxVisible}</div>
+            <div className="prisoner-overflow">+{captures - maxVisible} more</div>
           )}
           {captures === 0 && (
             <div className="prisoner-empty">No captures yet</div>
