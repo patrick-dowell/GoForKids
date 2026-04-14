@@ -8,6 +8,7 @@ import { PlayerCard } from './components/PlayerCard';
 import { CaptureAnimation } from './components/CaptureAnimation';
 import { useGameStore } from './store/gameStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
+import { BOT_AVATARS } from './components/Avatar';
 import { Color, oppositeColor } from './engine/types';
 import './App.css';
 
@@ -38,6 +39,13 @@ function App() {
   const blackCaptures = useGameStore((s) => s.blackCaptures);
   const whiteCaptures = useGameStore((s) => s.whiteCaptures);
   const aiThinking = useGameStore((s) => s.aiThinking);
+  const gameMode = useGameStore((s) => s.gameMode);
+  const blackRank = useGameStore((s) => s.blackRank);
+  const whiteRank = useGameStore((s) => s.whiteRank);
+  const botVsBotPaused = useGameStore((s) => s.botVsBotPaused);
+  const botVsBotSpeed = useGameStore((s) => s.botVsBotSpeed);
+  const togglePause = useGameStore((s) => s.toggleBotVsBotPause);
+  const setSpeed = useGameStore((s) => s.setBotVsBotSpeed);
 
   useGameIdInUrl();
 
@@ -50,15 +58,16 @@ function App() {
     if (saved.gameId) setShowStudy(true);
   };
 
+  const isBotVsBot = gameMode === 'botvsbot';
   const isAIGame = !!gameId;
   const opponentColor = oppositeColor(playerColor);
 
-  // Figure out which captures belong to which player
-  const playerCaptures = playerColor === Color.Black ? blackCaptures : whiteCaptures;
-  const opponentCaptures = opponentColor === Color.Black ? blackCaptures : whiteCaptures;
+  // In bot-vs-bot mode, both are bots
+  const blackBotInfo = isBotVsBot ? (BOT_AVATARS[blackRank || '15k'] || BOT_AVATARS['15k']) : null;
+  const whiteBotInfo = isBotVsBot ? (BOT_AVATARS[whiteRank || '15k'] || BOT_AVATARS['15k']) : null;
 
-  const isPlayerTurn = phase === 'playing' && currentColor === playerColor;
-  const isOpponentTurn = phase === 'playing' && currentColor === opponentColor;
+  const isPlayerTurn = phase === 'playing' && currentColor === playerColor && !isBotVsBot;
+  const isOpponentTurn = phase === 'playing' && currentColor === opponentColor && !isBotVsBot;
 
   return (
     <div className="app">
@@ -81,26 +90,52 @@ function App() {
 
       <main className="game-layout" style={{ position: 'relative' }}>
         <CaptureAnimation />
-        <aside className="avatar-panel">
-          {/* Opponent at top */}
-          <PlayerCard
-            name={isAIGame ? `${botName} (${targetRank})` : 'Opponent'}
-            avatarType={botAvatar}
-            stoneColor={opponentColor}
-            captures={opponentCaptures}
-            isActive={isOpponentTurn}
-            isThinking={aiThinking}
-            isTop
-          />
 
-          {/* Player at bottom */}
-          <PlayerCard
-            name="You"
-            avatarType={playerAvatar}
-            stoneColor={playerColor}
-            captures={playerCaptures}
-            isActive={isPlayerTurn && !aiThinking}
-          />
+        <aside className="avatar-panel">
+          {isBotVsBot ? (
+            <>
+              {/* Bot vs Bot: White bot at top */}
+              <PlayerCard
+                name={`${whiteBotInfo!.name} (${whiteRank})`}
+                avatarType={whiteBotInfo!.type}
+                stoneColor={Color.White}
+                captures={whiteCaptures}
+                isActive={phase === 'playing' && currentColor === Color.White}
+                isThinking={aiThinking && currentColor === Color.White}
+                isTop
+              />
+              {/* Bot vs Bot: Black bot at bottom */}
+              <PlayerCard
+                name={`${blackBotInfo!.name} (${blackRank})`}
+                avatarType={blackBotInfo!.type}
+                stoneColor={Color.Black}
+                captures={blackCaptures}
+                isActive={phase === 'playing' && currentColor === Color.Black}
+                isThinking={aiThinking && currentColor === Color.Black}
+              />
+            </>
+          ) : (
+            <>
+              {/* Human vs AI: Opponent at top */}
+              <PlayerCard
+                name={isAIGame ? `${botName} (${targetRank})` : 'Opponent'}
+                avatarType={botAvatar}
+                stoneColor={opponentColor}
+                captures={opponentColor === Color.Black ? blackCaptures : whiteCaptures}
+                isActive={isOpponentTurn}
+                isThinking={aiThinking}
+                isTop
+              />
+              {/* Human vs AI: Player at bottom */}
+              <PlayerCard
+                name="You"
+                avatarType={playerAvatar}
+                stoneColor={playerColor}
+                captures={playerColor === Color.Black ? blackCaptures : whiteCaptures}
+                isActive={isPlayerTurn && !aiThinking}
+              />
+            </>
+          )}
         </aside>
 
         <div className="board-container">
@@ -111,7 +146,40 @@ function App() {
           {showStudy && gameId ? (
             <StudyMode gameId={gameId} onClose={() => setShowStudy(false)} />
           ) : (
-            <GameControls />
+            <>
+              <GameControls />
+              {/* Bot vs Bot spectator controls */}
+              {isBotVsBot && phase === 'playing' && (
+                <div className="spectator-controls">
+                  <button onClick={togglePause} className="btn btn-secondary">
+                    {botVsBotPaused ? 'Resume' : 'Pause'}
+                  </button>
+                  <div className="speed-control">
+                    <label>Speed</label>
+                    <div className="speed-buttons">
+                      <button
+                        className={`speed-btn ${botVsBotSpeed === 2000 ? 'active' : ''}`}
+                        onClick={() => setSpeed(2000)}
+                      >
+                        Slow
+                      </button>
+                      <button
+                        className={`speed-btn ${botVsBotSpeed === 800 ? 'active' : ''}`}
+                        onClick={() => setSpeed(800)}
+                      >
+                        Normal
+                      </button>
+                      <button
+                        className={`speed-btn ${botVsBotSpeed === 200 ? 'active' : ''}`}
+                        onClick={() => setSpeed(200)}
+                      >
+                        Fast
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </aside>
       </main>

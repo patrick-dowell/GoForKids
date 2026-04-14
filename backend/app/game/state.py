@@ -38,6 +38,22 @@ class ActiveGame:
     player_color: Color
     consecutive_passes: int = 0
     result: Optional[dict] = None
+    handicap: int = 0
+    black_rank: Optional[str] = None  # For bot-vs-bot
+    white_rank: Optional[str] = None  # For bot-vs-bot
+
+
+# Standard handicap stone positions (row, col)
+HANDICAP_POSITIONS = {
+    2: [(15, 3), (3, 15)],
+    3: [(15, 3), (3, 15), (15, 15)],
+    4: [(15, 3), (3, 15), (3, 3), (15, 15)],
+    5: [(15, 3), (3, 15), (3, 3), (15, 15), (9, 9)],
+    6: [(15, 3), (3, 15), (3, 3), (15, 15), (9, 3), (9, 15)],
+    7: [(15, 3), (3, 15), (3, 3), (15, 15), (9, 3), (9, 15), (9, 9)],
+    8: [(15, 3), (3, 15), (3, 3), (15, 15), (9, 3), (9, 15), (3, 9), (15, 9)],
+    9: [(15, 3), (3, 15), (3, 3), (15, 15), (9, 3), (9, 15), (3, 9), (15, 9), (9, 9)],
+}
 
 
 class GameManager:
@@ -46,16 +62,32 @@ class GameManager:
 
     def create_game(self, game_id: str, req: CreateGameRequest) -> GameStateResponse:
         player_color = Color.BLACK if req.player_color == StoneColor.black else Color.WHITE
+        handicap = max(0, min(9, req.handicap))
+        komi = 0.5 if handicap > 0 else req.komi
+
+        board = Board()
+
+        # Place handicap stones
+        if handicap >= 2 and handicap in HANDICAP_POSITIONS:
+            for r, c in HANDICAP_POSITIONS[handicap]:
+                board.grid[r * BOARD_SIZE + c] = Color.BLACK
+
+        # After handicap, White moves first
+        current_color = Color.WHITE if handicap >= 2 else Color.BLACK
+
         game = ActiveGame(
             game_id=game_id,
-            board=Board(),
-            current_color=Color.BLACK,
+            board=board,
+            current_color=current_color,
             move_history=[],
             phase="playing",
-            komi=req.komi,
+            komi=komi,
             target_rank=req.target_rank,
             mode=req.mode,
             player_color=player_color,
+            handicap=handicap,
+            black_rank=req.black_rank,
+            white_rank=req.white_rank,
         )
         self.games[game_id] = game
         return self._to_response(game)
@@ -174,8 +206,14 @@ class GameManager:
         if game.phase != "playing":
             return "Game is not in playing phase"
 
-        # Get AI move (for now using the stub selector)
-        point = await select_ai_move(game.board, game.current_color, game.target_rank)
+        # Determine which rank to use for the current player
+        # In bot-vs-bot mode, each color has its own rank
+        if game.black_rank and game.white_rank:
+            rank = game.black_rank if game.current_color == Color.BLACK else game.white_rank
+        else:
+            rank = game.target_rank
+
+        point = await select_ai_move(game.board, game.current_color, rank)
 
         if point is None:
             # AI passes

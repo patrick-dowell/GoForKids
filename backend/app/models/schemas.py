@@ -19,10 +19,13 @@ class PointSchema(BaseModel):
 
 
 class CreateGameRequest(BaseModel):
-    target_rank: str = "15k"  # e.g. "15k", "10k", "5k", "3k"
+    target_rank: str = "15k"  # e.g. "30k", "18k", "15k", "10k", "5k", "3k"
     mode: GameMode = GameMode.casual
     komi: float = 7.5
     player_color: StoneColor = StoneColor.black
+    handicap: int = 0  # 0-9 handicap stones for black
+    black_rank: Optional[str] = None  # For bot-vs-bot: black bot rank
+    white_rank: Optional[str] = None  # For bot-vs-bot: white bot rank
 
 
 class PlayMoveRequest(BaseModel):

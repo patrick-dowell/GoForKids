@@ -41,6 +41,33 @@ interface TerritoryMap {
   neutral: Set<number>;
 }
 
+export type GameMode = 'ai' | 'botvsbot' | 'local';
+
+// Standard handicap stone positions (row, col)
+const HANDICAP_POSITIONS: Record<number, [number, number][]> = {
+  2: [[15, 3], [3, 15]],
+  3: [[15, 3], [3, 15], [15, 15]],
+  4: [[15, 3], [3, 15], [3, 3], [15, 15]],
+  5: [[15, 3], [3, 15], [3, 3], [15, 15], [9, 9]],
+  6: [[15, 3], [3, 15], [3, 3], [15, 15], [9, 3], [9, 15]],
+  7: [[15, 3], [3, 15], [3, 3], [15, 15], [9, 3], [9, 15], [9, 9]],
+  8: [[15, 3], [3, 15], [3, 3], [15, 15], [9, 3], [9, 15], [3, 9], [15, 9]],
+  9: [[15, 3], [3, 15], [3, 3], [15, 15], [9, 3], [9, 15], [3, 9], [15, 9], [9, 9]],
+};
+
+interface NewGameOptions {
+  komi?: number;
+  playerColor?: Color;
+  targetRank?: string;
+  isRanked?: boolean;
+  useBackend?: boolean;
+  playerAvatar?: PlayerAvatarType;
+  gameMode?: GameMode;
+  handicap?: number;
+  blackRank?: string;  // For bot-vs-bot
+  whiteRank?: string;  // For bot-vs-bot
+}
+
 interface GameState {
   grid: GridSnapshot;
   phase: GamePhase;
@@ -61,15 +88,25 @@ interface GameState {
   playerAvatar: PlayerAvatarType;
   botAvatar: BotAvatarType;
   botName: string;
+  gameMode: GameMode;
+  handicap: number;
+  blackRank: string | null;
+  whiteRank: string | null;
+  botVsBotSpeed: number;  // ms delay between moves
+  botVsBotPaused: boolean;
 
   _game: Game;
+  _botVsBotTimer: number | null;
 
-  newGame: (options?: { komi?: number; playerColor?: Color; targetRank?: string; isRanked?: boolean; useBackend?: boolean; playerAvatar?: PlayerAvatarType }) => void;
+  newGame: (options?: NewGameOptions) => void;
   playMove: (point: Point) => MoveResult;
   pass: () => void;
   resign: () => void;
   undo: () => boolean;
   requestAIMove: () => Promise<void>;
+  requestBotVsBotMove: () => Promise<void>;
+  setBotVsBotSpeed: (ms: number) => void;
+  toggleBotVsBotPause: () => void;
   getBoard: () => Board;
 }
 
@@ -116,26 +153,56 @@ export const useGameStore = create<GameState>((set, get) => ({
   playerAvatar: 'blackhole',
   botAvatar: 'pebble',
   botName: 'Pebble',
+  gameMode: 'ai',
+  handicap: 0,
+  blackRank: null,
+  whiteRank: null,
+  botVsBotSpeed: 800,
+  botVsBotPaused: false,
   _game: new Game(),
+  _botVsBotTimer: null,
 
   newGame: async (options) => {
-    const komi = options?.komi ?? 7.5;
+    // Clear any running bot-vs-bot timer
+    const prevTimer = get()._botVsBotTimer;
+    if (prevTimer) clearTimeout(prevTimer);
+
+    const gameMode = options?.gameMode ?? 'ai';
+    const handicap = options?.handicap ?? 0;
+    const komi = handicap > 0 ? 0.5 : (options?.komi ?? 7.5);
     const game = new Game(komi);
     const playerColor = options?.playerColor ?? Color.Black;
     const targetRank = options?.targetRank ?? '15k';
     const isRanked = options?.isRanked ?? false;
     const playerAvatar = options?.playerAvatar ?? 'blackhole';
-    const botInfo = BOT_AVATARS[targetRank] || BOT_AVATARS['15k'];
+    const blackRank = options?.blackRank ?? null;
+    const whiteRank = options?.whiteRank ?? null;
+
+    // Determine bot avatar (use target rank for AI mode, white rank for bot-vs-bot)
+    const botRank = gameMode === 'botvsbot' ? (whiteRank || '15k') : targetRank;
+    const botInfo = BOT_AVATARS[botRank] || BOT_AVATARS['15k'];
+
+    // Place handicap stones on the local board
+    if (handicap >= 2 && HANDICAP_POSITIONS[handicap]) {
+      for (const [r, c] of HANDICAP_POSITIONS[handicap]) {
+        game.board.grid[r * BOARD_SIZE + c] = Color.Black;
+      }
+      game.currentColor = Color.White; // White moves first after handicap
+    }
 
     let gameId: string | null = null;
 
-    if (options?.useBackend) {
+    const useBackend = options?.useBackend || gameMode === 'botvsbot';
+    if (useBackend) {
       try {
         const res = await api.createGame({
           target_rank: targetRank,
           mode: isRanked ? 'ranked' : 'casual',
           komi,
           player_color: playerColor === Color.Black ? 'black' : 'white',
+          handicap,
+          black_rank: blackRank,
+          white_rank: whiteRank,
         });
         gameId = res.game_id;
       } catch (e) {
@@ -154,10 +221,23 @@ export const useGameStore = create<GameState>((set, get) => ({
       playerAvatar,
       botAvatar: botInfo.type,
       botName: botInfo.name,
+      gameMode,
+      handicap,
+      blackRank,
+      whiteRank,
+      botVsBotPaused: false,
+      _botVsBotTimer: null,
     });
 
-    // If player is White, AI plays first as Black
-    if (gameId && playerColor === Color.White) {
+    // Bot vs Bot: start the auto-play loop
+    if (gameMode === 'botvsbot' && gameId) {
+      setTimeout(() => get().requestBotVsBotMove(), 500);
+      return;
+    }
+
+    // AI plays first if: player is White (normal), or player is Black with handicap (White goes first)
+    const currentIsAI = game.currentColor !== playerColor;
+    if (gameId && currentIsAI) {
       setTimeout(() => get().requestAIMove(), 300);
     }
   },
@@ -347,6 +427,96 @@ export const useGameStore = create<GameState>((set, get) => ({
     } catch (e) {
       console.warn('AI move failed:', e);
       set({ aiThinking: false });
+    }
+  },
+
+  requestBotVsBotMove: async () => {
+    const { gameId, _game, phase, botVsBotPaused, botVsBotSpeed } = get();
+    if (!gameId || phase !== 'playing' || botVsBotPaused) return;
+
+    set({ aiThinking: true });
+
+    try {
+      const aiMove = await api.getAIMove(gameId);
+      if (get().phase !== 'playing') {
+        set({ aiThinking: false });
+        return;
+      }
+
+      if (aiMove.point.row >= 0 && aiMove.point.col >= 0) {
+        const point = { row: aiMove.point.row, col: aiMove.point.col };
+        const { result, captures } = _game.playMove(point);
+        if (result === MoveResult.Ok) {
+          playPlaceSound(point.row, point.col);
+          if (captures.length > 0) {
+            setTimeout(() => playCaptureSound(captures.length), 100);
+          }
+          set({
+            aiThinking: false,
+            ...snapshot(_game, { lastMove: point, lastCaptures: captures }),
+          });
+          // Schedule next move
+          const timer = window.setTimeout(() => get().requestBotVsBotMove(), botVsBotSpeed);
+          set({ _botVsBotTimer: timer });
+          return;
+        }
+      }
+
+      // Bot passed
+      _game.pass();
+      playPassSound();
+      if (_game.phase === 'finished') {
+        playGameEndSound();
+        try {
+          const serverState = await api.getGame(gameId);
+          if (serverState.result) {
+            for (let r = 0; r < BOARD_SIZE; r++) {
+              for (let c = 0; c < BOARD_SIZE; c++) {
+                _game.board.grid[r * BOARD_SIZE + c] = serverState.board[r][c];
+              }
+            }
+            const winner = serverState.result.winner === 'black' ? Color.Black : Color.White;
+            _game.result = {
+              winner,
+              blackScore: serverState.result.black_score ?? 0,
+              whiteScore: serverState.result.white_score ?? 0,
+              blackTerritory: serverState.result.black_territory ?? 0,
+              whiteTerritory: serverState.result.white_territory ?? 0,
+              blackCaptures: serverState.result.black_captures ?? 0,
+              whiteCaptures: serverState.result.white_captures ?? 0,
+              komi: _game.komi,
+            };
+          }
+        } catch (e) {
+          console.warn('Failed to sync scoring:', e);
+        }
+        set({ aiThinking: false, ...snapshot(_game) });
+        autoSaveGame(get());
+      } else {
+        set({ aiThinking: false, ...snapshot(_game) });
+        const timer = window.setTimeout(() => get().requestBotVsBotMove(), botVsBotSpeed);
+        set({ _botVsBotTimer: timer });
+      }
+    } catch (e) {
+      console.warn('Bot-vs-bot move failed:', e);
+      set({ aiThinking: false });
+    }
+  },
+
+  setBotVsBotSpeed: (ms: number) => {
+    set({ botVsBotSpeed: ms });
+  },
+
+  toggleBotVsBotPause: () => {
+    const { botVsBotPaused, _botVsBotTimer } = get();
+    if (botVsBotPaused) {
+      // Resume
+      set({ botVsBotPaused: false });
+      setTimeout(() => get().requestBotVsBotMove(), 300);
+    } else {
+      // Pause
+      if (_botVsBotTimer) clearTimeout(_botVsBotTimer);
+      set({ botVsBotPaused: true, _botVsBotTimer: null });
     }
   },
 

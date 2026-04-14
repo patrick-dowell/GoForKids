@@ -10,6 +10,9 @@ interface CreateGameOptions {
   mode?: 'ranked' | 'casual';
   komi?: number;
   player_color?: 'black' | 'white';
+  handicap?: number;
+  black_rank?: string;
+  white_rank?: string;
 }
 
 interface PointDTO {
@@ -54,8 +57,11 @@ export const api = {
       body: JSON.stringify({
         target_rank: options.target_rank ?? '15k',
         mode: options.mode ?? 'casual',
-        komi: options.komi ?? 7.5,
+        komi: options.handicap ? 0.5 : (options.komi ?? 7.5),
         player_color: options.player_color ?? 'black',
+        handicap: options.handicap ?? 0,
+        black_rank: options.black_rank ?? null,
+        white_rank: options.white_rank ?? null,
       }),
     }),
 
