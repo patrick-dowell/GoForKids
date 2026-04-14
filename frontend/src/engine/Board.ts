@@ -76,11 +76,18 @@ export class Board {
     // Check for captures of opponent groups
     const opponent = oppositeColor(color);
     const captured: Point[] = [];
+    const capturedSet = new Set<number>();
     for (const nb of neighbors(point)) {
-      if (this.get(nb) === opponent) {
+      if (this.get(nb) === opponent && !capturedSet.has(pointToIndex(nb))) {
         const group = this.getGroup(nb);
         if (this.countLiberties(group) === 0) {
-          captured.push(...group);
+          for (const s of group) {
+            const idx = pointToIndex(s);
+            if (!capturedSet.has(idx)) {
+              capturedSet.add(idx);
+              captured.push(s);
+            }
+          }
         }
       }
     }
