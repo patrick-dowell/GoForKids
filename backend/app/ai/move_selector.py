@@ -82,17 +82,19 @@ logger = logging.getLogger(__name__)
 # but makes strategic errors and can't read more than 2-3 moves."
 RANK_PROFILES = {
     "30k": {
-        # True beginner bot. Doesn't use KataGo at all — purely heuristic.
-        # Plays random legal moves with basic survival instincts:
-        # - Responds locally to the last move
-        # - Tries to save groups in atari
-        # - Avoids obvious self-captures
-        # - Prefers 3rd/4th line over edges
-        # Easy for any beginner to beat.
-        "use_katago": False,
-        "local_bias": 0.60,
-        "save_atari_chance": 0.50,  # 50% chance to save own group in atari
-        "capture_chance": 0.40,     # 40% chance to capture opponent in atari
+        # Weakest KataGo bot. Target: 50/50 vs 18k at 9 handicap stones.
+        # v1: 5 visits, 65% mistakes → 17% win rate (too weak)
+        # v2: more visits, fewer random moves, still lots of mistakes
+        "max_point_loss": 30.0,
+        "mistake_freq": 0.55,
+        "policy_weight": 0.15,
+        "randomness": 0.78,
+        "random_move_chance": 0.08,
+        "local_bias": 0.42,
+        "first_line_chance": 0.0,
+        "visits": 10,
+        "min_candidates": 15,
+        "opening_moves": 8,
     },
     "18k": {
         # Weak but not random. Uses KataGo with very shallow search.
