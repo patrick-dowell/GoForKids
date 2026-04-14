@@ -94,11 +94,15 @@ class Board:
 
         opponent = color.opposite()
         captured: list[Point] = []
+        captured_set: set[int] = set()
         for nb in point.neighbors():
-            if self.get(nb) == opponent:
+            if self.get(nb) == opponent and nb.index() not in captured_set:
                 group = self._get_group(nb)
                 if self._count_liberties(group) == 0:
-                    captured.extend(group)
+                    for s in group:
+                        if s.index() not in captured_set:
+                            captured_set.add(s.index())
+                            captured.append(s)
 
         for cp in captured:
             self._set(cp, Color.EMPTY)
