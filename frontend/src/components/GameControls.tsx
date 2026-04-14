@@ -1,4 +1,5 @@
 import { useGameStore } from '../store/gameStore';
+import { BOT_AVATARS } from './Avatar';
 import { Color } from '../engine/types';
 
 export function GameControls() {
@@ -13,25 +14,45 @@ export function GameControls() {
   const aiThinking = useGameStore((s) => s.aiThinking);
   const gameId = useGameStore((s) => s.gameId);
   const targetRank = useGameStore((s) => s.targetRank);
+  const gameMode = useGameStore((s) => s.gameMode);
+  const blackRank = useGameStore((s) => s.blackRank);
+  const whiteRank = useGameStore((s) => s.whiteRank);
   const pass = useGameStore((s) => s.pass);
   const resign = useGameStore((s) => s.resign);
   const undo = useGameStore((s) => s.undo);
 
-  const isAIGame = !!gameId;
+  const isBotVsBot = gameMode === 'botvsbot';
+  const isAIGame = !!gameId && !isBotVsBot;
   const isPlayerTurn = !isAIGame || currentColor === playerColor;
   const playerLabel = playerColor === Color.Black ? 'Black' : 'White';
   const aiLabel = playerColor === Color.Black ? 'White' : 'Black';
 
+  function getWinnerName(winnerColor: Color): string {
+    if (isBotVsBot) {
+      const rank = winnerColor === Color.Black ? blackRank : whiteRank;
+      const info = BOT_AVATARS[rank || '15k'] || BOT_AVATARS['15k'];
+      return `${info.name} (${rank})`;
+    }
+    if (isAIGame) {
+      return winnerColor === playerColor ? 'You' : 'AI';
+    }
+    return winnerColor === Color.Black ? 'Black' : 'White';
+  }
+
   function getTurnText() {
     if (phase !== 'playing') {
       if (phase === 'finished' && result) {
-        const winner = result.winner === Color.Black ? 'Black' : 'White';
-        if (isAIGame) {
-          return result.winner === playerColor ? 'You win!' : 'AI wins';
-        }
-        return `${winner} wins`;
+        return `${getWinnerName(result.winner)} wins`;
       }
       return phase === 'scoring' ? 'Scoring' : 'Game over';
+    }
+    if (isBotVsBot) {
+      if (aiThinking) {
+        const rank = currentColor === Color.Black ? blackRank : whiteRank;
+        const info = BOT_AVATARS[rank || '15k'] || BOT_AVATARS['15k'];
+        return `${info.name} is thinking...`;
+      }
+      return 'Spectating';
     }
     if (aiThinking) return 'AI is thinking...';
     if (isAIGame) return 'Your turn';
@@ -94,20 +115,13 @@ export function GameControls() {
         <div className="game-result">
           <div className="result-detail">
             {result.blackScore === 0 && result.whiteScore === 0 ? (
-              // Resignation — no score to show
               <div className="result-headline">
-                {isAIGame
-                  ? result.winner === playerColor ? 'You win by resignation!' : 'AI wins by resignation'
-                  : `${result.winner === Color.Black ? 'Black' : 'White'} wins by resignation`}
+                {getWinnerName(result.winner)} wins by resignation
               </div>
             ) : (
-              // Scored game — show territory breakdown
               <>
                 <div className="result-headline">
-                  {isAIGame
-                    ? result.winner === playerColor ? 'You win!' : 'AI wins'
-                    : `${result.winner === Color.Black ? 'Black' : 'White'} wins`}
-                  {' by '}
+                  {getWinnerName(result.winner)} wins by{' '}
                   {Math.abs(result.blackScore - result.whiteScore).toFixed(1)} points
                 </div>
                 <div className="score-breakdown">
