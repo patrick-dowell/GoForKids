@@ -7,7 +7,7 @@
 import './Avatar.css';
 
 export type BotAvatarType = 'pebble' | 'stream' | 'boulder' | 'ember' | 'storm' | 'void';
-export type PlayerAvatarType = 'stargazer' | 'nova' | 'nebula';
+export type PlayerAvatarType = 'blackhole' | 'nova' | 'nebula';
 export type AvatarType = BotAvatarType | PlayerAvatarType;
 
 export const BOT_AVATARS: Record<string, { type: BotAvatarType; name: string }> = {
@@ -20,7 +20,7 @@ export const BOT_AVATARS: Record<string, { type: BotAvatarType; name: string }> 
 };
 
 export const PLAYER_AVATARS: { type: PlayerAvatarType; name: string }[] = [
-  { type: 'stargazer', name: 'Stargazer' },
+  { type: 'blackhole', name: 'Black Hole' },
   { type: 'nova', name: 'Nova' },
   { type: 'nebula', name: 'Nebula' },
 ];

@@ -113,7 +113,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   aiThinking: false,
   gameId: null,
   territory: null,
-  playerAvatar: 'stargazer',
+  playerAvatar: 'blackhole',
   botAvatar: 'pebble',
   botName: 'Pebble',
   _game: new Game(),
@@ -124,7 +124,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const playerColor = options?.playerColor ?? Color.Black;
     const targetRank = options?.targetRank ?? '15k';
     const isRanked = options?.isRanked ?? false;
-    const playerAvatar = options?.playerAvatar ?? 'stargazer';
+    const playerAvatar = options?.playerAvatar ?? 'blackhole';
     const botInfo = BOT_AVATARS[targetRank] || BOT_AVATARS['15k'];
 
     let gameId: string | null = null;

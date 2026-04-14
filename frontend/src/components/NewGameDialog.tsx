@@ -20,9 +20,9 @@ const RANK_OPTIONS = [
 function getSavedAvatar(): PlayerAvatarType {
   try {
     const saved = localStorage.getItem('goforkids_avatar');
-    if (saved === 'stargazer' || saved === 'nova' || saved === 'nebula') return saved;
+    if (saved === 'blackhole' || saved === 'nova' || saved === 'nebula') return saved;
   } catch {}
-  return 'stargazer';
+  return 'blackhole';
 }
 
 export function NewGameDialog({ onClose }: NewGameDialogProps) {
