@@ -5,6 +5,7 @@ import { NewGameDialog } from './components/NewGameDialog';
 import { StudyMode } from './components/StudyMode';
 import { GameLibrary } from './components/GameLibrary';
 import { PlayerCard } from './components/PlayerCard';
+import { CaptureAnimation } from './components/CaptureAnimation';
 import { useGameStore } from './store/gameStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
 import { Color, oppositeColor } from './engine/types';
@@ -78,7 +79,8 @@ function App() {
         </div>
       </header>
 
-      <main className="game-layout">
+      <main className="game-layout" style={{ position: 'relative' }}>
+        <CaptureAnimation />
         <aside className="avatar-panel">
           {/* Opponent at top */}
           <PlayerCard
