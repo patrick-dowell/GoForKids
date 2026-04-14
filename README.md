@@ -71,11 +71,12 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ### Tests
 
 ```bash
-cd frontend
-npx vitest run
-```
+# Go rules engine (34 tests)
+cd frontend && npx vitest run
 
-34 tests covering the Go rules engine (captures, ko/superko, territory scoring, SGF round-trip).
+# Bot calibration vs real 15k games (requires backend running)
+cd data && python test_bot_vs_real.py --games 20
+```
 
 ## Architecture
 
@@ -104,14 +105,44 @@ GoForKids/
 
 KataGo generates candidate moves with evaluations (winrate, score lead, policy prior). The rank-calibrated selector then samples from these candidates using tuning knobs per rank:
 
-| Rank | Mistake freq | Max point loss | Randomness |
-|------|-------------|----------------|------------|
-| 15k  | 45%         | 15 pts         | High       |
-| 10k  | 28%         | 8 pts          | Medium     |
-| 5k   | 12%         | 3 pts          | Low        |
-| 3k   | 7%          | 2 pts          | Minimal    |
+| Rank | Mistake freq | Max point loss | Random moves | Local bias | KataGo visits |
+|------|-------------|----------------|--------------|------------|---------------|
+| 15k  | 40%         | 20 pts         | 5%           | 25%        | 30            |
+| 10k  | 25%         | 10 pts         | 2%           | 12%        | 80            |
+| 5k   | 10%         | 4 pts          | 0%           | 3%         | 200           |
+| 3k   | 6%          | 2.5 pts        | 0%           | 0%         | 300           |
 
-The AI auto-passes when KataGo sees no moves worth more than 0.5 points over passing, preventing unnecessary endgame fills.
+The bot also uses **game-phase awareness**: in the opening (first 30 moves at 15k), it plays from KataGo's top 3 candidates only — even beginners play recognizable openings. Mistakes are concentrated in the midgame where real beginners misread fights and miss direction. The AI auto-passes when KataGo sees no moves worth more than 0.5 points over passing.
+
+### Calibration from Real Games
+
+Profiles were tuned using analysis of 10,000 real 15k games from the [Fox Go Server dataset](https://github.com/featurecat/go-dataset) (154k games at 15k level). Key findings that shaped the bot:
+
+- 57% of real 15k moves are within 2 intersections of the previous move
+- Only 15% tenuki rate (playing far from the action)
+- 10.5% first-line play
+- Average game length: 164 moves, 68% end by resignation
+
+### Validation
+
+The bot is tested against real 15k game positions using `data/test_bot_vs_real.py`. The test replays positions from real Fox server games through the backend API and compares the bot's move choice to what the real player played.
+
+Baseline results (80 positions from 15 games):
+
+| Metric | Result |
+|--------|--------|
+| Exact match | 24% |
+| Close (within 2) | 37% |
+| Same area (within 5) | 50% |
+| Same quadrant | 57% |
+
+These numbers are healthy — even two different 15k humans would only agree ~25-30% of the time.
+
+```bash
+# Run the calibration test (requires backend running)
+cd data
+python test_bot_vs_real.py --games 30 --positions 6
+```
 
 ## Design Philosophy
 
