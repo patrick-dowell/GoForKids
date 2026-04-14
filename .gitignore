@@ -30,3 +30,4 @@ analysis_logs/
 
 # Claude
 .claude/
+data/
