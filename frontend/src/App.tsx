@@ -4,93 +4,107 @@ import { GameControls } from './components/GameControls';
 import { NewGameDialog } from './components/NewGameDialog';
 import { StudyMode } from './components/StudyMode';
 import { GameLibrary } from './components/GameLibrary';
+import { PlayerCard } from './components/PlayerCard';
 import { useGameStore } from './store/gameStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
+import { Color, oppositeColor } from './engine/types';
 import './App.css';
 
-/** Sync game ID to/from the URL hash */
 function useGameIdInUrl() {
   const gameId = useGameStore((s) => s.gameId);
-
-  // Push game ID into the URL when it changes
   useEffect(() => {
     if (gameId) {
       window.history.replaceState(null, '', `#/game/${gameId}`);
-    } else {
-      // Only clear if we're on a game URL
-      if (window.location.hash.startsWith('#/game/')) {
-        window.history.replaceState(null, '', '#/');
-      }
+    } else if (window.location.hash.startsWith('#/game/')) {
+      window.history.replaceState(null, '', '#/');
     }
   }, [gameId]);
-
-  // On mount, check if there's a game ID in the URL to restore
-  useEffect(() => {
-    const hash = window.location.hash;
-    const match = hash.match(/^#\/game\/(.+)$/);
-    if (match) {
-      // TODO: could restore from backend here via api.getGame(match[1])
-      // For now just note it — the game would need to still exist in backend memory
-      console.log('Game ID from URL:', match[1]);
-    }
-  }, []);
 }
 
 function App() {
   const [showNewGame, setShowNewGame] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showStudy, setShowStudy] = useState(false);
+
   const phase = useGameStore((s) => s.phase);
   const targetRank = useGameStore((s) => s.targetRank);
   const gameId = useGameStore((s) => s.gameId);
+  const currentColor = useGameStore((s) => s.currentColor);
+  const playerColor = useGameStore((s) => s.playerColor);
+  const playerAvatar = useGameStore((s) => s.playerAvatar);
+  const botAvatar = useGameStore((s) => s.botAvatar);
+  const botName = useGameStore((s) => s.botName);
+  const blackCaptures = useGameStore((s) => s.blackCaptures);
+  const whiteCaptures = useGameStore((s) => s.whiteCaptures);
+  const aiThinking = useGameStore((s) => s.aiThinking);
 
   useGameIdInUrl();
 
-  // Load library on mount
   useEffect(() => {
     useLibraryStore.getState().loadFromStorage();
   }, []);
 
   const handleSelectGame = (saved: SavedGame) => {
     setShowLibrary(false);
-    if (saved.gameId) {
-      setShowStudy(true);
-    }
+    if (saved.gameId) setShowStudy(true);
   };
+
+  const isAIGame = !!gameId;
+  const opponentColor = oppositeColor(playerColor);
+
+  // Figure out which captures belong to which player
+  const playerCaptures = playerColor === Color.Black ? blackCaptures : whiteCaptures;
+  const opponentCaptures = opponentColor === Color.Black ? blackCaptures : whiteCaptures;
+
+  const isPlayerTurn = phase === 'playing' && currentColor === playerColor;
+  const isOpponentTurn = phase === 'playing' && currentColor === opponentColor;
 
   return (
     <div className="app">
       <header className="app-header">
         <h1 className="app-title">GoForKids</h1>
         <div className="header-controls">
-          <span className="rank-display">vs {targetRank}</span>
-          <button
-            onClick={() => setShowLibrary(true)}
-            className="btn btn-secondary"
-          >
+          <button onClick={() => setShowLibrary(true)} className="btn btn-secondary">
             Library
           </button>
           {phase === 'finished' && gameId && (
-            <button
-              onClick={() => setShowStudy(!showStudy)}
-              className="btn btn-secondary"
-            >
+            <button onClick={() => setShowStudy(!showStudy)} className="btn btn-secondary">
               {showStudy ? 'Hide Study' : 'Study'}
             </button>
           )}
-          <button
-            onClick={() => setShowNewGame(true)}
-            className="btn btn-primary"
-          >
+          <button onClick={() => setShowNewGame(true)} className="btn btn-primary">
             New Game
           </button>
         </div>
       </header>
 
       <main className="game-layout">
+        <aside className="avatar-panel">
+          {/* Opponent at top */}
+          <PlayerCard
+            name={isAIGame ? `${botName} (${targetRank})` : 'Opponent'}
+            avatarType={botAvatar}
+            stoneColor={opponentColor}
+            captures={opponentCaptures}
+            isActive={isOpponentTurn}
+            isThinking={aiThinking}
+            isTop
+          />
+
+          {/* Player at bottom */}
+          <PlayerCard
+            name="You"
+            avatarType={playerAvatar}
+            stoneColor={playerColor}
+            captures={playerCaptures}
+            isActive={isPlayerTurn && !aiThinking}
+          />
+        </aside>
+
         <div className="board-container">
           <GoBoard />
         </div>
+
         <aside className="side-panel">
           {showStudy && gameId ? (
             <StudyMode gameId={gameId} onClose={() => setShowStudy(false)} />
@@ -103,12 +117,8 @@ function App() {
       {showNewGame && (
         <NewGameDialog onClose={() => { setShowNewGame(false); setShowStudy(false); }} />
       )}
-
       {showLibrary && (
-        <GameLibrary
-          onSelectGame={handleSelectGame}
-          onClose={() => setShowLibrary(false)}
-        />
+        <GameLibrary onSelectGame={handleSelectGame} onClose={() => setShowLibrary(false)} />
       )}
     </div>
   );

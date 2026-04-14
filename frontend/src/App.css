@@ -62,14 +62,24 @@ body {
   font-size: 14px;
 }
 
-/* Game layout */
+/* Game layout — 3-column: avatars | board | controls */
 .game-layout {
   flex: 1;
   display: flex;
   justify-content: center;
   align-items: flex-start;
   padding: 24px;
-  gap: 24px;
+  gap: 20px;
+}
+
+.avatar-panel {
+  width: 180px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 700px; /* Match board height */
+  gap: 16px;
 }
 
 .board-container {
@@ -79,6 +89,181 @@ body {
 .side-panel {
   width: 240px;
   flex-shrink: 0;
+}
+
+/* Player Card */
+.player-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.player-card-active {
+  border-color: rgba(88, 166, 255, 0.4);
+  box-shadow: 0 0 12px rgba(88, 166, 255, 0.15);
+}
+
+.player-card-top {
+  /* Opponent card — top of avatar panel */
+}
+
+.player-card-bottom {
+  /* Player card — bottom, push down */
+  margin-top: auto;
+}
+
+.player-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.player-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.player-card-status {
+  font-size: 11px;
+  color: var(--accent);
+  min-height: 14px;
+}
+
+.player-card:not(.player-card-active) .player-card-status {
+  color: transparent;
+}
+
+/* Prisoner Tray */
+.prisoner-tray {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  padding: 8px;
+  min-height: 60px;
+}
+
+.prisoner-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prisoner-count {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.prisoner-stones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-height: 20px;
+  align-items: center;
+}
+
+.prisoner-stone {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  animation: prisoner-drop 0.3s ease-out;
+}
+
+.prisoner-stone-white {
+  background: radial-gradient(circle at 40% 35%, #eeeeff, #c8c8dd);
+  border: 1px solid rgba(160, 160, 190, 0.4);
+}
+
+.prisoner-stone-black {
+  background: radial-gradient(circle at 40% 35%, #3d3d5c, #1a1a30);
+  border: 1px solid rgba(80, 80, 120, 0.5);
+}
+
+.prisoner-overflow {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0 4px;
+}
+
+.prisoner-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+@keyframes prisoner-drop {
+  from { transform: translateY(-8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Avatar Picker (in New Game dialog) */
+.avatar-picker {
+  display: flex;
+  gap: 8px;
+}
+
+.avatar-picker-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  flex: 1;
+  color: var(--text-primary);
+  font-size: 11px;
+  transition: border-color 0.15s;
+}
+
+.avatar-picker-option.selected {
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.avatar-picker-option:hover {
+  border-color: var(--text-muted);
+}
+
+.avatar-picker-name {
+  font-weight: 500;
+}
+
+/* Opponent preview in dialog */
+.opponent-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.opponent-preview select {
+  flex: 1;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
 }
 
 /* Game controls */

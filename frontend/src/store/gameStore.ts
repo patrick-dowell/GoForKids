@@ -5,6 +5,7 @@ import { Color, type Point, type MoveRecord, type GameResult, MoveResult, BOARD_
 import { api } from '../api/client';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
+import { BOT_AVATARS, type PlayerAvatarType, type BotAvatarType } from '../components/Avatar';
 
 function autoSaveGame(state: GameState) {
   if (state.phase !== 'finished' || !state.result) return;
@@ -57,10 +58,13 @@ interface GameState {
   aiThinking: boolean;
   gameId: string | null;
   territory: TerritoryMap | null;
+  playerAvatar: PlayerAvatarType;
+  botAvatar: BotAvatarType;
+  botName: string;
 
   _game: Game;
 
-  newGame: (options?: { komi?: number; playerColor?: Color; targetRank?: string; isRanked?: boolean; useBackend?: boolean }) => void;
+  newGame: (options?: { komi?: number; playerColor?: Color; targetRank?: string; isRanked?: boolean; useBackend?: boolean; playerAvatar?: PlayerAvatarType }) => void;
   playMove: (point: Point) => MoveResult;
   pass: () => void;
   resign: () => void;
@@ -109,6 +113,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   aiThinking: false,
   gameId: null,
   territory: null,
+  playerAvatar: 'stargazer',
+  botAvatar: 'pebble',
+  botName: 'Pebble',
   _game: new Game(),
 
   newGame: async (options) => {
@@ -117,6 +124,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     const playerColor = options?.playerColor ?? Color.Black;
     const targetRank = options?.targetRank ?? '15k';
     const isRanked = options?.isRanked ?? false;
+    const playerAvatar = options?.playerAvatar ?? 'stargazer';
+    const botInfo = BOT_AVATARS[targetRank] || BOT_AVATARS['15k'];
 
     let gameId: string | null = null;
 
@@ -142,6 +151,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       isRanked,
       gameId,
       aiThinking: false,
+      playerAvatar,
+      botAvatar: botInfo.type,
+      botName: botInfo.name,
     });
 
     // If player is White, AI plays first as Black
