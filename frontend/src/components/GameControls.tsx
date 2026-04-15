@@ -49,12 +49,9 @@ export function GameControls() {
       return phase === 'scoring' ? 'Scoring' : 'Game over';
     }
     if (isBotVsBot) {
-      if (aiThinking) {
-        const rank = currentColor === Color.Black ? blackRank : whiteRank;
-        const info = BOT_AVATARS[rank || '15k'] || BOT_AVATARS['15k'];
-        return `${info.name} is thinking...`;
-      }
-      return 'Spectating';
+      const rank = currentColor === Color.Black ? blackRank : whiteRank;
+      const info = BOT_AVATARS[rank || '15k'] || BOT_AVATARS['15k'];
+      return `${info.name}'s turn`;
     }
     if (aiThinking) return 'AI is thinking...';
     if (isAIGame) return 'Your turn';
@@ -89,7 +86,7 @@ export function GameControls() {
         <div className="move-counter">Move {moveCount}</div>
       </div>
 
-      {phase === 'playing' && (
+      {phase === 'playing' && !isBotVsBot && (
         <div className="control-buttons">
           <button
             onClick={pass}
@@ -107,7 +104,7 @@ export function GameControls() {
               Undo
             </button>
           )}
-          {!!gameId && moveCount >= 20 && (
+          {!!gameId && !isBotVsBot && moveCount >= 20 && (
             <button
               onClick={autoComplete}
               className="btn btn-accent"
