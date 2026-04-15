@@ -90,3 +90,14 @@ async def get_ai_move(game_id: str):
     if isinstance(result, str):
         raise HTTPException(status_code=400, detail=result)
     return result
+
+
+@router.post("/{game_id}/auto-complete", response_model=GameStateResponse)
+async def auto_complete(game_id: str):
+    """Auto-complete the game using full-strength KataGo, then score."""
+    result = await manager.auto_complete(game_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    if isinstance(result, str):
+        raise HTTPException(status_code=400, detail=result)
+    return result

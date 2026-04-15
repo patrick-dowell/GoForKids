@@ -85,6 +85,9 @@ export const api = {
 
   getAIMove: (gameId: string) =>
     request<AIMoveDTO>(`/games/${gameId}/ai-move`, { method: 'POST' }),
+
+  autoComplete: (gameId: string) =>
+    request<GameStateDTO>(`/games/${gameId}/auto-complete`, { method: 'POST' }),
 };
 
 export type { GameStateDTO, AIMoveDTO, PointDTO, CreateGameOptions };
