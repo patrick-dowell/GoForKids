@@ -9,6 +9,8 @@ interface TerritoryMap {
   neutral: Set<number>;
 }
 
+interface DeadStone { row: number; col: number; color: Color; }
+
 interface ReplayState {
   active: boolean;
   sgf: string;
@@ -17,6 +19,7 @@ interface ReplayState {
   grid: number[];
   lastMove: Point | null;
   territory: TerritoryMap | null;
+  deadStones: DeadStone[];
   gameResult: string;
   playerColor: string;
   opponentRank: string;
@@ -36,10 +39,54 @@ interface ReplayState {
   close: () => void;
 }
 
+/**
+ * Heuristic dead stone detection for replay (no KataGo needed).
+ * A stone is dead if its group is entirely inside opponent territory.
+ * We do two passes: first score territory ignoring potential dead stones,
+ * then identify groups that are surrounded by opponent territory.
+ */
+function detectDeadStones(board: Board): DeadStone[] {
+  const { blackTerritory, whiteTerritory } = board.scoreTerritory();
+  const dead: DeadStone[] = [];
+  const visited = new Set<number>();
+
+  for (let row = 0; row < BOARD_SIZE; row++) {
+    for (let col = 0; col < BOARD_SIZE; col++) {
+      const idx = row * BOARD_SIZE + col;
+      if (visited.has(idx)) continue;
+      const color = board.grid[idx];
+      if (color === Color.Empty) continue;
+
+      // Get the whole group
+      const group = board.getGroup({ row, col });
+      for (const s of group) visited.add(s.row * BOARD_SIZE + s.col);
+
+      // Check if this group is inside opponent territory
+      // A group is dead if ALL its liberties are in opponent territory
+      const liberties = board.getLiberties(group);
+      if (liberties.length === 0) continue; // Already captured — shouldn't happen
+
+      const opponentTerritory = color === Color.Black ? whiteTerritory : blackTerritory;
+      const allLibsInOpponentTerritory = liberties.every(
+        (lib) => opponentTerritory.has(lib.row * BOARD_SIZE + lib.col)
+      );
+
+      if (allLibsInOpponentTerritory) {
+        for (const s of group) {
+          dead.push({ row: s.row, col: s.col, color: color as Color });
+        }
+      }
+    }
+  }
+
+  return dead;
+}
+
 function replayToMove(sgf: string, moveNum: number, total: number): {
   grid: number[];
   lastMove: Point | null;
   territory: TerritoryMap | null;
+  deadStones: DeadStone[];
 } {
   const game = Game.fromSGF(sgf);
   const allMoves = game.moveHistory;
@@ -58,14 +105,26 @@ function replayToMove(sgf: string, moveNum: number, total: number): {
     currentColor = currentColor === Color.Black ? Color.White : Color.Black;
   }
 
-  // Compute territory at the final position
+  // At the final position, detect dead stones and compute territory
   let territory: TerritoryMap | null = null;
+  let deadStones: DeadStone[] = [];
+
   if (moveNum >= total && total > 0) {
-    const { blackTerritory, whiteTerritory, neutral } = board.scoreTerritory();
+    // Detect dead stones first
+    deadStones = detectDeadStones(board);
+
+    // Remove dead stones from a scoring copy
+    const scoringBoard = board.clone();
+    for (const ds of deadStones) {
+      scoringBoard.grid[ds.row * BOARD_SIZE + ds.col] = Color.Empty;
+    }
+
+    // Score on the cleaned board
+    const { blackTerritory, whiteTerritory, neutral } = scoringBoard.scoreTerritory();
     territory = { black: blackTerritory, white: whiteTerritory, neutral };
   }
 
-  return { grid: [...board.grid], lastMove, territory };
+  return { grid: [...board.grid], lastMove, territory, deadStones };
 }
 
 function countMoves(sgf: string): number {
@@ -84,6 +143,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   grid: new Array(BOARD_SIZE * BOARD_SIZE).fill(Color.Empty),
   lastMove: null,
   territory: null,
+  deadStones: [],
   gameResult: '',
   playerColor: 'black',
   opponentRank: '',
@@ -97,7 +157,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
     if (prev) clearTimeout(prev);
 
     const total = countMoves(sgf);
-    const { grid, lastMove, territory } = replayToMove(sgf, 0, total);
+    const { grid, lastMove, territory, deadStones } = replayToMove(sgf, 0, total);
     set({
       active: true,
       sgf,
@@ -106,6 +166,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
       grid,
       lastMove,
       territory,
+      deadStones,
       gameResult: meta?.result ?? '',
       playerColor: meta?.playerColor ?? 'black',
       opponentRank: meta?.opponentRank ?? '',
@@ -117,8 +178,8 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   goToMove: (n: number) => {
     const { sgf, totalMoves } = get();
     const clamped = Math.max(0, Math.min(n, totalMoves));
-    const { grid, lastMove, territory } = replayToMove(sgf, clamped, totalMoves);
-    set({ currentMove: clamped, grid, lastMove, territory });
+    const { grid, lastMove, territory, deadStones } = replayToMove(sgf, clamped, totalMoves);
+    set({ currentMove: clamped, grid, lastMove, territory, deadStones });
   },
 
   nextMove: () => {
