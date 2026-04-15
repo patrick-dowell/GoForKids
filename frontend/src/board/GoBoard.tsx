@@ -289,7 +289,10 @@ export function GoBoard() {
   // Use replay data when active, otherwise live game
   const grid = replayActive ? replayGrid : liveGrid;
   const lastMove = replayActive ? replayLastMove : liveLastMove;
-  const effectivePhase = replayActive ? 'finished' : phase;
+  const replayTotalMoves = useReplayStore((s) => s.totalMoves);
+  const effectivePhase = replayActive
+    ? (replayCurrentMove >= replayTotalMoves ? 'finished' : 'playing')
+    : phase;
 
   const canClick = !replayActive && phase === 'playing' && !aiThinking;
 
@@ -335,7 +338,7 @@ export function GoBoard() {
           canvas.width = CANVAS_SIZE * dpr;
           canvas.height = CANVAS_SIZE * dpr;
           ctx.scale(dpr, dpr);
-          drawBoard(ctx, grid, lastMove, atariGroups, null, phase, territory, deadStones);
+          drawBoard(ctx, grid, lastMove, atariGroups, null, effectivePhase, activeTerritory, activeDead);
         });
         animManager.add(createPlacementAnimation(lastMove, stoneColor as Color));
       }
