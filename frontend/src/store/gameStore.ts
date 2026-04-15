@@ -95,6 +95,7 @@ interface GameState {
   botVsBotSpeed: number;  // ms delay between moves
   botVsBotPaused: boolean;
   autoCompleting: boolean;
+  deadStones: { row: number; col: number; color: Color }[];  // Stones marked dead at scoring
 
   _game: Game;
   _botVsBotTimer: number | null;
@@ -135,6 +136,53 @@ function snapshot(game: Game, extras?: Partial<GameState>): Partial<GameState> {
   };
 }
 
+/**
+ * Sync server scoring result onto the local game.
+ * Returns dead stones for visual overlay.
+ */
+function syncServerScoring(
+  game: Game,
+  serverState: { board: number[][]; result?: any },
+): { row: number; col: number; color: Color }[] {
+  const deadStones: { row: number; col: number; color: Color }[] = [];
+
+  // Identify dead stones: compare server board to local board
+  // Stones that exist locally but are empty on the server = dead
+  for (let r = 0; r < BOARD_SIZE; r++) {
+    for (let c = 0; c < BOARD_SIZE; c++) {
+      const localColor = game.board.grid[r * BOARD_SIZE + c];
+      const serverColor = serverState.board[r][c];
+      if (localColor !== Color.Empty && serverColor === Color.Empty) {
+        deadStones.push({ row: r, col: c, color: localColor as Color });
+      }
+    }
+  }
+
+  // Now sync the board
+  for (let r = 0; r < BOARD_SIZE; r++) {
+    for (let c = 0; c < BOARD_SIZE; c++) {
+      game.board.grid[r * BOARD_SIZE + c] = serverState.board[r][c];
+    }
+  }
+
+  if (serverState.result) {
+    const winner = serverState.result.winner === 'black' ? Color.Black : Color.White;
+    game.result = {
+      winner,
+      blackScore: serverState.result.black_score ?? 0,
+      whiteScore: serverState.result.white_score ?? 0,
+      blackTerritory: serverState.result.black_territory ?? 0,
+      whiteTerritory: serverState.result.white_territory ?? 0,
+      blackCaptures: serverState.result.black_captures ?? 0,
+      whiteCaptures: serverState.result.white_captures ?? 0,
+      komi: game.komi,
+    };
+  }
+
+  game.phase = 'finished';
+  return deadStones;
+}
+
 export const useGameStore = create<GameState>((set, get) => ({
   grid: new Array(BOARD_SIZE * BOARD_SIZE).fill(Color.Empty),
   phase: 'playing',
@@ -162,6 +210,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   botVsBotSpeed: 800,
   botVsBotPaused: false,
   autoCompleting: false,
+  deadStones: [],
   _game: new Game(),
   _botVsBotTimer: null,
 
@@ -286,36 +335,20 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     if (_game.phase === 'finished') {
       playGameEndSound();
-      // Sync dead stone removal from backend
       if (gameId) {
         api.getGame(gameId).then((serverState) => {
           if (serverState.result) {
-            for (let r = 0; r < BOARD_SIZE; r++) {
-              for (let c = 0; c < BOARD_SIZE; c++) {
-                _game.board.grid[r * BOARD_SIZE + c] = serverState.board[r][c];
-              }
-            }
-            const winner = serverState.result.winner === 'black' ? Color.Black : Color.White;
-            _game.result = {
-              winner,
-              blackScore: serverState.result.black_score ?? 0,
-              whiteScore: serverState.result.white_score ?? 0,
-              blackTerritory: serverState.result.black_territory ?? 0,
-              whiteTerritory: serverState.result.white_territory ?? 0,
-              blackCaptures: serverState.result.black_captures ?? 0,
-              whiteCaptures: serverState.result.white_captures ?? 0,
-              komi: _game.komi,
-            };
-            set(snapshot(_game));
+            const dead = syncServerScoring(_game, serverState);
+            set({ deadStones: dead, ...snapshot(_game) });
             autoSaveGame(get());
           }
         }).catch((e) => {
           console.warn('Failed to sync scoring:', e);
-          set(snapshot(_game));
+          set({ deadStones: [], ...snapshot(_game) });
           autoSaveGame(get());
         });
       } else {
-        set(snapshot(_game));
+        set({ deadStones: [], ...snapshot(_game) });
         autoSaveGame(get());
       }
     } else {
@@ -395,34 +428,18 @@ export const useGameStore = create<GameState>((set, get) => ({
       playPassSound();
       if (_game.phase === 'finished') {
         playGameEndSound();
-        // Sync with backend to get dead-stone-cleaned board and proper scoring
         try {
           const serverState = await api.getGame(gameId);
           if (serverState.result) {
-            // Update the local board to match the backend's cleaned board
-            // (dead stones removed by KataGo ownership analysis)
-            for (let r = 0; r < BOARD_SIZE; r++) {
-              for (let c = 0; c < BOARD_SIZE; c++) {
-                _game.board.grid[r * BOARD_SIZE + c] = serverState.board[r][c];
-              }
-            }
-            // Use backend's scoring result
-            const winner = serverState.result.winner === 'black' ? Color.Black : Color.White;
-            _game.result = {
-              winner,
-              blackScore: serverState.result.black_score ?? 0,
-              whiteScore: serverState.result.white_score ?? 0,
-              blackTerritory: serverState.result.black_territory ?? 0,
-              whiteTerritory: serverState.result.white_territory ?? 0,
-              blackCaptures: serverState.result.black_captures ?? 0,
-              whiteCaptures: serverState.result.white_captures ?? 0,
-              komi: _game.komi,
-            };
+            const dead = syncServerScoring(_game, serverState);
+            set({ aiThinking: false, deadStones: dead, ...snapshot(_game) });
+            autoSaveGame(get());
+            return;
           }
         } catch (e) {
           console.warn('Failed to sync scoring from backend:', e);
         }
-        set({ aiThinking: false, ...snapshot(_game) });
+        set({ aiThinking: false, deadStones: [], ...snapshot(_game) });
         autoSaveGame(get());
       } else {
         set({ aiThinking: false, ...snapshot(_game) });
@@ -473,27 +490,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         try {
           const serverState = await api.getGame(gameId);
           if (serverState.result) {
-            for (let r = 0; r < BOARD_SIZE; r++) {
-              for (let c = 0; c < BOARD_SIZE; c++) {
-                _game.board.grid[r * BOARD_SIZE + c] = serverState.board[r][c];
-              }
-            }
-            const winner = serverState.result.winner === 'black' ? Color.Black : Color.White;
-            _game.result = {
-              winner,
-              blackScore: serverState.result.black_score ?? 0,
-              whiteScore: serverState.result.white_score ?? 0,
-              blackTerritory: serverState.result.black_territory ?? 0,
-              whiteTerritory: serverState.result.white_territory ?? 0,
-              blackCaptures: serverState.result.black_captures ?? 0,
-              whiteCaptures: serverState.result.white_captures ?? 0,
-              komi: _game.komi,
-            };
+            const dead = syncServerScoring(_game, serverState);
+            set({ aiThinking: false, deadStones: dead, ...snapshot(_game) });
+            autoSaveGame(get());
+            return;
           }
         } catch (e) {
           console.warn('Failed to sync scoring:', e);
         }
-        set({ aiThinking: false, ...snapshot(_game) });
+        set({ aiThinking: false, deadStones: [], ...snapshot(_game) });
         autoSaveGame(get());
       } else {
         set({ aiThinking: false, ...snapshot(_game) });
@@ -531,31 +536,10 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     try {
       const serverState = await api.autoComplete(gameId);
-
-      // Sync the completed board from the server
-      for (let r = 0; r < BOARD_SIZE; r++) {
-        for (let c = 0; c < BOARD_SIZE; c++) {
-          _game.board.grid[r * BOARD_SIZE + c] = serverState.board[r][c];
-        }
-      }
-      _game.phase = 'finished';
-
-      if (serverState.result) {
-        const winner = serverState.result.winner === 'black' ? Color.Black : Color.White;
-        _game.result = {
-          winner,
-          blackScore: serverState.result.black_score ?? 0,
-          whiteScore: serverState.result.white_score ?? 0,
-          blackTerritory: serverState.result.black_territory ?? 0,
-          whiteTerritory: serverState.result.white_territory ?? 0,
-          blackCaptures: serverState.result.black_captures ?? 0,
-          whiteCaptures: serverState.result.white_captures ?? 0,
-          komi: _game.komi,
-        };
-      }
+      const dead = syncServerScoring(_game, serverState);
 
       playGameEndSound();
-      set({ autoCompleting: false, aiThinking: false, ...snapshot(_game) });
+      set({ autoCompleting: false, aiThinking: false, deadStones: dead, ...snapshot(_game) });
       autoSaveGame(get());
     } catch (e) {
       console.warn('Auto-complete failed:', e);
