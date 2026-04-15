@@ -312,7 +312,14 @@ export function GoBoard() {
     const activeTerritory = replayActive ? replayTerritory : territory;
     const activeDead = replayActive ? replayDeadStones : deadStones;
     drawBoard(ctx, grid, lastMove, activeAtari, hoverPoint, effectivePhase, activeTerritory, activeDead);
-  }, [grid, lastMove, atariGroups, hoverPoint, effectivePhase, moveCount, territory, deadStones, replayCurrentMove]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grid, lastMove, hoverPoint, effectivePhase, moveCount, replayCurrentMove,
+      // Use lengths/sizes as stable deps instead of object refs
+      atariGroups.length, deadStones.length,
+      territory ? territory.black.size : -1,
+      replayTerritory ? replayTerritory.black.size : -1,
+      replayDeadStones.length,
+  ]);
 
   // Trigger animations on new moves
   const prevMoveCountRef = useRef(0);

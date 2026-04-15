@@ -347,10 +347,10 @@ class GameManager:
                             stone = game.board.get(Point(row, col))
                             own = analysis.ownership[idx]
 
-                            if stone == Color.BLACK and own < -0.5:
+                            if stone == Color.BLACK and own < -0.3:
                                 # Black stone in white-owned territory = dead
                                 dead_stones.append(Point(row, col))
-                            elif stone == Color.WHITE and own > 0.5:
+                            elif stone == Color.WHITE and own > 0.3:
                                 # White stone in black-owned territory = dead
                                 dead_stones.append(Point(row, col))
 
