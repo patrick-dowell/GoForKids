@@ -294,7 +294,8 @@ export function GoBoard() {
     ? (replayCurrentMove >= replayTotalMoves ? 'finished' : 'playing')
     : phase;
 
-  const canClick = !replayActive && phase === 'playing' && !aiThinking;
+  const gameMode = useGameStore((s) => s.gameMode);
+  const canClick = !replayActive && phase === 'playing' && !aiThinking && gameMode !== 'botvsbot';
 
   // Set canvas size once on mount
   useEffect(() => {
