@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { Game } from '../engine/Game';
 import { Board } from '../engine/Board';
 import { Color, BOARD_SIZE, type Point } from '../engine/types';
+import { api } from '../api/client';
 
 interface TerritoryMap {
   black: Set<number>;
@@ -180,6 +181,37 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
     const clamped = Math.max(0, Math.min(n, totalMoves));
     const { grid, lastMove, territory, deadStones } = replayToMove(sgf, clamped, totalMoves);
     set({ currentMove: clamped, grid, lastMove, territory, deadStones });
+
+    // At the final move, ask KataGo for accurate dead stone detection
+    if (clamped >= totalMoves && totalMoves > 0) {
+      // Convert flat grid to 2D for the API
+      const board2d: number[][] = [];
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        board2d.push(grid.slice(r * BOARD_SIZE, (r + 1) * BOARD_SIZE));
+      }
+      api.scorePosition(board2d).then((result) => {
+        const dead: DeadStone[] = result.dead_stones.map((ds) => ({
+          row: ds.row,
+          col: ds.col,
+          color: ds.color === 'black' ? Color.Black : Color.White,
+        }));
+
+        // Rescore territory with dead stones removed
+        const board = new Board();
+        board.grid = [...grid];
+        for (const ds of dead) {
+          board.grid[ds.row * BOARD_SIZE + ds.col] = Color.Empty;
+        }
+        const { blackTerritory, whiteTerritory, neutral } = board.scoreTerritory();
+
+        set({
+          deadStones: dead,
+          territory: { black: blackTerritory, white: whiteTerritory, neutral },
+        });
+      }).catch(() => {
+        // KataGo unavailable — keep the heuristic result
+      });
+    }
   },
 
   nextMove: () => {
