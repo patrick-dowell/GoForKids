@@ -296,7 +296,16 @@ export function GoBoard() {
 
   const canClick = !replayActive && phase === 'playing' && !aiThinking;
 
-  // Main render effect
+  // Set canvas size once on mount
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = CANVAS_SIZE * dpr;
+    canvas.height = CANVAS_SIZE * dpr;
+  }, []);
+
+  // Main render effect — redraws without resizing (no flicker)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -304,9 +313,7 @@ export function GoBoard() {
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = CANVAS_SIZE * dpr;
-    canvas.height = CANVAS_SIZE * dpr;
-    ctx.scale(dpr, dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const activeAtari = replayActive ? [] : atariGroups;
     const activeTerritory = replayActive ? replayTerritory : territory;
@@ -342,9 +349,7 @@ export function GoBoard() {
           const ctx = canvas.getContext('2d');
           if (!ctx) return;
           const dpr = window.devicePixelRatio || 1;
-          canvas.width = CANVAS_SIZE * dpr;
-          canvas.height = CANVAS_SIZE * dpr;
-          ctx.scale(dpr, dpr);
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
           drawBoard(ctx, grid, lastMove, atariGroups, null, effectivePhase, activeTerritory, activeDead);
         });
         animManager.add(createPlacementAnimation(lastMove, stoneColor as Color));
