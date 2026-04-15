@@ -504,8 +504,17 @@ class GameManager:
         )
 
     def _generate_sgf(self, game: ActiveGame) -> str:
-        """Generate SGF from the full move history."""
+        """Generate SGF from the full move history, including handicap setup."""
         sgf = f"(;GM[1]FF[4]SZ[19]KM[{game.komi}]RU[Japanese]"
+
+        # Add handicap stones as AB[] (Add Black) properties
+        if game.handicap >= 2 and game.handicap in HANDICAP_POSITIONS:
+            sgf += f"HA[{game.handicap}]"
+            ab_points = []
+            for r, c in HANDICAP_POSITIONS[game.handicap]:
+                ab_points.append(f"{chr(97 + c)}{chr(97 + r)}")
+            sgf += "AB" + "".join(f"[{p}]" for p in ab_points)
+
         if game.result:
             w = game.result.get("winner", "?")[0].upper()
             reason = game.result.get("reason", "")
