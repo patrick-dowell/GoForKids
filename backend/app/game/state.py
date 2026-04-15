@@ -197,6 +197,84 @@ class GameManager:
 
         return self._to_response(game)
 
+    async def auto_complete(
+        self, game_id: str
+    ) -> Optional[Union[GameStateResponse, str]]:
+        """
+        Auto-complete the game using full-strength KataGo.
+        Both sides play best moves until two consecutive passes, then score.
+        """
+        game = self.games.get(game_id)
+        if game is None:
+            return None
+        if game.phase != "playing":
+            return "Game is not in playing phase"
+
+        engine = await get_engine()
+        if not engine:
+            return "KataGo not available for auto-complete"
+
+        consecutive_passes = 0
+        max_moves = 300  # Safety limit
+
+        for _ in range(max_moves):
+            if game.phase != "playing":
+                break
+
+            # Full-strength KataGo analysis
+            board_2d = game.board.to_2d()
+            player = "B" if game.current_color == Color.BLACK else "W"
+            try:
+                analysis = await engine.analyze(board_2d, player, max_visits=500, komi=game.komi)
+            except Exception as e:
+                logger.error(f"Auto-complete KataGo failed: {e}")
+                break
+
+            if not analysis.candidates:
+                break
+
+            best = analysis.candidates[0]
+
+            if best.move[0] < 0:
+                # KataGo wants to pass
+                consecutive_passes += 1
+                game.move_history.append(MoveRecord(
+                    color=game.current_color, point=None,
+                    captures=[], move_number=len(game.move_history) + 1,
+                ))
+                game.current_color = game.current_color.opposite()
+
+                if consecutive_passes >= 2:
+                    await self._score_game_async(game)
+                    break
+            else:
+                consecutive_passes = 0
+                point = Point(best.move[0], best.move[1])
+                result, captures = game.board.try_play(game.current_color, point)
+                if result == "ok":
+                    game.move_history.append(MoveRecord(
+                        color=game.current_color, point=point,
+                        captures=captures, move_number=len(game.move_history) + 1,
+                    ))
+                    game.current_color = game.current_color.opposite()
+                else:
+                    # Shouldn't happen with full-strength KataGo, but fallback to pass
+                    consecutive_passes += 1
+                    game.move_history.append(MoveRecord(
+                        color=game.current_color, point=None,
+                        captures=[], move_number=len(game.move_history) + 1,
+                    ))
+                    game.current_color = game.current_color.opposite()
+                    if consecutive_passes >= 2:
+                        await self._score_game_async(game)
+                        break
+
+        # If we hit the move limit without ending, force score
+        if game.phase == "playing":
+            await self._score_game_async(game)
+
+        return self._to_response(game)
+
     async def get_ai_move(
         self, game_id: str
     ) -> Optional[Union[AIMoveResponse, str]]:

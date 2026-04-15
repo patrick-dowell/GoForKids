@@ -94,6 +94,7 @@ interface GameState {
   whiteRank: string | null;
   botVsBotSpeed: number;  // ms delay between moves
   botVsBotPaused: boolean;
+  autoCompleting: boolean;
 
   _game: Game;
   _botVsBotTimer: number | null;
@@ -107,6 +108,7 @@ interface GameState {
   requestBotVsBotMove: () => Promise<void>;
   setBotVsBotSpeed: (ms: number) => void;
   toggleBotVsBotPause: () => void;
+  autoComplete: () => Promise<void>;
   getBoard: () => Board;
 }
 
@@ -159,6 +161,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   whiteRank: null,
   botVsBotSpeed: 800,
   botVsBotPaused: false,
+  autoCompleting: false,
   _game: new Game(),
   _botVsBotTimer: null,
 
@@ -517,6 +520,46 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Pause
       if (_botVsBotTimer) clearTimeout(_botVsBotTimer);
       set({ botVsBotPaused: true, _botVsBotTimer: null });
+    }
+  },
+
+  autoComplete: async () => {
+    const { gameId, _game, phase } = get();
+    if (!gameId || phase !== 'playing') return;
+
+    set({ autoCompleting: true, aiThinking: true });
+
+    try {
+      const serverState = await api.autoComplete(gameId);
+
+      // Sync the completed board from the server
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          _game.board.grid[r * BOARD_SIZE + c] = serverState.board[r][c];
+        }
+      }
+      _game.phase = 'finished';
+
+      if (serverState.result) {
+        const winner = serverState.result.winner === 'black' ? Color.Black : Color.White;
+        _game.result = {
+          winner,
+          blackScore: serverState.result.black_score ?? 0,
+          whiteScore: serverState.result.white_score ?? 0,
+          blackTerritory: serverState.result.black_territory ?? 0,
+          whiteTerritory: serverState.result.white_territory ?? 0,
+          blackCaptures: serverState.result.black_captures ?? 0,
+          whiteCaptures: serverState.result.white_captures ?? 0,
+          komi: _game.komi,
+        };
+      }
+
+      playGameEndSound();
+      set({ autoCompleting: false, aiThinking: false, ...snapshot(_game) });
+      autoSaveGame(get());
+    } catch (e) {
+      console.warn('Auto-complete failed:', e);
+      set({ autoCompleting: false, aiThinking: false });
     }
   },
 

@@ -17,9 +17,11 @@ export function GameControls() {
   const gameMode = useGameStore((s) => s.gameMode);
   const blackRank = useGameStore((s) => s.blackRank);
   const whiteRank = useGameStore((s) => s.whiteRank);
+  const autoCompleting = useGameStore((s) => s.autoCompleting);
   const pass = useGameStore((s) => s.pass);
   const resign = useGameStore((s) => s.resign);
   const undo = useGameStore((s) => s.undo);
+  const autoComplete = useGameStore((s) => s.autoComplete);
 
   const isBotVsBot = gameMode === 'botvsbot';
   const isAIGame = !!gameId && !isBotVsBot;
@@ -100,12 +102,21 @@ export function GameControls() {
             <button
               onClick={undo}
               className="btn btn-secondary"
-              disabled={aiThinking}
+              disabled={aiThinking || autoCompleting}
             >
               Undo
             </button>
           )}
-          <button onClick={resign} className="btn btn-danger">
+          {!!gameId && moveCount >= 20 && (
+            <button
+              onClick={autoComplete}
+              className="btn btn-accent"
+              disabled={aiThinking || autoCompleting}
+            >
+              {autoCompleting ? 'Counting...' : 'Count Score'}
+            </button>
+          )}
+          <button onClick={resign} className="btn btn-danger" disabled={autoCompleting}>
             Resign
           </button>
         </div>
