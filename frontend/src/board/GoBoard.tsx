@@ -49,6 +49,8 @@ interface TerritoryMap {
   neutral: Set<number>;
 }
 
+interface DeadStone { row: number; col: number; color: Color; }
+
 /** Draw the full board state (grid, stones, markers, territory) */
 function drawBoard(
   ctx: CanvasRenderingContext2D,
@@ -58,6 +60,7 @@ function drawBoard(
   hoverPoint: Point | null,
   phase: string,
   territory: TerritoryMap | null = null,
+  deadStones: DeadStone[] = [],
 ) {
   // Background
   ctx.fillStyle = BG_COLOR;
@@ -207,6 +210,36 @@ function drawBoard(
     ctx.globalAlpha = 1;
   }
 
+  // Dead stones — faded with X marker
+  if (deadStones.length > 0) {
+    for (const ds of deadStones) {
+      const { x, y } = toScreen(ds.row, ds.col);
+
+      // Draw faded stone
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      ctx.arc(x, y, stoneRadius, 0, Math.PI * 2);
+      ctx.fillStyle = ds.color === Color.Black ? '#2d2d48' : '#c8c8dd';
+      ctx.fill();
+      ctx.restore();
+
+      // Draw X marker
+      const xSize = stoneRadius * 0.45;
+      ctx.save();
+      ctx.strokeStyle = '#ff4444';
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(x - xSize, y - xSize);
+      ctx.lineTo(x + xSize, y + xSize);
+      ctx.moveTo(x + xSize, y - xSize);
+      ctx.lineTo(x - xSize, y + xSize);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   // Last move marker
   if (lastMove) {
     const { x, y } = toScreen(lastMove.row, lastMove.col);
@@ -242,6 +275,7 @@ export function GoBoard() {
   const moveCount = useGameStore((s) => s.moveCount);
   const aiThinking = useGameStore((s) => s.aiThinking);
   const territory = useGameStore((s) => s.territory);
+  const deadStones = useGameStore((s) => s.deadStones);
 
   const canClick = phase === 'playing' && !aiThinking;
 
@@ -257,8 +291,8 @@ export function GoBoard() {
     canvas.height = CANVAS_SIZE * dpr;
     ctx.scale(dpr, dpr);
 
-    drawBoard(ctx, grid, lastMove, atariGroups, hoverPoint, phase, territory);
-  }, [grid, lastMove, atariGroups, hoverPoint, phase, moveCount, territory]);
+    drawBoard(ctx, grid, lastMove, atariGroups, hoverPoint, phase, territory, deadStones);
+  }, [grid, lastMove, atariGroups, hoverPoint, phase, moveCount, territory, deadStones]);
 
   // Trigger animations on new moves
   const prevMoveCountRef = useRef(0);
@@ -284,7 +318,7 @@ export function GoBoard() {
           canvas.width = CANVAS_SIZE * dpr;
           canvas.height = CANVAS_SIZE * dpr;
           ctx.scale(dpr, dpr);
-          drawBoard(ctx, grid, lastMove, atariGroups, null, phase, territory);
+          drawBoard(ctx, grid, lastMove, atariGroups, null, phase, territory, deadStones);
         });
         animManager.add(createPlacementAnimation(lastMove, stoneColor as Color));
       }
