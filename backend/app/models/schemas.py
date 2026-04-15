@@ -43,6 +43,7 @@ class GameStateResponse(BaseModel):
     last_move: Optional[PointSchema] = None
     ko_point: Optional[PointSchema] = None
     result: Optional[dict] = None
+    sgf: Optional[str] = None  # Full SGF when game is finished
 
 
 class AIMoveResponse(BaseModel):

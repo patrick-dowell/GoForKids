@@ -30,6 +30,7 @@ interface GameStateDTO {
   last_move: PointDTO | null;
   ko_point: PointDTO | null;
   result: Record<string, unknown> | null;
+  sgf: string | null;
 }
 
 interface AIMoveDTO {

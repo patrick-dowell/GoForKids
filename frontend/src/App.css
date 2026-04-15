@@ -858,6 +858,21 @@ body {
   cursor: default;
 }
 
+.replay-btn-play {
+  background: var(--accent);
+  color: #000;
+  font-weight: bold;
+}
+
+.replay-btn-play:hover {
+  background: var(--accent-hover);
+}
+
+.replay-actions {
+  display: flex;
+  justify-content: center;
+}
+
 .replay-hint {
   font-size: 10px;
   color: var(--text-muted);
