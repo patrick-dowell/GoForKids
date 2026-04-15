@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { BOARD_SIZE, Color, type Point } from '../engine/types';
 import { useGameStore } from '../store/gameStore';
+import { useReplayStore } from '../store/replayStore';
 import { AnimationManager } from './animations/AnimationManager';
 import {
   createPlacementAnimation,
@@ -265,9 +266,15 @@ export function GoBoard() {
   const animManagerRef = useRef(new AnimationManager());
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
 
-  const grid = useGameStore((s) => s.grid);
+  // Replay mode overrides the live game
+  const replayActive = useReplayStore((s) => s.active);
+  const replayGrid = useReplayStore((s) => s.grid);
+  const replayLastMove = useReplayStore((s) => s.lastMove);
+  const replayCurrentMove = useReplayStore((s) => s.currentMove);
+
+  const liveGrid = useGameStore((s) => s.grid);
   const phase = useGameStore((s) => s.phase);
-  const lastMove = useGameStore((s) => s.lastMove);
+  const liveLastMove = useGameStore((s) => s.lastMove);
   const lastCaptures = useGameStore((s) => s.lastCaptures);
   const atariGroups = useGameStore((s) => s.atariGroups);
   const currentColor = useGameStore((s) => s.currentColor);
@@ -277,7 +284,12 @@ export function GoBoard() {
   const territory = useGameStore((s) => s.territory);
   const deadStones = useGameStore((s) => s.deadStones);
 
-  const canClick = phase === 'playing' && !aiThinking;
+  // Use replay data when active, otherwise live game
+  const grid = replayActive ? replayGrid : liveGrid;
+  const lastMove = replayActive ? replayLastMove : liveLastMove;
+  const effectivePhase = replayActive ? 'finished' : phase;
+
+  const canClick = !replayActive && phase === 'playing' && !aiThinking;
 
   // Main render effect
   useEffect(() => {
@@ -291,8 +303,11 @@ export function GoBoard() {
     canvas.height = CANVAS_SIZE * dpr;
     ctx.scale(dpr, dpr);
 
-    drawBoard(ctx, grid, lastMove, atariGroups, hoverPoint, phase, territory, deadStones);
-  }, [grid, lastMove, atariGroups, hoverPoint, phase, moveCount, territory, deadStones]);
+    const activeAtari = replayActive ? [] : atariGroups;
+    const activeTerritory = replayActive ? null : territory;
+    const activeDead = replayActive ? [] : deadStones;
+    drawBoard(ctx, grid, lastMove, activeAtari, hoverPoint, effectivePhase, activeTerritory, activeDead);
+  }, [grid, lastMove, atariGroups, hoverPoint, effectivePhase, moveCount, territory, deadStones, replayCurrentMove]);
 
   // Trigger animations on new moves
   const prevMoveCountRef = useRef(0);

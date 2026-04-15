@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { GoBoard } from './board/GoBoard';
 import { GameControls } from './components/GameControls';
 import { NewGameDialog } from './components/NewGameDialog';
@@ -6,8 +6,10 @@ import { StudyMode } from './components/StudyMode';
 import { GameLibrary } from './components/GameLibrary';
 import { PlayerCard } from './components/PlayerCard';
 import { CaptureAnimation } from './components/CaptureAnimation';
+import { ReplayControls } from './components/ReplayControls';
 import { useGameStore } from './store/gameStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
+import { useReplayStore } from './store/replayStore';
 import { BOT_AVATARS } from './components/Avatar';
 import { Color, oppositeColor } from './engine/types';
 import './App.css';
@@ -53,10 +55,31 @@ function App() {
     useLibraryStore.getState().loadFromStorage();
   }, []);
 
+  const replayActive = useReplayStore((s) => s.active);
+  const loadReplay = useReplayStore((s) => s.loadGame);
+  const replayNext = useReplayStore((s) => s.nextMove);
+  const replayPrev = useReplayStore((s) => s.prevMove);
+
   const handleSelectGame = (saved: SavedGame) => {
     setShowLibrary(false);
-    if (saved.gameId) setShowStudy(true);
+    setShowStudy(false);
+    loadReplay(saved.sgf, {
+      result: saved.result,
+      playerColor: saved.playerColor,
+      opponentRank: saved.opponentRank,
+    });
   };
+
+  // Keyboard navigation for replay
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (!useReplayStore.getState().active) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); replayNext(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); replayPrev(); }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [replayNext, replayPrev]);
 
   const isBotVsBot = gameMode === 'botvsbot';
   const isAIGame = !!gameId;
@@ -143,7 +166,9 @@ function App() {
         </div>
 
         <aside className="side-panel">
-          {showStudy && gameId ? (
+          {replayActive ? (
+            <ReplayControls />
+          ) : showStudy && gameId ? (
             <StudyMode gameId={gameId} onClose={() => setShowStudy(false)} />
           ) : (
             <>
