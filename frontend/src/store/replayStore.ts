@@ -3,6 +3,12 @@ import { Game } from '../engine/Game';
 import { Board } from '../engine/Board';
 import { Color, BOARD_SIZE, type Point } from '../engine/types';
 
+interface TerritoryMap {
+  black: Set<number>;
+  white: Set<number>;
+  neutral: Set<number>;
+}
+
 interface ReplayState {
   active: boolean;
   sgf: string;
@@ -10,6 +16,7 @@ interface ReplayState {
   currentMove: number;
   grid: number[];
   lastMove: Point | null;
+  territory: TerritoryMap | null;
   gameResult: string;
   playerColor: string;
   opponentRank: string;
@@ -29,7 +36,11 @@ interface ReplayState {
   close: () => void;
 }
 
-function replayToMove(sgf: string, moveNum: number): { grid: number[]; lastMove: Point | null } {
+function replayToMove(sgf: string, moveNum: number, total: number): {
+  grid: number[];
+  lastMove: Point | null;
+  territory: TerritoryMap | null;
+} {
   const game = Game.fromSGF(sgf);
   const allMoves = game.moveHistory;
   const board = new Board();
@@ -47,7 +58,14 @@ function replayToMove(sgf: string, moveNum: number): { grid: number[]; lastMove:
     currentColor = currentColor === Color.Black ? Color.White : Color.Black;
   }
 
-  return { grid: [...board.grid], lastMove };
+  // Compute territory at the final position
+  let territory: TerritoryMap | null = null;
+  if (moveNum >= total && total > 0) {
+    const { blackTerritory, whiteTerritory, neutral } = board.scoreTerritory();
+    territory = { black: blackTerritory, white: whiteTerritory, neutral };
+  }
+
+  return { grid: [...board.grid], lastMove, territory };
 }
 
 function countMoves(sgf: string): number {
@@ -65,6 +83,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   currentMove: 0,
   grid: new Array(BOARD_SIZE * BOARD_SIZE).fill(Color.Empty),
   lastMove: null,
+  territory: null,
   gameResult: '',
   playerColor: 'black',
   opponentRank: '',
@@ -78,7 +97,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
     if (prev) clearTimeout(prev);
 
     const total = countMoves(sgf);
-    const { grid, lastMove } = replayToMove(sgf, 0);
+    const { grid, lastMove, territory } = replayToMove(sgf, 0, total);
     set({
       active: true,
       sgf,
@@ -86,6 +105,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
       currentMove: 0,
       grid,
       lastMove,
+      territory,
       gameResult: meta?.result ?? '',
       playerColor: meta?.playerColor ?? 'black',
       opponentRank: meta?.opponentRank ?? '',
@@ -97,8 +117,8 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   goToMove: (n: number) => {
     const { sgf, totalMoves } = get();
     const clamped = Math.max(0, Math.min(n, totalMoves));
-    const { grid, lastMove } = replayToMove(sgf, clamped);
-    set({ currentMove: clamped, grid, lastMove });
+    const { grid, lastMove, territory } = replayToMove(sgf, clamped, totalMoves);
+    set({ currentMove: clamped, grid, lastMove, territory });
   },
 
   nextMove: () => {
