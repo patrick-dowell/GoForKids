@@ -113,7 +113,7 @@ export function GameControls() {
               className="btn btn-accent"
               disabled={aiThinking || autoCompleting}
             >
-              {autoCompleting ? 'Counting...' : 'Count Score'}
+              {autoCompleting ? 'Finishing...' : 'Finish Game'}
             </button>
           )}
           <button onClick={resign} className="btn btn-danger" disabled={autoCompleting}>
