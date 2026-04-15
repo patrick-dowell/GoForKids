@@ -271,6 +271,7 @@ export function GoBoard() {
   const replayGrid = useReplayStore((s) => s.grid);
   const replayLastMove = useReplayStore((s) => s.lastMove);
   const replayCurrentMove = useReplayStore((s) => s.currentMove);
+  const replayTerritory = useReplayStore((s) => s.territory);
 
   const liveGrid = useGameStore((s) => s.grid);
   const phase = useGameStore((s) => s.phase);
@@ -304,7 +305,7 @@ export function GoBoard() {
     ctx.scale(dpr, dpr);
 
     const activeAtari = replayActive ? [] : atariGroups;
-    const activeTerritory = replayActive ? null : territory;
+    const activeTerritory = replayActive ? replayTerritory : territory;
     const activeDead = replayActive ? [] : deadStones;
     drawBoard(ctx, grid, lastMove, activeAtari, hoverPoint, effectivePhase, activeTerritory, activeDead);
   }, [grid, lastMove, atariGroups, hoverPoint, effectivePhase, moveCount, territory, deadStones, replayCurrentMove]);
