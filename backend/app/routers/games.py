@@ -24,6 +24,40 @@ async def list_saved_games(limit: int = 50):
     return {"games": games}
 
 
+@router.post("/score-position")
+async def score_position(req: dict):
+    """Score a board position using KataGo ownership analysis. Returns dead stones."""
+    from app.katago.engine import get_engine, BOARD_SIZE
+    from app.game.engine import Color
+
+    board = req.get("board", [])
+    if len(board) != 19 or any(len(row) != 19 for row in board):
+        raise HTTPException(status_code=400, detail="Board must be 19x19")
+
+    engine = await get_engine()
+    if not engine:
+        raise HTTPException(status_code=503, detail="KataGo not available")
+
+    try:
+        analysis = await engine.analyze(board, "B", max_visits=200, komi=7.5, include_ownership=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"KataGo analysis failed: {e}")
+
+    dead_stones = []
+    if analysis.ownership:
+        for row in range(BOARD_SIZE):
+            for col in range(BOARD_SIZE):
+                idx = row * BOARD_SIZE + col
+                stone = board[row][col]
+                own = analysis.ownership[idx]
+                if stone == 1 and own < -0.5:  # Black stone in white territory
+                    dead_stones.append({"row": row, "col": col, "color": "black"})
+                elif stone == 2 and own > 0.5:  # White stone in black territory
+                    dead_stones.append({"row": row, "col": col, "color": "white"})
+
+    return {"dead_stones": dead_stones}
+
+
 @router.post("", response_model=GameStateResponse)
 async def create_game(req: CreateGameRequest):
     """Create a new game against the AI."""

@@ -89,6 +89,13 @@ export const api = {
 
   autoComplete: (gameId: string) =>
     request<GameStateDTO>(`/games/${gameId}/auto-complete`, { method: 'POST' }),
+
+  /** Score a board position using KataGo ownership analysis. Returns dead stones. */
+  scorePosition: (board: number[][]) =>
+    request<{ dead_stones: { row: number; col: number; color: string }[] }>(
+      '/games/score-position',
+      { method: 'POST', body: JSON.stringify({ board }) },
+    ),
 };
 
 export type { GameStateDTO, AIMoveDTO, PointDTO, CreateGameOptions };
