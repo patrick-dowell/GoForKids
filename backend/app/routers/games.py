@@ -56,9 +56,9 @@ async def score_position(req: dict):
                 idx = row * BOARD_SIZE + col
                 stone = board[row][col]
                 own = analysis.ownership[idx]
-                if stone == 1 and own < -0.5:  # Black stone, white controls → dead
+                if stone == 1 and own < -0.3:  # Black stone, white controls → dead
                     dead_stones.append({"row": row, "col": col, "color": "black"})
-                elif stone == 2 and own > 0.5:  # White stone, black controls → dead
+                elif stone == 2 and own > 0.3:  # White stone, black controls → dead
                     dead_stones.append({"row": row, "col": col, "color": "white"})
     else:
         import logging
