@@ -1,35 +1,37 @@
 import { create } from 'zustand';
 import { Game } from '../engine/Game';
 import { Board } from '../engine/Board';
-import { Color, BOARD_SIZE, type Point, MoveResult } from '../engine/types';
+import { Color, BOARD_SIZE, type Point } from '../engine/types';
 
 interface ReplayState {
   active: boolean;
   sgf: string;
   totalMoves: number;
-  currentMove: number;     // 0 = initial position, totalMoves = final
-  grid: number[];          // Board state at currentMove
-  lastMove: Point | null;  // The move that was just played
-  gameResult: string;      // Display string
+  currentMove: number;
+  grid: number[];
+  lastMove: Point | null;
+  gameResult: string;
   playerColor: string;
   opponentRank: string;
+  autoPlaying: boolean;
+  autoPlaySpeed: number;  // ms between moves
+  _autoPlayTimer: number | null;
 
-  // Actions
   loadGame: (sgf: string, meta?: { result?: string; playerColor?: string; opponentRank?: string }) => void;
   goToMove: (n: number) => void;
   nextMove: () => void;
   prevMove: () => void;
   firstMove: () => void;
   lastMovePos: () => void;
+  toggleAutoPlay: () => void;
+  setAutoPlaySpeed: (ms: number) => void;
+  downloadSGF: () => void;
   close: () => void;
 }
 
-/** Replay a game up to move N and return the board state */
 function replayToMove(sgf: string, moveNum: number): { grid: number[]; lastMove: Point | null } {
   const game = Game.fromSGF(sgf);
   const allMoves = game.moveHistory;
-
-  // Rebuild from scratch up to moveNum
   const board = new Board();
   let lastMove: Point | null = null;
   let currentColor = Color.Black;
@@ -66,8 +68,15 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   gameResult: '',
   playerColor: 'black',
   opponentRank: '',
+  autoPlaying: false,
+  autoPlaySpeed: 600,
+  _autoPlayTimer: null,
 
   loadGame: (sgf, meta) => {
+    // Stop any existing autoplay
+    const prev = get()._autoPlayTimer;
+    if (prev) clearTimeout(prev);
+
     const total = countMoves(sgf);
     const { grid, lastMove } = replayToMove(sgf, 0);
     set({
@@ -80,6 +89,8 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
       gameResult: meta?.result ?? '',
       playerColor: meta?.playerColor ?? 'black',
       opponentRank: meta?.opponentRank ?? '',
+      autoPlaying: false,
+      _autoPlayTimer: null,
     });
   },
 
@@ -104,5 +115,56 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
 
   lastMovePos: () => get().goToMove(get().totalMoves),
 
-  close: () => set({ active: false }),
+  toggleAutoPlay: () => {
+    const { autoPlaying, _autoPlayTimer, currentMove, totalMoves, autoPlaySpeed } = get();
+
+    if (autoPlaying) {
+      // Stop
+      if (_autoPlayTimer) clearTimeout(_autoPlayTimer);
+      set({ autoPlaying: false, _autoPlayTimer: null });
+    } else {
+      // Start (reset to beginning if at end)
+      if (currentMove >= totalMoves) {
+        get().goToMove(0);
+      }
+      set({ autoPlaying: true });
+
+      const tick = () => {
+        const { currentMove: cm, totalMoves: tm, autoPlaying: ap } = get();
+        if (!ap || cm >= tm) {
+          set({ autoPlaying: false, _autoPlayTimer: null });
+          return;
+        }
+        get().goToMove(cm + 1);
+        const timer = window.setTimeout(tick, get().autoPlaySpeed);
+        set({ _autoPlayTimer: timer });
+      };
+
+      const timer = window.setTimeout(tick, autoPlaySpeed);
+      set({ _autoPlayTimer: timer });
+    }
+  },
+
+  setAutoPlaySpeed: (ms: number) => {
+    set({ autoPlaySpeed: ms });
+  },
+
+  downloadSGF: () => {
+    const { sgf, opponentRank } = get();
+    if (!sgf) return;
+
+    const blob = new Blob([sgf], { type: 'application/x-go-sgf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `game-vs-${opponentRank || 'unknown'}-${Date.now()}.sgf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  close: () => {
+    const timer = get()._autoPlayTimer;
+    if (timer) clearTimeout(timer);
+    set({ active: false, autoPlaying: false, _autoPlayTimer: null });
+  },
 }));

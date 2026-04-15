@@ -7,10 +7,9 @@ import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resu
 import { useLibraryStore, type SavedGame } from './libraryStore';
 import { BOT_AVATARS, type PlayerAvatarType, type BotAvatarType } from '../components/Avatar';
 
-function autoSaveGame(state: GameState) {
+function autoSaveGame(state: GameState, sgfOverride?: string) {
   if (state.phase !== 'finished' || !state.result) return;
-  const game = state._game;
-  const sgf = game.toSGF();
+  const sgf = sgfOverride || state._game.toSGF();
   const winner = state.result.winner === Color.Black ? 'Black' : 'White';
   const isResignation = state.result.blackScore === 0 && state.result.whiteScore === 0;
   const margin = Math.abs(state.result.blackScore - state.result.whiteScore);
@@ -540,7 +539,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       playGameEndSound();
       set({ autoCompleting: false, aiThinking: false, deadStones: dead, ...snapshot(_game) });
-      autoSaveGame(get());
+      // Use server's SGF which includes all auto-complete moves
+      autoSaveGame(get(), serverState.sgf ?? undefined);
     } catch (e) {
       console.warn('Auto-complete failed:', e);
       set({ autoCompleting: false, aiThinking: false });

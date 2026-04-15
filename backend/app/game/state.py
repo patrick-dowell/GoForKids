@@ -480,6 +480,11 @@ class GameManager:
                 row=game.board.ko_point.row, col=game.board.ko_point.col
             )
 
+        # Generate SGF for finished games
+        sgf = None
+        if game.phase == "finished":
+            sgf = self._generate_sgf(game)
+
         return GameStateResponse(
             game_id=game.game_id,
             board=game.board.to_2d(),
@@ -495,4 +500,24 @@ class GameManager:
             last_move=last_move,
             ko_point=ko_point,
             result=game.result,
+            sgf=sgf,
         )
+
+    def _generate_sgf(self, game: ActiveGame) -> str:
+        """Generate SGF from the full move history."""
+        sgf = f"(;GM[1]FF[4]SZ[19]KM[{game.komi}]RU[Japanese]"
+        if game.result:
+            w = game.result.get("winner", "?")[0].upper()
+            reason = game.result.get("reason", "")
+            margin = game.result.get("margin", 0)
+            sgf += f"RE[{w}+{'R' if reason == 'resignation' else margin}]"
+        for move in game.move_history:
+            c = "B" if move.color == Color.BLACK else "W"
+            if move.point:
+                col = chr(97 + move.point.col)
+                row = chr(97 + move.point.row)
+                sgf += f";{c}[{col}{row}]"
+            else:
+                sgf += f";{c}[]"
+        sgf += ")"
+        return sgf
