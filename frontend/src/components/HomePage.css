@@ -1,0 +1,214 @@
+/* Home page — cosmic splash */
+
+.home-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Cosmic backdrop */
+.home-backdrop {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 30% 20%, #12182a 0%, #0d1117 50%, #080b10 100%);
+}
+
+.home-stars {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(1px 1px at 10% 15%, rgba(255,255,255,0.6), transparent),
+    radial-gradient(1px 1px at 25% 40%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1px 1px at 45% 10%, rgba(200,200,255,0.5), transparent),
+    radial-gradient(1px 1px at 60% 35%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(1px 1px at 75% 20%, rgba(255,255,255,0.5), transparent),
+    radial-gradient(1px 1px at 85% 55%, rgba(200,200,255,0.4), transparent),
+    radial-gradient(1px 1px at 15% 70%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(1px 1px at 35% 80%, rgba(255,255,255,0.5), transparent),
+    radial-gradient(1px 1px at 55% 65%, rgba(200,200,255,0.6), transparent),
+    radial-gradient(1px 1px at 70% 75%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(1px 1px at 90% 85%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1px 1px at 40% 55%, rgba(255,255,200,0.5), transparent),
+    radial-gradient(1px 1px at 20% 90%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(1.5px 1.5px at 50% 50%, rgba(200,200,255,0.7), transparent),
+    radial-gradient(1px 1px at 80% 40%, rgba(255,255,255,0.4), transparent);
+  animation: home-twinkle 6s ease-in-out infinite alternate;
+}
+
+@keyframes home-twinkle {
+  0% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+/* Floating decorative stones */
+.home-stone {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.12;
+  animation: home-float 20s ease-in-out infinite;
+}
+
+.home-stone-black {
+  width: 120px;
+  height: 120px;
+  background: radial-gradient(circle at 40% 35%, #3d3d5c, #1a1a30);
+  top: 15%;
+  left: 8%;
+  animation-delay: 0s;
+}
+
+.home-stone-white {
+  width: 90px;
+  height: 90px;
+  background: radial-gradient(circle at 40% 35%, #f0f0ff, #c0c0d8);
+  top: 25%;
+  right: 12%;
+  animation-delay: -5s;
+}
+
+.home-stone-black-2 {
+  width: 70px;
+  height: 70px;
+  background: radial-gradient(circle at 40% 35%, #3d3d5c, #1a1a30);
+  bottom: 20%;
+  right: 15%;
+  animation-delay: -10s;
+}
+
+.home-stone-white-2 {
+  width: 100px;
+  height: 100px;
+  background: radial-gradient(circle at 40% 35%, #f0f0ff, #c0c0d8);
+  bottom: 15%;
+  left: 10%;
+  animation-delay: -15s;
+}
+
+@keyframes home-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-15px) rotate(2deg); }
+  50% { transform: translateY(5px) rotate(-1deg); }
+  75% { transform: translateY(-10px) rotate(1deg); }
+}
+
+/* Content */
+.home-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  padding: 40px;
+  max-width: 600px;
+}
+
+/* Title */
+.home-title-block {
+  text-align: center;
+}
+
+.home-title {
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin: 0;
+  background: linear-gradient(135deg, #e6edf3 0%, #a8c4e0 50%, #d4c090 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.home-tagline {
+  font-size: 18px;
+  color: #8b949e;
+  margin: 8px 0 0 0;
+  letter-spacing: 1px;
+}
+
+/* Action buttons */
+.home-actions {
+  display: flex;
+  gap: 16px;
+}
+
+.home-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 36px;
+  border-radius: 12px;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.home-btn-icon {
+  font-size: 20px;
+}
+
+.home-btn-primary {
+  background: linear-gradient(135deg, #58a6ff, #3d8bd4);
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(88, 166, 255, 0.3);
+}
+
+.home-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 28px rgba(88, 166, 255, 0.4);
+}
+
+.home-btn-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e6edf3;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+}
+
+.home-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Bot roster */
+.home-bots {
+  text-align: center;
+}
+
+.home-bots-label {
+  font-size: 13px;
+  color: #555d68;
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.home-bots-row {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.home-bot-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.home-bot-name {
+  font-size: 11px;
+  color: #8b949e;
+  font-weight: 500;
+}
+
+.home-bot-rank {
+  font-size: 10px;
+  color: #555d68;
+}

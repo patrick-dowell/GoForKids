@@ -7,6 +7,7 @@ import { GameLibrary } from './components/GameLibrary';
 import { PlayerCard } from './components/PlayerCard';
 import { CaptureAnimation } from './components/CaptureAnimation';
 import { ReplayControls } from './components/ReplayControls';
+import { HomePage } from './components/HomePage';
 import { useGameStore } from './store/gameStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
 import { useReplayStore } from './store/replayStore';
@@ -26,6 +27,7 @@ function useGameIdInUrl() {
 }
 
 function App() {
+  const [showHome, setShowHome] = useState(true);
   const [showNewGame, setShowNewGame] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showStudy, setShowStudy] = useState(false);
@@ -63,11 +65,17 @@ function App() {
   const handleSelectGame = (saved: SavedGame) => {
     setShowLibrary(false);
     setShowStudy(false);
+    setShowHome(false);
     loadReplay(saved.sgf, {
       result: saved.result,
       playerColor: saved.playerColor,
       opponentRank: saved.opponentRank,
     });
+  };
+
+  const handleOpenNewGame = () => {
+    setShowHome(false);
+    setShowNewGame(true);
   };
 
   // Keyboard navigation for replay
@@ -92,10 +100,28 @@ function App() {
   const isPlayerTurn = phase === 'playing' && currentColor === playerColor && !isBotVsBot;
   const isOpponentTurn = phase === 'playing' && currentColor === opponentColor && !isBotVsBot;
 
+  // Show homepage
+  if (showHome && !replayActive) {
+    return (
+      <div className="app">
+        <HomePage
+          onNewGame={handleOpenNewGame}
+          onLibrary={() => setShowLibrary(true)}
+        />
+        {showNewGame && (
+          <NewGameDialog onClose={() => setShowNewGame(false)} />
+        )}
+        {showLibrary && (
+          <GameLibrary onSelectGame={handleSelectGame} onClose={() => setShowLibrary(false)} />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <header className="app-header">
-        <h1 className="app-title">GoForKids</h1>
+        <h1 className="app-title" onClick={() => setShowHome(true)} style={{ cursor: 'pointer' }}>GoForKids</h1>
         <div className="header-controls">
           <button onClick={() => setShowLibrary(true)} className="btn btn-secondary">
             Library
@@ -105,7 +131,7 @@ function App() {
               {showStudy ? 'Hide Study' : 'Study'}
             </button>
           )}
-          <button onClick={() => setShowNewGame(true)} className="btn btn-primary">
+          <button onClick={handleOpenNewGame} className="btn btn-primary">
             New Game
           </button>
         </div>
