@@ -1,5 +1,29 @@
 # Development Journal
 
+## Session 2 — April 22, 2026
+
+### Planning
+- Drafted `feature_plans/` — 19 self-contained docs + a status index with 4-wave sequencing (foundations → teaching loop → reward/parent loop → expansion). Covers bots, puzzles, lessons, AI teacher review, NUX, OGS observation, online play, traditional mode, hosting, iPad, avatars, animations, smaller boards, parent dashboard, rewards, mistake tracking, rank UI, rules refresher, what-if.
+
+### Shipped — feature 08 (traditional board mode), first cut
+- `theme/themes.ts` abstracts the board renderer. Two themes: `cosmic` (default, extracted from the existing hardcodes) and `classic` (kaya wood, slate/clamshell stones, thin dark grid, flat translucent territory).
+- `settingsStore` persists theme choice to localStorage.
+- Real recorded wooden "clack" + capture samples in `frontend/public/assets/`; Web Audio API plays them with procedural fallback if loading fails.
+- Reduced animation intensity in classic — subtler squash, no shockwave, fewer particles.
+- Floating gear in the bottom-right opens a small settings modal with side-by-side theme preview cards.
+
+### Side improvements landed this session
+- **Library filter tabs** — All / Your games / Observed, with counts. Saved games now tagged `gameType` and (for bot-vs-bot) `blackRank`/`whiteRank`. Legacy saves without the tag fall back to `human-vs-bot`.
+- **Clear all saved games** — button at the bottom of the Library with a confirm-then-commit flow.
+- **Last-move marker overhaul** — replaced the tiny center dot with a halo ring around the stone + a bold move number on the stone. Both are needed: the halo is visible even on solid classic stones, and the number disambiguates which of several recent stones was the latest.
+- **AnimationManager fix** — the placement animation used to draw a flat stone at scale=1 on its final frame, overwriting any persistent overlay. The manager now does one final base-board draw after animations complete, so the halo + move number survive.
+
+### Bugs hit during the session
+- "Bots don't move" turned out to be the backend not running — not a code bug. Noted in memory for future sessions.
+- Move-number text rendered fine to the base board but was being covered by the placement animation's final frame (see AnimationManager fix above).
+
+---
+
 ## Session 1 — April 14-15, 2026
 
 ### What we built (from zero to playable app in one session)

@@ -20,7 +20,7 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 | 05 | [New-user experience (NUX)](05_nux.md) | 📝 Planned | High | 03 (lessons exist to funnel into) |
 | 06 | [Observing games (OGS)](06_observing_games.md) | 📝 Planned | Medium | — |
 | 07 | [Kid-safe online play](07_online_play.md) | 📝 Planned | Medium | 09 (hosting), COPPA review |
-| 08 | [Traditional board mode](08_traditional_mode.md) | 📝 Planned | Low | — |
+| 08 | [Traditional board mode](08_traditional_mode.md) | ✅ Done (first cut) | Low | — |
 | 09 | [Publishing online (beta hosting)](09_publishing.md) | 📝 Planned | High | — |
 | 10 | [iPad app](10_ipad_app.md) | 📝 Planned | Medium | 09 (or parallel) |
 | 11 | [Avatars (expansion & polish)](11_avatars.md) | 📝 Planned | Medium | 01, 05, 12 |
