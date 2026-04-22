@@ -8,6 +8,7 @@ import { PlayerCard } from './components/PlayerCard';
 import { CaptureAnimation } from './components/CaptureAnimation';
 import { ReplayControls } from './components/ReplayControls';
 import { HomePage } from './components/HomePage';
+import { SettingsButton } from './components/SettingsButton';
 import { useGameStore } from './store/gameStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
 import { useReplayStore } from './store/replayStore';
@@ -104,6 +105,7 @@ function App() {
   if (showHome && !replayActive) {
     return (
       <div className="app">
+        <SettingsButton />
         <HomePage
           onNewGame={handleOpenNewGame}
           onLibrary={() => setShowLibrary(true)}
@@ -120,6 +122,7 @@ function App() {
 
   return (
     <div className="app">
+      <SettingsButton />
       <header className="app-header">
         <h1 className="app-title" onClick={() => setShowHome(true)} style={{ cursor: 'pointer' }}>GoForKids</h1>
         <div className="header-controls">

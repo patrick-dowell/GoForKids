@@ -969,3 +969,147 @@ body {
   gap: 8px;
   margin-top: 8px;
 }
+
+/* Settings gear button — floating bottom-right */
+.settings-gear {
+  position: fixed;
+  bottom: 14px;
+  right: 14px;
+  z-index: 90;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, transform 0.3s;
+}
+
+.settings-gear:hover {
+  color: var(--text-primary);
+  background: var(--border);
+  transform: rotate(30deg);
+}
+
+/* Theme picker cards */
+.theme-picker {
+  display: flex;
+  gap: 12px;
+}
+
+.theme-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.theme-card:hover {
+  border-color: var(--text-muted);
+}
+
+.theme-card.selected {
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.theme-preview {
+  width: 100%;
+  max-width: 140px;
+  height: auto;
+  border-radius: 6px;
+}
+
+.theme-card-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.theme-card-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Library tabs */
+.library-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+}
+
+.library-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.library-tab:hover {
+  color: var(--text-primary);
+}
+
+.library-tab.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.library-tab-count {
+  background: var(--border);
+  color: var(--text-secondary);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 16px;
+}
+
+/* Library footer — clear-all control */
+.library-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.library-clear-btn {
+  font-size: 12px;
+  padding: 6px 12px;
+  color: var(--text-muted);
+}
+
+.library-clear-btn:hover {
+  color: var(--danger);
+}
+
+.library-confirm-text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-secondary);
+}

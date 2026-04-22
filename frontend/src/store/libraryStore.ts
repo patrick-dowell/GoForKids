@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+export type GameType = 'human-vs-bot' | 'bot-vs-bot';
+
 export interface SavedGame {
   id: string;
   sgf: string;
@@ -10,12 +12,16 @@ export interface SavedGame {
   moveCount: number;
   isRanked: boolean;
   gameId: string | null;   // Backend game ID for study mode
+  gameType?: GameType;     // Undefined for older saves — treated as human-vs-bot
+  blackRank?: string;      // For bot-vs-bot, which bot played black
+  whiteRank?: string;      // For bot-vs-bot, which bot played white
 }
 
 interface LibraryState {
   games: SavedGame[];
   saveGame: (game: SavedGame) => void;
   deleteGame: (id: string) => void;
+  clearAll: () => void;
   loadFromStorage: () => void;
 }
 
@@ -33,7 +39,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   games: [],
 
   saveGame: (game: SavedGame) => {
-    const games = [game, ...get().games].slice(0, 100); // Keep last 100
+    const games = [game, ...get().games].slice(0, 100);
     set({ games });
     persistGames(games);
   },
@@ -42,6 +48,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const games = get().games.filter((g) => g.id !== id);
     set({ games });
     persistGames(games);
+  },
+
+  clearAll: () => {
+    set({ games: [] });
+    persistGames([]);
   },
 
   loadFromStorage: () => {
