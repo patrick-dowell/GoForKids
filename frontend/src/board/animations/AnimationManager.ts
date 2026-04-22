@@ -54,6 +54,10 @@ export class AnimationManager {
       if (this.animations.size > 0) {
         this.frameId = requestAnimationFrame(tick);
       } else {
+        // Final clean base-board draw so any per-frame overlays
+        // (e.g. the placement stone drawn at scale=1) don't cover
+        // persistent markers like the last-move ring/number.
+        if (this.drawBoard) this.drawBoard();
         this.frameId = null;
       }
     };

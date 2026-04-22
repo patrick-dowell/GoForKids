@@ -2,6 +2,8 @@ import { useRef, useEffect, useState } from 'react';
 import { BOARD_SIZE, Color, type Point } from '../engine/types';
 import { useGameStore } from '../store/gameStore';
 import { useReplayStore } from '../store/replayStore';
+import { useSettingsStore } from '../store/settingsStore';
+import { getTheme, type Theme } from '../theme/themes';
 import { AnimationManager } from './animations/AnimationManager';
 import {
   createPlacementAnimation,
@@ -15,13 +17,6 @@ const STAR_POINTS = [
   [9, 3], [9, 9], [9, 15],
   [15, 3], [15, 9], [15, 15],
 ];
-
-const BG_COLOR = '#0d1117';
-const BOARD_BG = 'rgba(50, 38, 20, 0.6)';
-const LINE_COLOR = 'rgba(140, 115, 65, 0.45)';
-const STAR_COLOR = 'rgba(180, 150, 80, 0.7)';
-const ATARI_GLOW = 'rgba(255, 107, 107, 0.5)';
-const HOVER_VALID = 'rgba(88, 166, 255, 0.25)';
 
 const boardPixels = CANVAS_SIZE - BOARD_PADDING * 2;
 const cellSize = boardPixels / (BOARD_SIZE - 1);
@@ -52,30 +47,31 @@ interface TerritoryMap {
 
 interface DeadStone { row: number; col: number; color: Color; }
 
-/** Draw the full board state (grid, stones, markers, territory) */
 function drawBoard(
   ctx: CanvasRenderingContext2D,
+  theme: Theme,
   grid: number[],
   lastMove: Point | null,
+  lastMoveNumber: number,
   atariGroups: { color: Color; stones: Point[]; liberty: Point }[],
   hoverPoint: Point | null,
   phase: string,
   territory: TerritoryMap | null = null,
   deadStones: DeadStone[] = [],
 ) {
-  // Background
-  ctx.fillStyle = BG_COLOR;
+  // Canvas background
+  ctx.fillStyle = theme.canvasBackground;
   ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
-  // Board bg
+  // Board background
   ctx.beginPath();
-  ctx.roundRect(10, 10, 680, 680, 8);
-  ctx.fillStyle = BOARD_BG;
+  ctx.roundRect(10, 10, 680, 680, theme.boardBorderRadius);
+  ctx.fillStyle = theme.boardBackground;
   ctx.fill();
 
   // Grid
-  ctx.strokeStyle = LINE_COLOR;
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = theme.lineColor;
+  ctx.lineWidth = theme.lineWidth;
   for (let i = 0; i < BOARD_SIZE; i++) {
     const p = toScreen(i, 0);
     const pe = toScreen(i, BOARD_SIZE - 1);
@@ -86,15 +82,15 @@ function drawBoard(
   }
 
   // Star points
-  ctx.fillStyle = STAR_COLOR;
+  ctx.fillStyle = theme.starColor;
   for (const [r, c] of STAR_POINTS) {
     const { x, y } = toScreen(r, c);
-    ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, theme.starRadius, 0, Math.PI * 2); ctx.fill();
   }
 
   // Coordinates
   const labels = 'ABCDEFGHJKLMNOPQRST';
-  ctx.fillStyle = '#555';
+  ctx.fillStyle = theme.coordinateColor;
   ctx.font = '10px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -108,7 +104,7 @@ function drawBoard(
     for (const s of group.stones) {
       const { x, y } = toScreen(s.row, s.col);
       ctx.beginPath(); ctx.arc(x, y, stoneRadius + 3, 0, Math.PI * 2);
-      ctx.strokeStyle = ATARI_GLOW; ctx.lineWidth = 2; ctx.stroke();
+      ctx.strokeStyle = theme.atariGlow; ctx.lineWidth = 2; ctx.stroke();
     }
   }
 
@@ -118,95 +114,45 @@ function drawBoard(
       const color = grid[row * BOARD_SIZE + col];
       if (color === Color.Empty) continue;
       const { x, y } = toScreen(row, col);
-
-      if (color === Color.Black) {
-        // Outer ring for visibility against dark board
-        ctx.beginPath(); ctx.arc(x, y, stoneRadius + 1, 0, Math.PI * 2);
-        ctx.fillStyle = '#4a4a6a'; ctx.fill();
-        // Main stone body
-        ctx.beginPath(); ctx.arc(x, y, stoneRadius, 0, Math.PI * 2);
-        const bgr = ctx.createRadialGradient(x - stoneRadius * 0.25, y - stoneRadius * 0.25, stoneRadius * 0.1, x, y, stoneRadius);
-        bgr.addColorStop(0, '#3d3d5c');
-        bgr.addColorStop(0.7, '#252540');
-        bgr.addColorStop(1, '#1a1a30');
-        ctx.fillStyle = bgr; ctx.fill();
-        ctx.strokeStyle = 'rgba(100,100,150,0.6)'; ctx.lineWidth = 1.2; ctx.stroke();
-        // Specular highlight
-        ctx.beginPath(); ctx.arc(x - stoneRadius * 0.22, y - stoneRadius * 0.22, stoneRadius * 0.28, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(120,120,180,0.35)'; ctx.fill();
-      } else {
-        // Main stone body
-        ctx.beginPath(); ctx.arc(x, y, stoneRadius, 0, Math.PI * 2);
-        const wgr = ctx.createRadialGradient(x - stoneRadius * 0.2, y - stoneRadius * 0.2, stoneRadius * 0.1, x, y, stoneRadius);
-        wgr.addColorStop(0, '#f0f0ff');
-        wgr.addColorStop(0.6, '#d8d8ee');
-        wgr.addColorStop(1, '#c0c0d8');
-        ctx.fillStyle = wgr; ctx.fill();
-        ctx.strokeStyle = 'rgba(160,160,190,0.6)'; ctx.lineWidth = 1.2; ctx.stroke();
-        // Specular highlight
-        ctx.beginPath(); ctx.arc(x - stoneRadius * 0.18, y - stoneRadius * 0.18, stoneRadius * 0.22, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fill();
-      }
+      theme.drawStone(ctx, x, y, stoneRadius, color as Color);
     }
   }
 
-  // Territory overlay — soft nebula-like shading
+  // Territory overlay
   if (territory && (phase === 'finished' || phase === 'scoring')) {
-    const halfCell = cellSize / 2;
-
-    // Draw black territory
     ctx.save();
-    ctx.globalAlpha = 0.25;
+    ctx.globalAlpha = 0.9;
     for (const idx of territory.black) {
       const row = Math.floor(idx / BOARD_SIZE);
       const col = idx % BOARD_SIZE;
       const { x, y } = toScreen(row, col);
-
-      // Soft radial glow at each territory point
-      const grad = ctx.createRadialGradient(x, y, 0, x, y, halfCell);
-      grad.addColorStop(0, 'rgba(100, 120, 220, 0.6)');
-      grad.addColorStop(0.6, 'rgba(80, 100, 200, 0.3)');
-      grad.addColorStop(1, 'rgba(60, 80, 180, 0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(x - halfCell, y - halfCell, cellSize, cellSize);
+      theme.drawTerritory(ctx, x, y, cellSize, 'black');
     }
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalAlpha = 0.25;
     for (const idx of territory.white) {
       const row = Math.floor(idx / BOARD_SIZE);
       const col = idx % BOARD_SIZE;
       const { x, y } = toScreen(row, col);
-
-      const grad = ctx.createRadialGradient(x, y, 0, x, y, halfCell);
-      grad.addColorStop(0, 'rgba(230, 220, 200, 0.6)');
-      grad.addColorStop(0.6, 'rgba(210, 200, 180, 0.3)');
-      grad.addColorStop(1, 'rgba(190, 180, 160, 0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(x - halfCell, y - halfCell, cellSize, cellSize);
+      theme.drawTerritory(ctx, x, y, cellSize, 'white');
     }
     ctx.restore();
 
-    // Territory count markers (small dots)
+    // Territory count markers on empty intersections
     ctx.globalAlpha = 0.7;
     for (const idx of territory.black) {
+      if (grid[idx] !== Color.Empty) continue;
       const row = Math.floor(idx / BOARD_SIZE);
       const col = idx % BOARD_SIZE;
-      if (grid[idx] === Color.Empty) {
-        const { x, y } = toScreen(row, col);
-        ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#6677cc'; ctx.fill();
-      }
+      const { x, y } = toScreen(row, col);
+      ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = theme.territoryMarkerBlack; ctx.fill();
     }
     for (const idx of territory.white) {
+      if (grid[idx] !== Color.Empty) continue;
       const row = Math.floor(idx / BOARD_SIZE);
       const col = idx % BOARD_SIZE;
-      if (grid[idx] === Color.Empty) {
-        const { x, y } = toScreen(row, col);
-        ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#ccbbaa'; ctx.fill();
-      }
+      const { x, y } = toScreen(row, col);
+      ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = theme.territoryMarkerWhite; ctx.fill();
     }
     ctx.globalAlpha = 1;
   }
@@ -216,16 +162,14 @@ function drawBoard(
     for (const ds of deadStones) {
       const { x, y } = toScreen(ds.row, ds.col);
 
-      // Draw faded stone
       ctx.save();
       ctx.globalAlpha = 0.35;
       ctx.beginPath();
       ctx.arc(x, y, stoneRadius, 0, Math.PI * 2);
-      ctx.fillStyle = ds.color === Color.Black ? '#2d2d48' : '#c8c8dd';
+      ctx.fillStyle = ds.color === Color.Black ? theme.deadStoneBlack : theme.deadStoneWhite;
       ctx.fill();
       ctx.restore();
 
-      // Draw X marker
       const xSize = stoneRadius * 0.45;
       ctx.save();
       ctx.strokeStyle = '#ff4444';
@@ -241,13 +185,31 @@ function drawBoard(
     }
   }
 
-  // Last move marker
-  if (lastMove) {
+  // Last move marker — halo ring around the stone + move number inside
+  if (lastMove && lastMoveNumber > 0) {
     const { x, y } = toScreen(lastMove.row, lastMove.col);
     const c = grid[lastMove.row * BOARD_SIZE + lastMove.col];
-    ctx.beginPath(); ctx.arc(x, y, stoneRadius * 0.3, 0, Math.PI * 2);
-    ctx.fillStyle = c === Color.Black ? 'rgba(170,170,204,0.8)' : 'rgba(51,51,85,0.8)';
-    ctx.fill();
+
+    // Halo ring just outside the stone
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, stoneRadius + 3, 0, Math.PI * 2);
+    ctx.strokeStyle = theme.lastMoveHalo;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+
+    // Move number centered on the stone — scale font for 1/2/3+ digit numbers
+    const numStr = String(lastMoveNumber);
+    const fontScale = numStr.length >= 3 ? 0.7 : numStr.length === 2 ? 0.85 : 1.0;
+    const fontPx = Math.round(stoneRadius * fontScale);
+    ctx.save();
+    ctx.font = `bold ${fontPx}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = c === Color.Black ? theme.lastMoveTextOnBlack : theme.lastMoveTextOnWhite;
+    ctx.fillText(numStr, x, y);
+    ctx.restore();
   }
 
   // Hover
@@ -256,7 +218,7 @@ function drawBoard(
     const occupied = grid[hoverPoint.row * BOARD_SIZE + hoverPoint.col] !== Color.Empty;
     if (!occupied) {
       ctx.beginPath(); ctx.arc(x, y, stoneRadius, 0, Math.PI * 2);
-      ctx.fillStyle = HOVER_VALID; ctx.fill();
+      ctx.fillStyle = theme.hoverValid; ctx.fill();
     }
   }
 }
@@ -265,6 +227,9 @@ export function GoBoard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animManagerRef = useRef(new AnimationManager());
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
+
+  const themeId = useSettingsStore((s) => s.themeId);
+  const theme = getTheme(themeId);
 
   // Replay mode overrides the live game
   const replayActive = useReplayStore((s) => s.active);
@@ -286,10 +251,10 @@ export function GoBoard() {
   const territory = useGameStore((s) => s.territory);
   const deadStones = useGameStore((s) => s.deadStones);
 
-  // Use replay data when active, otherwise live game
   const grid = replayActive ? replayGrid : liveGrid;
   const lastMove = replayActive ? replayLastMove : liveLastMove;
   const replayTotalMoves = useReplayStore((s) => s.totalMoves);
+  const lastMoveNumber = replayActive ? replayCurrentMove : moveCount;
   const effectivePhase = replayActive
     ? (replayCurrentMove >= replayTotalMoves ? 'finished' : 'playing')
     : phase;
@@ -319,10 +284,9 @@ export function GoBoard() {
     const activeAtari = replayActive ? [] : atariGroups;
     const activeTerritory = replayActive ? replayTerritory : territory;
     const activeDead = replayActive ? replayDeadStones : deadStones;
-    drawBoard(ctx, grid, lastMove, activeAtari, hoverPoint, effectivePhase, activeTerritory, activeDead);
+    drawBoard(ctx, theme, grid, lastMove, lastMoveNumber, activeAtari, hoverPoint, effectivePhase, activeTerritory, activeDead);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grid, lastMove, hoverPoint, effectivePhase, moveCount, replayCurrentMove,
-      // Use lengths/sizes as stable deps instead of object refs
+  }, [grid, lastMove, lastMoveNumber, hoverPoint, effectivePhase, moveCount, replayCurrentMove, themeId,
       atariGroups.length, deadStones.length,
       territory ? territory.black.size : -1,
       replayTerritory ? replayTerritory.black.size : -1,
@@ -342,7 +306,9 @@ export function GoBoard() {
     if (!canvas) return;
     const animManager = animManagerRef.current;
 
-    // Placement animation for the last move
+    const activeTerritory = replayActive ? replayTerritory : territory;
+    const activeDead = replayActive ? replayDeadStones : deadStones;
+
     if (lastMove) {
       const stoneColor = grid[lastMove.row * BOARD_SIZE + lastMove.col];
       if (stoneColor !== Color.Empty) {
@@ -351,16 +317,15 @@ export function GoBoard() {
           if (!ctx) return;
           const dpr = window.devicePixelRatio || 1;
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          drawBoard(ctx, grid, lastMove, atariGroups, null, effectivePhase, activeTerritory, activeDead);
+          drawBoard(ctx, theme, grid, lastMove, lastMoveNumber, atariGroups, null, effectivePhase, activeTerritory, activeDead);
         });
-        animManager.add(createPlacementAnimation(lastMove, stoneColor as Color));
+        animManager.add(createPlacementAnimation(lastMove, stoneColor as Color, theme));
       }
     }
 
-    // Capture animation
     if (lastCaptures.length > 0 && lastMove) {
-      const capturedColor = currentColor; // The captured stones were the current player's color (since turn already switched)
-      animManager.add(createCaptureAnimation(lastCaptures, lastMove, capturedColor));
+      const capturedColor = currentColor;
+      animManager.add(createCaptureAnimation(lastCaptures, lastMove, capturedColor, theme));
     }
 
     return () => {

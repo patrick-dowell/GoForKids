@@ -14,18 +14,26 @@ function autoSaveGame(state: GameState, sgfOverride?: string) {
   const isResignation = state.result.blackScore === 0 && state.result.whiteScore === 0;
   const margin = Math.abs(state.result.blackScore - state.result.whiteScore);
 
+  const isBotVsBot = state.gameMode === 'botvsbot';
+  const opponentRank = isBotVsBot
+    ? `${state.blackRank || '?'} vs ${state.whiteRank || '?'}`
+    : state.targetRank;
+
   const saved: SavedGame = {
     id: state.gameId || `local-${Date.now()}`,
     sgf,
     date: new Date().toISOString(),
     playerColor: state.playerColor === Color.Black ? 'black' : 'white',
-    opponentRank: state.targetRank,
+    opponentRank,
     result: isResignation
       ? `${winner} wins (resignation)`
       : `${winner} wins by ${margin.toFixed(1)}`,
     moveCount: state.moveCount,
     isRanked: state.isRanked,
     gameId: state.gameId,
+    gameType: isBotVsBot ? 'bot-vs-bot' : 'human-vs-bot',
+    blackRank: isBotVsBot ? state.blackRank : undefined,
+    whiteRank: isBotVsBot ? state.whiteRank : undefined,
   };
 
   useLibraryStore.getState().saveGame(saved);
