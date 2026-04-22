@@ -1,6 +1,6 @@
 # 08 — Traditional board mode
 
-**Status:** 📝 Planned
+**Status:** ✅ Done (first cut) — 2026-04-22
 **Priority:** Low
 
 ## What
@@ -23,6 +23,20 @@ A settings toggle that swaps the cosmic theme for a traditional look: wooden kay
 
 ## Scope — first cut
 - Theme abstraction, two themes, sound swap, setting in a simple modal.
+
+## Shipped
+- `theme/themes.ts` with `Theme` type + `cosmic` and `classic` themes.
+- `settingsStore` persists theme choice to localStorage.
+- Classic theme: kaya wood board, slate/clamshell stones, thin dark grid, flat translucent territory, reduced animation intensity, red halo for last-move marker.
+- Real sampled sounds in `frontend/public/assets/` (placement + capture m4a) for classic mode, with procedural fallback if the sample fails to load.
+- Floating gear (bottom-right) opens a settings dialog with side-by-side preview cards.
+- UI chrome (homepage, player cards) stays cosmic — intentional scope limit noted in first-cut.
+
+## Follow-ups left open
+- Per-piece cosmetic overrides (cosmic board + classic stones, etc.).
+- Unlockable themes (belongs in rewards cluster — feature 15).
+- Dedicated settings panel with separate toggles for theme / sound / animation intensity (today they're bundled).
+- Reskin the rest of the UI chrome for classic mode.
 
 ## Out of scope (first cut)
 - Unlockable themes tied to play progress (that's the cosmetics feature).
