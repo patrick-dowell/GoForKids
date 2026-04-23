@@ -196,19 +196,59 @@ randomness=0.45, random_move_chance=0.02, local_bias=0.20, opening_moves=22
 
 ---
 
-### 10k — Boulder
+> **Rank relabel (2026-04-23).** The four bots below were renamed to land
+> on a uniform 3-rank step through the ladder: 30k → 18k → 15k → 12k →
+> 9k → 6k → 3k → 1d. Profile parameters are unchanged from their old
+> labels (10k, 8k, 5k, 3k) — they were interpolated and never validated,
+> so the new labels are aspirational until calibration runs. In the UI
+> these four are marked "coming soon" and disabled in the bot picker.
 
-**Profile:**
+### 9k — Boulder (was 10k)
+
+**Character:** Mid-kyu with solid basics. Recognizes shape, follows KataGo's policy closely, makes moderate errors mostly in the midgame. Plays like a player who's learned the rules but still misjudges direction and timing.
+
+**Profile (v1, validated):**
 ```python
 visits=80, mistake_freq=0.25, max_point_loss=10, policy_weight=0.50,
 randomness=0.40, random_move_chance=0.02, local_bias=0.12, opening_moves=20
 ```
 
-Not yet validated. Interpolated.
+Parameters carried over unchanged from the old 10k slot. Validated on 2026-04-23 without tuning — the profile already followed the v4 lesson (high `policy_weight`, low `randomness`).
+
+**Calibration targets:**
+- Wins ~75-80% vs 12k at even games (3-rank gap).
+- Roughly 50/50 vs 12k at 3 handicap (12k handicapped up).
+- Match rate vs real 9k Fox games in the same ballpark as 12k-vs-12k (exact ≥ 15%, close ≥ 25%).
+
+**Calibration data source:** 291,525 real 9k Fox Go Server games (`data/9k/`, downloaded from featurecat/go-dataset 2026-04-23).
+
+**Bot-vs-bot results:**
+| Test | Result | Target |
+|------|--------|--------|
+| Even vs 12k | 81% win (13/16) | 75-80% |
+| 12k + 3H vs 9k | 50% win for 9k (4/8) | ~50% |
+
+**Bot validation — `test_bot_vs_real.py --rank 9k` (114 positions from 20 games):**
+| Metric | 9k v1 | 12k v4 | 15k baseline |
+|--------|-------|--------|--------------|
+| Exact match | 20.2% | 15.3% | 24% |
+| Close (≤2) | 30.7% | 25.2% | 37% |
+| Same area (≤5) | 47.4% | 43.2% | 50% |
+| Same quadrant | 54.4% | 53.2% | 57% |
+| Avg distance | 7.6 | 8.6 | — |
+
+**Phase-by-phase accuracy (v1):**
+| Phase | Exact | Close (≤2) | Same area (≤5) | Avg dist |
+|-------|-------|-----------|----------------|----------|
+| Opening (1-30) | 29% | 39% | 55% | 6.2 |
+| Midgame (31-100) | 16% | 29% | 42% | 7.9 |
+| Endgame (100+) | 16% | 24% | 45% | 8.8 |
+
+**Key lesson:** The v4 insight from 12k calibration — **high `policy_weight` + low `randomness` beats chaos** — was already baked into the interpolated 10k profile. So the 9k slot shipped valid on first run. Keep this formula when calibrating 6k, 3k, 1d.
 
 ---
 
-### 8k — Ember
+### 6k — Ember (was 8k)
 
 **Profile:**
 ```python
@@ -216,11 +256,11 @@ visits=120, mistake_freq=0.18, max_point_loss=6, policy_weight=0.60,
 randomness=0.30, random_move_chance=0.01, local_bias=0.08, opening_moves=15
 ```
 
-Not yet validated. Interpolated.
+Not yet validated. Parameters carried over from the old 8k slot.
 
 ---
 
-### 5k — Storm
+### 3k — Storm (was 5k)
 
 **Profile:**
 ```python
@@ -228,11 +268,11 @@ visits=200, mistake_freq=0.10, max_point_loss=4, policy_weight=0.75,
 randomness=0.18, random_move_chance=0.0, local_bias=0.03, opening_moves=10
 ```
 
-Not yet validated. Interpolated.
+Not yet validated. Parameters carried over from the old 5k slot.
 
 ---
 
-### 3k — Void
+### 1d — Void (was 3k)
 
 **Character:** Strongest bot. Plays near-optimal with occasional small mistakes.
 
@@ -242,7 +282,7 @@ visits=300, mistake_freq=0.06, max_point_loss=2.5, policy_weight=0.85,
 randomness=0.10, random_move_chance=0.0, local_bias=0.0, opening_moves=5
 ```
 
-Not yet validated. At 300 visits and 6% mistake rate, this should play close to KataGo's full strength. The main weakness compared to full KataGo is the occasional 2.5-point mistake.
+Not yet validated. Parameters carried over from the old 3k slot. At 300 visits and 6% mistake rate this should play close to KataGo's full strength; main weakness is the occasional 2.5-point mistake.
 
 ---
 

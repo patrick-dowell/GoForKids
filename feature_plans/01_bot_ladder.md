@@ -4,8 +4,15 @@
 **Priority:** High
 
 ## Progress
-- **12k "Stream"** — validated v4 profile: 75% even-game win vs 15k, 62% at H3, 43% same-area match rate vs real 12k Fox games. Slight over-performance at handicap (should be ~50%, is 62%) — documented, not blocking. See `AI_CALIBRATION.md` for the full v1→v4 history.
-- 10k, 8k, 5k, 3k, 1k, 1d — still interpolated only; no validation yet.
+- **30k Seedling, 18k Sprout, 15k Pebble** — validated (session 1).
+- **12k Stream** — validated 2026-04-22 (v4 profile): 75% even-game win vs 15k, 62% at H3, 43% same-area match rate vs real 12k Fox games. Slight over-performance at handicap (should be ~50%, is 62%) — documented, not blocking.
+- **9k Boulder** — validated 2026-04-23 at inherited parameters (no tuning): 81% even vs 12k (13/16), 50% at H3 (4/8) — textbook handicap balance. Match rate 20% exact / 47% same-area / 29% opening exact vs real 9k Fox games.
+- **6k Ember, 3k Storm, 1d Void** — still interpolated only; no validation yet. Marked "coming soon" (greyed out + disabled) in the bot picker.
+
+## Rank ladder (current labels)
+30k Seedling · 18k Sprout · 15k Pebble · 12k Stream · 9k Boulder · 6k Ember · 3k Storm · 1d Void
+
+Relabeled 2026-04-23 from the old 30k/18k/15k/12k/10k/8k/5k/3k progression to a uniform 3-rank step. Profiles for the four renamed bots (Boulder, Ember, Storm, Void) still hold their old parameters pending recalibration at the new labels.
 
 
 
