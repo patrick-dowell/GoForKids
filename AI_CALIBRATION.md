@@ -149,13 +149,50 @@ randomness=0.60, random_move_chance=0.05, local_bias=0.25, opening_moves=30
 
 ### 12k — Stream
 
-**Profile:**
+**Character:** A step above 15k. Still makes recognizable strategic errors, but searches deeper, follows KataGo's policy more closely, and makes fewer large mistakes.
+
+**Profile (v4):**
 ```python
-visits=50, mistake_freq=0.32, max_point_loss=15, policy_weight=0.40,
-randomness=0.50, random_move_chance=0.03, local_bias=0.18, opening_moves=25
+visits=42, mistake_freq=0.34, max_point_loss=17, policy_weight=0.42,
+randomness=0.45, random_move_chance=0.02, local_bias=0.20, opening_moves=22
 ```
 
-Not yet validated against real games or bot-vs-bot. Interpolated between 15k and 10k.
+**Calibration targets:**
+- Wins ~70-80% vs 15k at even games (3-rank gap, mirrors 18k losing to 15k 75-80%)
+- Closer to 50/50 vs 15k at 3 handicap stones (15k handicapped up)
+- Match rate vs real 12k Fox games in the same ballpark as 15k-vs-15k (exact ≥ 15%, close ≥ 25%)
+
+**Calibration data source:** 151,844 real 12k Fox Go Server games (`data/12k/`, downloaded from featurecat/go-dataset 2026-04-22).
+
+**Bot validation — `test_bot_vs_real.py --rank 12k` (112 positions from 20 games):**
+| Metric | 12k v4 | 15k baseline |
+|--------|--------|--------------|
+| Exact match | 15.3% | 24% |
+| Close (≤2) | 25.2% | 37% |
+| Same area (≤5) | 43.2% | 50% |
+| Same quadrant | 53.2% | 57% |
+| Avg distance | 8.6 | — |
+
+**Phase-by-phase accuracy (v4):**
+| Phase | Exact | Close (≤2) | Same area (≤5) | Avg dist |
+|-------|-------|-----------|----------------|----------|
+| Opening (1-30) | 12% | 25% | 48% | 7.6 |
+| Midgame (31-100) | 20% | 30% | 45% | 8.1 |
+| Endgame (100+) | 13% | 19% | 35% | 10.5 |
+
+**Calibration history:**
+| Version | Config | Even vs 15k | H3 vs 15k | Exact match | Notes |
+|---------|--------|-------------|-----------|-------------|-------|
+| v1 (interpolated) | visits=50, mistake=0.32, loss=15 | 75% (6/8) | 71% (5/7) | — | Too strong on H |
+| v2 | visits=40, mistake=0.36, loss=17 | 71% (5/7) | 62% (5/8) | 15% | Match rate too low (too random) |
+| v3 (reverted) | visits=35, mistake=0.38, loss=18 | 40% (2/5) | — | — | Overshot; games stalled past 400 moves |
+| v4 (current) | visits=42, mistake=0.34, loss=17, policy=0.42, rand=0.45 | 75% (6/8) | 62% (5/8) | 15% / 25% / 43% | Match rate recovered; win rates held |
+
+**Key lessons:**
+- **Pure randomness hurts match rate without hurting win rate much.** v2 cranked `randomness` and `random_move_chance` for H3 balance but tanked midgame match rate (12% exact) because the bot was making chaotic moves no real 12k player would make.
+- **Higher `policy_weight` + lower `randomness` matches humans better than low noise ever did.** KataGo's policy prior is trained from human games, so strong policy following naturally reproduces human-like choice distributions. Mistakes come from the bell-curve point-loss mechanism instead.
+- **Handicap theory ("3 stones ≈ 3 ranks") doesn't hold tightly for bots.** 15k's opening code already picks from KataGo's top 3, so handicap stars aren't "free points" against our 15k. H3 sitting at 62% is the realistic floor for this matchup.
+- **Games can exceed 400 moves at this rank pair.** Bumped `bot_vs_bot.py` default `--max-moves` to 600 after v4 hit several 400-move caps under lower randomness.
 
 ---
 

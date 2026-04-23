@@ -124,16 +124,27 @@ RANK_PROFILES = {
         "opening_moves": 30,        # First 30 moves: play KataGo top-3 only (sensible opening)
     },
     "12k": {
-        "max_point_loss": 15.0,
-        "mistake_freq": 0.32,
-        "policy_weight": 0.40,
-        "randomness": 0.50,
-        "random_move_chance": 0.03,
-        "local_bias": 0.18,
+        # v1 (interpolated): even 75%, H3 71%, match-rate not measured.
+        # v2: weakened globally for better H3 → even 71%, H3 62%, but
+        #   match-rate against real 12k Fox games dropped to 15% exact /
+        #   23% close / 33% same area. Too random in midgame/endgame.
+        # v3 (reverted): over-weakened, games stalled past move 400.
+        # v4 (current): dial back pure noise (randomness, random_move_chance)
+        #   and tighten KataGo following (higher policy_weight) while
+        #   keeping the bell-curve mistake mechanism — moderate errors
+        #   that match real 12k patterns instead of random chaos.
+        #   Even 75%, H3 62%, exact 15% / close 25% / same-area 43% /
+        #   quadrant 53% / midgame exact 20% (near 15k's 21%).
+        "max_point_loss": 17.0,
+        "mistake_freq": 0.34,
+        "policy_weight": 0.42,
+        "randomness": 0.45,
+        "random_move_chance": 0.02,
+        "local_bias": 0.20,
         "first_line_chance": 0.0,
-        "visits": 50,
+        "visits": 42,
         "min_candidates": 10,
-        "opening_moves": 25,
+        "opening_moves": 22,
     },
     "10k": {
         "max_point_loss": 10.0,

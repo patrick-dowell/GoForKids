@@ -13,7 +13,7 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 
 | # | Feature | Status | Priority | Depends on |
 |---|---------|--------|----------|------------|
-| 01 | [Bot ladder completion (12k–1d)](01_bot_ladder.md) | 📝 Planned | High | — |
+| 01 | [Bot ladder completion (12k–1d)](01_bot_ladder.md) | 🚧 In progress | High | — |
 | 02 | [Puzzles](02_puzzles.md) | 📝 Planned | High | 03 (shared concept taxonomy) |
 | 03 | [Concept lessons](03_concept_lessons.md) | 📝 Planned | High | — |
 | 04 | [AI Go Teacher (review mode)](04_ai_teacher_review.md) | 📝 Planned | High | Study-mode plumbing in v1 |
