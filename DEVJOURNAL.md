@@ -1,5 +1,63 @@
 # Development Journal
 
+## Session 5 — April 23, 2026 (afternoon)
+
+### 9k "Boulder" bot validated without tuning
+
+Shipped the 9k profile at its inherited parameters (previously the old 10k slot). No iterations needed.
+
+**Numbers:**
+- Even vs 12k: **81% (13/16 games)** — right at the upper edge of the 75-80% target band. First 8-game batch came in at 88% (variance), second batch at 75%, combined gives the clean signal.
+- 12k + 3 handicap vs 9k: **50% exactly (4/8)** — textbook handicap balance. This is the first time we've hit the clean handicap theory target.
+- Match rate vs 114 positions from 20 real 9k Fox games: 20% exact, 31% close (≤2), 47% same-area (≤5), 54% same-quadrant. Opening exact 29% — actually better than the 15k baseline.
+
+### Why it worked first try
+
+The old 10k profile had `policy_weight=0.50` and `randomness=0.40` — already following the "v4 lesson" from 12k calibration (tight KataGo policy, low chaos). When I relabeled it to 9k yesterday, I got lucky — the bot was already tuned in the right direction.
+
+Handicap theory for bots worked cleanly here in a way it didn't for 12k-vs-15k. Plausible reason: 15k's code picks from KataGo's top 3 moves even in the opening, so handicap stars feel "free" to it. 12k's profile is more mistake-prone, so handicap stones actually compensate as theory predicts.
+
+### Carry-forward for remaining bots
+
+Keep the v4 formula for 6k, 3k, 1d: `policy_weight ≥ 0.50`, `randomness ≤ 0.40`, moderate `mistake_freq`, bell-curve point-loss. Resist the urge to "add more chaos" for weaker handicap balance — 9k just proved the formula works cleanly on its own.
+
+### Files touched
+- `backend/app/ai/move_selector.py` — added calibration notes to the 9k profile comment.
+- `frontend/src/components/Avatar.tsx` — flipped 9k `validated` to `true`.
+- `frontend/src/components/NewGameDialog.tsx` — same flip for the picker dropdown.
+- `AI_CALIBRATION.md` — full 9k section with tables and the "why it worked first try" note.
+- `feature_plans/01_bot_ladder.md` — progress updated.
+- `.gitignore` — added `data/9k/`.
+
+Data: downloaded 291,525 games to `data/9k/` (gitignored, 60MB .7z).
+
+---
+
+## Session 4 — April 23, 2026
+
+### Rebalanced bot ladder to a uniform 3-rank step
+
+Renamed the top four bots so the ladder steps evenly by 3 ranks all the way up:
+- Boulder: 10k → **9k**
+- Ember: 8k → **6k**
+- Storm: 5k → **3k**
+- Void: 3k → **1d**
+
+Full ladder: 30k → 18k → 15k → 12k → 9k → 6k → 3k → 1d. Profile parameters were carried over as-is; these four have never been validated at any label, so they need real calibration at their new labels. 15k and 12k keep their slots unchanged.
+
+### Bot picker: grey out the uncalibrated bots
+
+Added a `validated` flag to `BOT_AVATARS` (true for 30k, 18k, 15k, 12k; false for the rest). In the new-game dialog, unvalidated ranks render as disabled options with "coming soon" suffix. On the homepage roster they're dimmed (opacity 0.4) with a grayscale filter and a small "Soon" badge. Nothing blocks direct API calls to those ranks — they still work if invoked — but the UI steers players toward the calibrated set.
+
+### Files touched
+- `backend/app/ai/move_selector.py` — renamed profile dict keys; added a comment noting the rename date.
+- `frontend/src/components/Avatar.tsx` — added `validated` to `BOT_AVATARS`.
+- `frontend/src/components/NewGameDialog.tsx` — reworked `RANK_OPTIONS` and extracted a `rankOption` renderer that disables unvalidated entries.
+- `frontend/src/components/HomePage.tsx` and `HomePage.css` — dim/locked styling + "Soon" badge.
+- `AI_CALIBRATION.md`, `feature_plans/01_bot_ladder.md` — doc updates.
+
+---
+
 ## Session 3 — April 22, 2026 (afternoon)
 
 ### Calibrated 12k "Stream" bot

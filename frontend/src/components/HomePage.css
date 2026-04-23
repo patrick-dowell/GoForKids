@@ -200,6 +200,27 @@
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  position: relative;
+  transition: opacity 0.2s;
+}
+
+.home-bot-preview-locked {
+  opacity: 0.4;
+  filter: grayscale(0.5);
+}
+
+.home-bot-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #0d1117;
+  background: #8b949e;
+  padding: 1px 5px;
+  border-radius: 3px;
 }
 
 .home-bot-name {

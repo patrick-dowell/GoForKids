@@ -8,16 +8,24 @@ interface NewGameDialogProps {
   onClose: () => void;
 }
 
-const RANK_OPTIONS = [
-  { value: '30k', label: '30 kyu — Seedling' },
-  { value: '18k', label: '18 kyu — Sprout' },
-  { value: '15k', label: '15 kyu — Pebble' },
-  { value: '12k', label: '12 kyu — Stream' },
-  { value: '10k', label: '10 kyu — Boulder' },
-  { value: '8k', label: '8 kyu — Ember' },
-  { value: '5k', label: '5 kyu — Storm' },
-  { value: '3k', label: '3 kyu — Void' },
+const RANK_OPTIONS: { value: string; label: string; validated: boolean }[] = [
+  { value: '30k', label: '30 kyu — Seedling', validated: true },
+  { value: '18k', label: '18 kyu — Sprout', validated: true },
+  { value: '15k', label: '15 kyu — Pebble', validated: true },
+  { value: '12k', label: '12 kyu — Stream', validated: true },
+  { value: '9k',  label: '9 kyu — Boulder', validated: true },
+  { value: '6k',  label: '6 kyu — Ember', validated: false },
+  { value: '3k',  label: '3 kyu — Storm', validated: false },
+  { value: '1d',  label: '1 dan — Void', validated: false },
 ];
+
+function rankOption(opt: { value: string; label: string; validated: boolean }) {
+  return (
+    <option key={opt.value} value={opt.value} disabled={!opt.validated}>
+      {opt.label}{opt.validated ? '' : ' — coming soon'}
+    </option>
+  );
+}
 
 function getSavedAvatar(): PlayerAvatarType {
   try {
@@ -123,9 +131,7 @@ export function NewGameDialog({ onClose }: NewGameDialogProps) {
             <div className="opponent-preview">
               <Avatar type={botInfo.type} size={40} />
               <select value={targetRank} onChange={(e) => setTargetRank(e.target.value)}>
-                {RANK_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
+                {RANK_OPTIONS.map(rankOption)}
               </select>
             </div>
           </div>
@@ -139,9 +145,7 @@ export function NewGameDialog({ onClose }: NewGameDialogProps) {
               <div className="opponent-preview">
                 <Avatar type={(BOT_AVATARS[blackRank] || BOT_AVATARS['15k']).type} size={40} />
                 <select value={blackRank} onChange={(e) => setBlackRank(e.target.value)}>
-                  {RANK_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
+                  {RANK_OPTIONS.map(rankOption)}
                 </select>
               </div>
             </div>
@@ -150,9 +154,7 @@ export function NewGameDialog({ onClose }: NewGameDialogProps) {
               <div className="opponent-preview">
                 <Avatar type={(BOT_AVATARS[whiteRank] || BOT_AVATARS['15k']).type} size={40} />
                 <select value={whiteRank} onChange={(e) => setWhiteRank(e.target.value)}>
-                  {RANK_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
+                  {RANK_OPTIONS.map(rankOption)}
                 </select>
               </div>
             </div>

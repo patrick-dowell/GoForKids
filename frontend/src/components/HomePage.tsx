@@ -44,10 +44,15 @@ export function HomePage({ onNewGame, onLibrary }: HomePageProps) {
           <p className="home-bots-label">Choose your opponent</p>
           <div className="home-bots-row">
             {BOTS.map(([rank, info]) => (
-              <div key={rank} className="home-bot-preview">
+              <div
+                key={rank}
+                className={`home-bot-preview${info.validated ? '' : ' home-bot-preview-locked'}`}
+                title={info.validated ? '' : 'Coming soon — not yet calibrated'}
+              >
                 <Avatar type={info.type} size={44} />
                 <span className="home-bot-name">{info.name}</span>
                 <span className="home-bot-rank">{rank}</span>
+                {!info.validated && <span className="home-bot-badge">Soon</span>}
               </div>
             ))}
           </div>

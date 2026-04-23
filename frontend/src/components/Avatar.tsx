@@ -10,15 +10,15 @@ export type BotAvatarType = 'seedling' | 'sprout' | 'pebble' | 'stream' | 'bould
 export type PlayerAvatarType = 'blackhole' | 'nova' | 'nebula';
 export type AvatarType = BotAvatarType | PlayerAvatarType;
 
-export const BOT_AVATARS: Record<string, { type: BotAvatarType; name: string }> = {
-  '30k': { type: 'seedling', name: 'Seedling' },
-  '18k': { type: 'sprout', name: 'Sprout' },
-  '15k': { type: 'pebble', name: 'Pebble' },
-  '12k': { type: 'stream', name: 'Stream' },
-  '10k': { type: 'boulder', name: 'Boulder' },
-  '8k': { type: 'ember', name: 'Ember' },
-  '5k': { type: 'storm', name: 'Storm' },
-  '3k': { type: 'void', name: 'Void' },
+export const BOT_AVATARS: Record<string, { type: BotAvatarType; name: string; validated: boolean }> = {
+  '30k': { type: 'seedling', name: 'Seedling', validated: true },
+  '18k': { type: 'sprout', name: 'Sprout', validated: true },
+  '15k': { type: 'pebble', name: 'Pebble', validated: true },
+  '12k': { type: 'stream', name: 'Stream', validated: true },
+  '9k':  { type: 'boulder', name: 'Boulder', validated: true },
+  '6k':  { type: 'ember', name: 'Ember', validated: false },
+  '3k':  { type: 'storm', name: 'Storm', validated: false },
+  '1d':  { type: 'void', name: 'Void', validated: false },
 };
 
 export const PLAYER_AVATARS: { type: PlayerAvatarType; name: string }[] = [

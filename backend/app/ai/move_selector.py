@@ -146,7 +146,18 @@ RANK_PROFILES = {
         "min_candidates": 10,
         "opening_moves": 22,
     },
-    "10k": {
+    # NOTE: The four profiles below were renamed 2026-04-23 to land on a
+    # uniform 3-rank progression (30k → 18k → 15k → 12k → 9k → 6k → 3k → 1d).
+    # Parameters started as the old 10k/8k/5k/3k interpolated profiles.
+    # 9k was validated at those inherited parameters on 2026-04-23 and
+    # shipped without tuning. 6k, 3k, 1d still need calibration.
+    "9k": {  # Boulder — validated 2026-04-23 at inherited parameters.
+        # Even vs 12k: 81% (13/16) — in 75-80% target band.
+        # H3 vs 12k+3: 50% (4/8) — textbook handicap balance.
+        # Match rate vs real 9k Fox: 20% exact / 31% close / 47% region /
+        #   54% quadrant, opening exact 29%. Already follows the v4
+        #   lesson (high policy_weight, low randomness), which is
+        #   probably why no tuning was needed.
         "max_point_loss": 10.0,
         "mistake_freq": 0.25,
         "policy_weight": 0.50,
@@ -158,7 +169,7 @@ RANK_PROFILES = {
         "min_candidates": 8,
         "opening_moves": 20,
     },
-    "8k": {
+    "6k": {  # Ember — was 8k
         "max_point_loss": 6.0,
         "mistake_freq": 0.18,
         "policy_weight": 0.60,
@@ -170,7 +181,7 @@ RANK_PROFILES = {
         "min_candidates": 7,
         "opening_moves": 15,
     },
-    "5k": {
+    "3k": {  # Storm — was 5k
         "max_point_loss": 4.0,
         "mistake_freq": 0.10,
         "policy_weight": 0.75,
@@ -182,7 +193,7 @@ RANK_PROFILES = {
         "min_candidates": 6,
         "opening_moves": 10,
     },
-    "3k": {
+    "1d": {  # Void — was 3k
         "max_point_loss": 2.5,
         "mistake_freq": 0.06,
         "policy_weight": 0.85,
