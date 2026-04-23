@@ -14,7 +14,7 @@ const RANK_OPTIONS: { value: string; label: string; validated: boolean }[] = [
   { value: '15k', label: '15 kyu — Pebble', validated: true },
   { value: '12k', label: '12 kyu — Stream', validated: true },
   { value: '9k',  label: '9 kyu — Boulder', validated: true },
-  { value: '6k',  label: '6 kyu — Ember', validated: false },
+  { value: '6k',  label: '6 kyu — Ember', validated: true },
   { value: '3k',  label: '3 kyu — Storm', validated: false },
   { value: '1d',  label: '1 dan — Void', validated: false },
 ];

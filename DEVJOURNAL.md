@@ -1,5 +1,52 @@
 # Development Journal
 
+## Session 6 — April 23, 2026 (evening)
+
+### 6k "Ember" bot calibrated
+
+**Final v2 numbers:**
+- Even vs 9k: **81% (13/16)** — same clean 75-80% signal 9k gave us.
+- 9k + 3 handicap vs 6k: **50% (4/8)** — textbook handicap balance again.
+- Match rate vs 120 positions from 20 real 6k Fox games: 18.5% exact, 30% close, 45% same-area, 49% same-quadrant. Endgame exact 23%.
+
+### Key lesson learned this session
+
+**Don't assume the jump between validated ranks matches the jump between old interpolated ranks.**
+
+The old 8k profile (visits=120, mistake=0.18, loss=6, policy=0.60) was way too strong for the new 6k slot — even-game win rate vs 9k was 88%, and handicap didn't balance *at all* (still 88% in favor of 6k with 9k given 3 stones). That's more like 4k/5k strength.
+
+The underlying issue: when I renamed 8k → 6k yesterday I implicitly assumed "the old 10k/8k gap = the new 9k/6k gap." But 10k → 8k was 2 rank labels on a 3-rank-strength jump. Relabeling without retuning preserved the outsized strength jump.
+
+**v2 recipe:** small nudges off 9k's profile instead of wholesale replacement.
+- `max_point_loss`: 10 → 9 (small)
+- `mistake_freq`: 0.25 → 0.23 (small)
+- `policy_weight`: 0.50 → 0.52 (small)
+- `randomness`: 0.40 → 0.37 (small)
+- `visits`: 80 → 95 (moderate)
+- `opening_moves`: 20 → 18 (small)
+
+That produced a bot that's meaningfully but not crushingly stronger than 9k.
+
+### Carry-forward for 3k and 1d
+
+Keep the same "small deltas" recipe. The old 5k profile (max_loss=4, mistake=0.10, visits=200) is probably still too strong for the new 3k slot by the same logic. Start from 6k v2 and nudge, don't copy the old 5k wholesale. Same story for 1d vs the old 3k profile.
+
+### Process notes
+
+- Variance was high early. First even-game batch hit 62% (below target), second batch hit 100% — combined 16-game sample = 81%. 8-game batches are too small to trust in isolation at this rank level; always run 16 when the first batch looks off-target.
+- Per-game time is longer at this strength (~100s/game for 6k vs 9k with visits=95). Budget ~15 min per 8-game batch.
+
+### Files touched
+- `backend/app/ai/move_selector.py` — 6k v2 profile with calibration notes.
+- `frontend/src/components/Avatar.tsx` + `NewGameDialog.tsx` — 6k `validated: true`.
+- `AI_CALIBRATION.md` — full 6k section, v1/v2 history, phase tables.
+- `feature_plans/01_bot_ladder.md` — progress updated.
+- `.gitignore` — added `data/6k/`.
+
+Data: 296,465 real 6k Fox games downloaded to `data/6k/` (gitignored).
+
+---
+
 ## Session 5 — April 23, 2026 (afternoon)
 
 ### 9k "Boulder" bot validated without tuning

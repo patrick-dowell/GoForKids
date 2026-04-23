@@ -250,13 +250,46 @@ Parameters carried over unchanged from the old 10k slot. Validated on 2026-04-23
 
 ### 6k — Ember (was 8k)
 
-**Profile:**
+**Character:** A rank above 9k. Slightly tighter reading, slightly fewer mid-size mistakes, but still plays recognizable human-like moves in the midgame. The v1/v2 delta below is a concrete illustration of "keep profile jumps small between validated ranks."
+
+**Profile (v2, validated):**
 ```python
-visits=120, mistake_freq=0.18, max_point_loss=6, policy_weight=0.60,
-randomness=0.30, random_move_chance=0.01, local_bias=0.08, opening_moves=15
+visits=95, mistake_freq=0.23, max_point_loss=9, policy_weight=0.52,
+randomness=0.37, random_move_chance=0.015, local_bias=0.10, opening_moves=18
 ```
 
-Not yet validated. Parameters carried over from the old 8k slot.
+**Calibration targets:**
+- Wins ~75-80% vs 9k at even games (3-rank gap).
+- Roughly 50/50 vs 9k at 3 handicap (9k handicapped up).
+- Match rate vs real 6k Fox games in the same ballpark as 9k-vs-9k.
+
+**Calibration data source:** 296,465 real 6k Fox Go Server games (`data/6k/`, downloaded from featurecat/go-dataset 2026-04-23).
+
+**Calibration history:**
+| Version | Config | Even vs 9k | H3 vs 9k+3 | Notes |
+|---------|--------|-----------|------------|-------|
+| v1 (inherited from old 8k) | visits=120, mistake=0.18, loss=6, policy=0.60 | 88% (7/8) | 88% (7/8) — H3 didn't balance at all | Way too strong — playing like 4k/5k |
+| v2 (current) | visits=95, mistake=0.23, loss=9, policy=0.52, rand=0.37 | 81% (13/16) | 50% (4/8) | On target; mirrors 9k's calibration signal |
+
+**Bot validation — `test_bot_vs_real.py --rank 6k` (120 positions from 20 games):**
+| Metric | 6k v2 | 9k v1 | 12k v4 | 15k baseline |
+|--------|-------|-------|--------|--------------|
+| Exact match | 18.5% | 20.2% | 15.3% | 24% |
+| Close (≤2) | 30.3% | 30.7% | 25.2% | 37% |
+| Same area (≤5) | 45.4% | 47.4% | 43.2% | 50% |
+| Same quadrant | 49.6% | 54.4% | 53.2% | 57% |
+| Avg distance | 8.6 | 7.6 | 8.6 | — |
+
+**Phase-by-phase accuracy (v2):**
+| Phase | Exact | Close (≤2) | Same area (≤5) | Avg dist |
+|-------|-------|-----------|----------------|----------|
+| Opening (1-30) | 15% | 30% | 42% | 8.7 |
+| Midgame (31-100) | 18% | 35% | 52% | 7.1 |
+| Endgame (100+) | 23% | 26% | 41% | 9.9 |
+
+Edge distance: bot 2.6 vs real 2.7 — essentially identical.
+
+**Key lesson:** The old interpolated 8k profile jumped too far from 10k. When I relabeled 8k→6k and 10k→9k, the implicit assumption was "the same distance between ranks" — but the old 10k→8k gap was a 2-rank label spanning a 3-rank strength jump. v2 proves the right recipe between validated ranks is **small deltas** on every lever, not "one step stronger on everything."
 
 ---
 
