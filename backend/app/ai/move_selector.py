@@ -169,17 +169,30 @@ RANK_PROFILES = {
         "min_candidates": 8,
         "opening_moves": 20,
     },
-    "6k": {  # Ember — was 8k
-        "max_point_loss": 6.0,
-        "mistake_freq": 0.18,
-        "policy_weight": 0.60,
-        "randomness": 0.30,
-        "random_move_chance": 0.01,
-        "local_bias": 0.08,
+    "6k": {  # Ember — validated 2026-04-23.
+        # v1 (inherited from old 8k): max_loss=6, mistake=0.18, policy=0.60,
+        #   visits=120. Too strong: even vs 9k = 88%, and still 88% for 6k
+        #   even when 9k got 3 handicap stones — playing more like 4k/5k.
+        # v2 (current): weakened to "modestly stronger than 9k" instead of
+        #   "much stronger." Slight nudges from 9k v1: tighter policy,
+        #   lower randomness, fewer mistakes, deeper search. No big
+        #   jumps in any single lever.
+        #   Even vs 9k: 81% (13/16 games).
+        #   H3 vs 9k+3: 50% (4/8) — textbook balance.
+        #   Match rate vs real 6k Fox: 18.5% exact / 30% close / 45% region
+        #     / 50% quadrant. Endgame exact 23%.
+        #   Lesson confirmed: between validated ranks, keep profile deltas
+        #   small. The jump from 9k to the old inherited 6k was too big.
+        "max_point_loss": 9.0,
+        "mistake_freq": 0.23,
+        "policy_weight": 0.52,
+        "randomness": 0.37,
+        "random_move_chance": 0.015,
+        "local_bias": 0.10,
         "first_line_chance": 0.0,
-        "visits": 120,
-        "min_candidates": 7,
-        "opening_moves": 15,
+        "visits": 95,
+        "min_candidates": 8,
+        "opening_moves": 18,
     },
     "3k": {  # Storm — was 5k
         "max_point_loss": 4.0,
