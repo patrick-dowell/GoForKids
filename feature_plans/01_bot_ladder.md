@@ -1,7 +1,13 @@
 # 01 — Bot ladder completion (12k → 1 dan)
 
-**Status:** 📝 Planned
+**Status:** 🚧 In progress — 12k validated 2026-04-22
 **Priority:** High
+
+## Progress
+- **12k "Stream"** — validated v4 profile: 75% even-game win vs 15k, 62% at H3, 43% same-area match rate vs real 12k Fox games. Slight over-performance at handicap (should be ~50%, is 62%) — documented, not blocking. See `AI_CALIBRATION.md` for the full v1→v4 history.
+- 10k, 8k, 5k, 3k, 1k, 1d — still interpolated only; no validation yet.
+
+
 
 ## What
 Today there are 8 bot ranks from 30k to 3k, but only three of them (15k, 18k, and one other) are fully calibrated against real data. We need to finish calibrating the remaining bots and extend the ladder upward through 12k, 10k, 8k, 5k, 3k, 1k, and 1 dan so players have a full progression.

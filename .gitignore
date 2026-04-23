@@ -34,4 +34,5 @@ analysis_logs/
 # Game data (large SGF datasets)
 data/15k/
 data/18k/
+data/12k/
 data/*.7z

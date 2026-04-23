@@ -1,5 +1,42 @@
 # Development Journal
 
+## Session 3 — April 22, 2026 (afternoon)
+
+### Calibrated 12k "Stream" bot
+
+First validated bot in the 12k→3k ladder. Went through four profile iterations.
+
+**Final v4 numbers:**
+- Even vs 15k: **75%** win rate (8 games) — in the 70-80% target band for a 3-rank gap.
+- 15k + 3 handicap vs 12k: **62%** for 12k (8 games) — a bit above the 50% theoretical target.
+- Match rate vs 151,844 real 12k Fox games (112 positions): 15% exact / 25% close / **43% same-area** / 53% same-quadrant.
+- Midgame exact match: **20%** — essentially matching 15k's 21% baseline.
+
+### Observation to carry forward
+
+**The 12k bot is slightly strong at 3-stone handicap vs 15k (62% win rate instead of the theoretical 50%), but not by a huge margin.** Two plausible reasons:
+1. 15k's opening code already picks from KataGo's top 3 moves, so the "free" handicap stones on star points aren't worth as much as they'd be against a real human 15k who plays less sensibly.
+2. Bot handicap theory ("1 stone ≈ 1 rank") doesn't hold tightly because bot mistakes and human mistakes don't mirror each other.
+
+Not worth further tuning right now — fixing H3 exactly requires either making 12k weaker (which drops its even-game win rate and hurts match rate) or making 15k's handicap play more exploitative (a separate change affecting that bot's identity). Revisit if we get human playtester feedback that 12k feels too hard at H3.
+
+### Key tuning lesson (applicable to future ranks)
+
+**Pure randomness hurts match rate more than it hurts win rate.** v2 cranked `randomness` (0.54) and `random_move_chance` (0.04) to nudge H3 toward 50/50, but the result was a midgame match rate of 12% — the bot was making chaotic moves no real 12k would play. v4 reversed this: lowered pure noise, raised `policy_weight` (0.36→0.42), and the bell-curve "moderately-bad-move" mechanism alone handled the human-error side. Midgame match rate jumped to 20% and win rates actually stayed on-target.
+
+### Tooling changes this session
+
+- Rewrote `data/bot_vs_bot.py` to use the backend's native bot-vs-bot support (single game with `black_rank`/`white_rank`, server-side handicap). Old version re-created a game and replayed every move before each AI move — O(N²) and handicap was broken for ≥2 stones. New version is ~10× faster.
+- Bumped `bot_vs_bot.py` default `--max-moves` from 400 to 600. At this rank pair with lower randomness, games sometimes run past 400 naturally.
+- Downloaded `data/12k/` Fox dataset (151,844 games, 30MB .7z).
+- Updated `AI_CALIBRATION.md` with full v1→v4 history, match-rate data, and the lesson above.
+
+### What's next on the bot ladder
+
+10k, 8k, 5k, 3k, 1k, 1d still need validation. Apply the v4 lesson: prefer higher `policy_weight` + `mistake_freq` over `randomness`. Download matching Fox data for each (18k and 12k are done; 10k through 1d available on featurecat/go-dataset).
+
+---
+
 ## Session 2 — April 22, 2026
 
 ### Planning
