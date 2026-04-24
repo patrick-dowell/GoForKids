@@ -207,13 +207,13 @@ randomness=0.45, random_move_chance=0.02, local_bias=0.20, opening_moves=22
 
 **Character:** Mid-kyu with solid basics. Recognizes shape, follows KataGo's policy closely, makes moderate errors mostly in the midgame. Plays like a player who's learned the rules but still misjudges direction and timing.
 
-**Profile (v1, validated):**
+**Profile (v5, validated):**
 ```python
 visits=80, mistake_freq=0.25, max_point_loss=10, policy_weight=0.50,
 randomness=0.40, random_move_chance=0.02, local_bias=0.12, opening_moves=20
 ```
 
-Parameters carried over unchanged from the old 10k slot. Validated on 2026-04-23 without tuning — the profile already followed the v4 lesson (high `policy_weight`, low `randomness`).
+v5 = v1 parameters (inherited from old 10k) + universal pass fix + universal clarity gate. v2-v4 tried bumping visits (80 → 120/140) to prevent group-drops in playtest, but that flattened the rank gap against 6k. v5 returns to v1 values because the universal code-level fixes now handle the most egregious tactical blunders, while visits=80 keeps 9k's natural tactical imperfection intact.
 
 **Calibration targets:**
 - Wins ~75-80% vs 12k at even games (3-rank gap).
@@ -250,13 +250,24 @@ Parameters carried over unchanged from the old 10k slot. Validated on 2026-04-23
 
 ### 6k — Ember (was 8k)
 
-**Character:** A rank above 9k. Slightly tighter reading, slightly fewer mid-size mistakes, but still plays recognizable human-like moves in the midgame. The v1/v2 delta below is a concrete illustration of "keep profile jumps small between validated ranks."
+**Character:** A rank above 9k. Slightly tighter reading, fewer mid-size mistakes. Imperfection is supposed to feel like "missed the deep read" rather than "deliberately picked a worse move."
 
-**Profile (v2, validated):**
+**Profile (v5, shipped):**
 ```python
-visits=95, mistake_freq=0.23, max_point_loss=9, policy_weight=0.52,
-randomness=0.37, random_move_chance=0.015, local_bias=0.10, opening_moves=18
+visits=120, mistake_freq=0.22, max_point_loss=9, policy_weight=0.50,
+randomness=0.38, random_move_chance=0.02, local_bias=0.08, opening_moves=18
 ```
+
+> ⚠️ **Known limitation.** Human playtest said v4 (visits=150, mistake_freq=0.32, max_loss=11) felt "a bit stronger than 6k" and that mistakes felt "too drastic" — artificial rather than natural. v5 dials down injected mistakes and relies more on natural tactical limitations from shallower visits, but **Phase 1 can't properly simulate the *type* of mistakes real 6k players make** (wrong direction, missed big point, overconcentration) — only their frequency and point-loss magnitude. This is a known refinement area; the proper fix is Phase 2 (rank-conditioned NN trained on human games).
+
+**Earlier versions (for reference):**
+| Ver | Config | Observed |
+|-----|--------|----------|
+| v1 | inherited 8k | 88% even, 88% H3 — too strong |
+| v2 | visits=95, mistake=0.23 | 81% even, 50% H3, 18.5% match — blundered large groups in playtest |
+| v3 | visits=150 + clarity gate | fixed blunders, 100% vs 9k — too strong |
+| v4 | visits=150 + mistake=0.32 max=11 | 25% match (best ever), still 88% vs 9k. Playtest: "stronger than 6k, mistakes feel drastic" |
+| v5 | visits=120 + mistake=0.22 max=9 | Shipped without further bot-vs-bot testing per owner |
 
 **Calibration targets:**
 - Wins ~75-80% vs 9k at even games (3-rank gap).
@@ -382,3 +393,11 @@ Available ranks: 18k through 9d + Pro.
 - **Validate 12k–3k bots:** Run bot-vs-bot and test_bot_vs_real for each rank pair.
 - **Download more Fox ranks** (16k, 14k, 12k, 10k) for per-rank calibration.
 - **Playtesting with real kyu players:** The ultimate validation — have actual 15k players play against the bot and report whether it feels like a peer.
+
+### Known refinement area — natural-feeling mistakes
+
+Our mistake mechanism picks moves by *point-loss magnitude* (bell curve centered at 35% of `max_point_loss`). That controls **how much** each mistake costs but not **what kind** of mistake it is. Real kyu players make specific types of errors — wrong direction of play, missed big point, overconcentration, ladder miscount, missed counter-atari. Our mechanism picks a plausible-by-point-loss move at random from KataGo's candidates, which produces mistakes that are statistically within range but qualitatively feel "artificial" or "drastic" to human opponents.
+
+Observed in 6k calibration: dropping `mistake_freq` and `max_point_loss` (v4 → v5) softened the artificial feel but at the cost of the bot playing slightly *stronger* than its nominal rank — because fewer real-kind-of-mistakes are being made. There's no Phase 1 lever that produces both "correct rank strength" and "human-feeling errors" simultaneously. Phase 2 (rank-conditioned NN trained on human game records) is the path that resolves this because it reproduces *distributions* of human choices, not just their magnitudes.
+
+Flagged in DEVJOURNAL session 7 (2026-04-24).
