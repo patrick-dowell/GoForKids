@@ -151,13 +151,21 @@ RANK_PROFILES = {
     # Parameters started as the old 10k/8k/5k/3k interpolated profiles.
     # 9k was validated at those inherited parameters on 2026-04-23 and
     # shipped without tuning. 6k, 3k, 1d still need calibration.
-    "9k": {  # Boulder — validated 2026-04-23 at inherited parameters.
-        # Even vs 12k: 81% (13/16) — in 75-80% target band.
-        # H3 vs 12k+3: 50% (4/8) — textbook handicap balance.
-        # Match rate vs real 9k Fox: 20% exact / 31% close / 47% region /
-        #   54% quadrant, opening exact 29%. Already follows the v4
-        #   lesson (high policy_weight, low randomness), which is
-        #   probably why no tuning was needed.
+    "9k": {  # Boulder
+        # v1 (inherited): 81% vs 12k / 50% H3 / 20% match. Validated but
+        #   dropped groups occasionally in playtest at visits=80.
+        # v2-v4 (abandoned): tried bumping visits to 120/140 + tuning
+        #   mistake params to bridge the new stronger 6k. Every version
+        #   lost 88-100% against 6k v4 because the universal clarity gate
+        #   flattens "clear" positions — rank gap then has to come from
+        #   unclear positions, where 9k at deep visits plays nearly as
+        #   well as 6k at slightly deeper visits.
+        # v5 (current): back to v1 parameters. The universal clarity gate
+        #   and pass fix already address the "drops a group to an obvious
+        #   one-move blunder" case that was the real playtest complaint.
+        #   What 9k should still do (and does, at visits=80) is misread
+        #   mid-tactical positions that 6k at visits=150 handles. That's
+        #   the 3-rank gap expressed through tactical depth.
         "max_point_loss": 10.0,
         "mistake_freq": 0.25,
         "policy_weight": 0.50,
@@ -169,28 +177,31 @@ RANK_PROFILES = {
         "min_candidates": 8,
         "opening_moves": 20,
     },
-    "6k": {  # Ember — validated 2026-04-23.
-        # v1 (inherited from old 8k): max_loss=6, mistake=0.18, policy=0.60,
-        #   visits=120. Too strong: even vs 9k = 88%, and still 88% for 6k
-        #   even when 9k got 3 handicap stones — playing more like 4k/5k.
-        # v2 (current): weakened to "modestly stronger than 9k" instead of
-        #   "much stronger." Slight nudges from 9k v1: tighter policy,
-        #   lower randomness, fewer mistakes, deeper search. No big
-        #   jumps in any single lever.
-        #   Even vs 9k: 81% (13/16 games).
-        #   H3 vs 9k+3: 50% (4/8) — textbook balance.
-        #   Match rate vs real 6k Fox: 18.5% exact / 30% close / 45% region
-        #     / 50% quadrant. Endgame exact 23%.
-        #   Lesson confirmed: between validated ranks, keep profile deltas
-        #   small. The jump from 9k to the old inherited 6k was too big.
+    "6k": {  # Ember
+        # v1 (inherited from old 8k): 88% even / 88% H3 — too strong.
+        # v2: 81% even / 50% H3 / 18.5% match — blundered large groups
+        #   in playtest.
+        # v3: visits 150 + clarity gate — fixed blunders, too strong.
+        # v4: visits 150 + bell-curve mistakes at 32% / max 11pts —
+        #   25% match rate (on par with 15k baseline), but human
+        #   playtest said mistakes felt "too drastic" / artificial,
+        #   and the bot felt "a bit stronger than 6k" overall.
+        # v5 (current): lean on natural tactical limitations instead of
+        #   injected mistakes. visits down to 120 (still deep enough
+        #   for clarity gate + pass fix to block obvious blunders, but
+        #   shallower reads occasionally miss things). mistake_freq and
+        #   max_point_loss both down — fewer artificial errors. policy
+        #   tighter, randomness lower. Imperfection should now feel more
+        #   like "didn't see that ladder deeply enough" than "deliberately
+        #   picked a 4-point-worse move."
         "max_point_loss": 9.0,
-        "mistake_freq": 0.23,
-        "policy_weight": 0.52,
-        "randomness": 0.37,
-        "random_move_chance": 0.015,
-        "local_bias": 0.10,
+        "mistake_freq": 0.22,
+        "policy_weight": 0.50,
+        "randomness": 0.38,
+        "random_move_chance": 0.02,
+        "local_bias": 0.08,
         "first_line_chance": 0.0,
-        "visits": 95,
+        "visits": 120,
         "min_candidates": 8,
         "opening_moves": 18,
     },
@@ -429,11 +440,41 @@ async def _select_with_katago(
             return None
 
         # --- Pass detection ---
-        # Simple rule: only pass if KataGo's #1 move is literally "pass".
-        # No heuristic second-guessing. KataGo knows when to pass.
+        # Pass when either:
+        #  (a) KataGo's #1 move is literally pass, or
+        #  (b) KataGo lists pass as a candidate and no other move is
+        #      meaningfully better than passing (< 0.3 points).
+        # Without (b), the bot fills dame/own liberties in the endgame
+        # because KataGo scores "fill 0-point dame" and "pass" equally
+        # and our mistake mechanism can then select a strictly worse move
+        # as a "moderate mistake" that still falls under max_point_loss.
+        # The 0.3 threshold (not 0.5) is tuned to still catch real
+        # half-point endgame moves even when KataGo estimate has a bit
+        # of noise — 0.5 made the bot pass on true ~0.5pt hane+connect
+        # sequences that show up as ~0.4 in shallow search.
         best = analysis.candidates[0]
         if best.move[0] < 0:
             return None
+
+        pass_cand = next((c for c in analysis.candidates if c.move[0] < 0), None)
+        if pass_cand is not None and best.score_lead - pass_cand.score_lead < 0.3:
+            return None
+
+        # --- Tactical clarity gate ---
+        # If KataGo is clearly confident about one move, skip mistake
+        # injection and play it. This catches straightforward life/death
+        # and capture situations where real humans above 15k-ish don't
+        # waver: even a 6k who misplays the opening will still capture
+        # a dead group in atari. The mistake mechanism assumes positions
+        # have multiple reasonable moves — in tactical moments they don't.
+        # Signals of clarity:
+        #   (a) top candidate's policy prior >= 0.5 (concentrated)
+        #   (b) score gap to second candidate >= 5 points (critical)
+        if best.prior >= 0.5:
+            return Point(best.move[0], best.move[1])
+        non_pass = [c for c in analysis.candidates if c.move[0] >= 0]
+        if len(non_pass) >= 2 and non_pass[0].score_lead - non_pass[1].score_lead >= 5.0:
+            return Point(non_pass[0].move[0], non_pass[0].move[1])
 
         # --- OPENING: play sensibly ---
         if is_opening:
@@ -473,6 +514,17 @@ async def _select_with_katago(
             point_loss = abs(best_score - c.score_lead)
             if point_loss <= profile["max_point_loss"]:
                 filtered.append((c, point_loss))
+
+        # Also drop candidates strictly worse than passing. Without this,
+        # the mistake mechanism can pick an endgame move that fills own
+        # territory/liberty when passing is strictly better. The profile's
+        # max_point_loss caps the *gap from the top move*, not the gap
+        # from pass, so a 1pt-worse-than-pass move can still sneak in.
+        if pass_cand is not None:
+            filtered = [
+                (c, pl) for (c, pl) in filtered
+                if c.score_lead >= pass_cand.score_lead - 0.3
+            ]
 
         if not filtered:
             c = analysis.candidates[0]

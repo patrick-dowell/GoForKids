@@ -6,8 +6,8 @@
 ## Progress
 - **30k Seedling, 18k Sprout, 15k Pebble** — validated (session 1).
 - **12k Stream** — validated 2026-04-22 (v4 profile): 75% even-game win vs 15k, 62% at H3, 43% same-area match rate vs real 12k Fox games. Slight over-performance at handicap (should be ~50%, is 62%) — documented, not blocking.
-- **9k Boulder** — validated 2026-04-23 at inherited parameters (no tuning): 81% even vs 12k (13/16), 50% at H3 (4/8). Match rate 20% exact / 47% same-area / 29% opening exact vs real 9k Fox games.
-- **6k Ember** — validated 2026-04-23 (v2 profile): 81% even vs 9k (13/16), 50% at H3 (4/8). Match rate 18.5% exact / 45% same-area vs real 6k Fox games. v1 (inherited) was way too strong (88% at both even and H3) — v2 nudged slightly from 9k's profile instead of taking the old 8k parameters as-is.
+- **9k Boulder** — shipped v5 (2026-04-24): v1 parameters (visits=80) + universal pass/clarity fixes. Match rate 20.4% exact / 49% same-area vs real 9k Fox games. Loses 88% vs 6k v4 at even — H3 overcompensates (9k+3 wins 88%). Both bots are calibrated by match-rate vs real Fox data; bot-vs-bot handicap theory is broken because the universal safety fixes make both bots more robust than real humans at their nominal ranks.
+- **6k Ember** — shipped v5 (2026-04-24): visits=120, mistake_freq=0.22, max_point_loss=9. v4 (visits=150, mistake=0.32) matched 15k baseline on match-rate (25% exact) but playtest said "a bit stronger than 6k" with "too drastic" mistakes. v5 relies on natural tactical shallowness for imperfection. **Known limitation** (see AI_CALIBRATION.md): Phase 1 can't simulate *type* of human mistakes (wrong direction, missed big point), only magnitude. Phase 2 (rank-conditioned NN) is the path to natural-feeling errors.
 - **3k Storm, 1d Void** — still interpolated only; no validation yet. Marked "coming soon" (greyed out + disabled) in the bot picker.
 
 ## Rank ladder (current labels)

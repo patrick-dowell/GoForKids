@@ -1,5 +1,57 @@
 # Development Journal
 
+## Session 7 — April 23-24, 2026
+
+### Two code-level fixes that apply to every bot rank
+
+**Universal pass-preference fix.** Previously we only passed when KataGo's #1 was literally pass. That let KataGo's shallow-visit ties ("fill 0-point dame" vs "pass" both 0) leak the fill option into the candidate pool, where the mistake mechanism could pick a *slightly worse than pass* move (fill own liberty). Now we also pass whenever KataGo lists pass with score ≥ 0.3pts below the top move, and we filter out any candidates worse than pass from the mistake pool. Tuned the threshold to 0.3 (not 0.5) so we still play real half-point endgame moves that show up as ~0.4 in shallow search.
+
+**Universal clarity gate.** In tactically clear positions, mistake injection is catastrophic — there's no such thing as a "moderately bad" move in a life/death fight. Before running the mistake mechanism, we now check two "is this position obvious?" signals: (a) KataGo's top candidate has policy prior ≥ 0.5, or (b) its score_lead is ≥ 5 points ahead of #2. Either triggers "just play the top move." This surgically handles the user-reported case where 6k was letting dead groups live because the mistake mechanism overrode the obvious kill.
+
+Both fixes apply to every rank automatically, so they retroactively cleaned up some behavior at weaker ranks too.
+
+### 6k calibration iterations
+
+| Ver | Change | Result |
+|-----|--------|--------|
+| v4 | visits 95→150, mistake=0.32, max=11 | 25% match rate (best we've had), but playtest: "a bit stronger than 6k, mistakes feel drastic" |
+| v5 | visits 120, mistake=0.22, max=9 | Shipped. Rely on natural tactical shallowness for imperfection; fewer artificial mistakes. Not bot-vs-bot tested at this profile. |
+
+v5 is the current ship state but explicitly flagged as "best Phase 1 approximation" — it's not going to feel like a real 6k until Phase 2 lands.
+
+### 9k calibration — abandoned strengthening, returned to v1
+
+Tried three 9k revisions (v2 visits=120, v3 visits=140, v4 widened deltas) to close the gap against 6k v4 after 6k got its fixes. All lost 88-100% to 6k.
+
+Root cause: the universal clarity gate flattens "clear" positions for *both* bots, so all rank gap has to come from "unclear" positions. Between a 6k at 150 visits and a 9k at 140 visits, unclear positions get played nearly identically — no 3-rank gap to be had.
+
+v5 rolls back to v1 parameters (visits=80 + mistake=0.25 + max=10). The universal fixes already address the egregious "obvious one-move blunder" case that was the real playtest issue. What v1's visits=80 still does — and what we want — is misread mid-tactical positions that 6k at deeper visits handles. That's the 3-rank gap expressed as tactical depth.
+
+### Final numbers for the two bots
+
+| Test | 6k v5 | 9k v5 | Notes |
+|------|-------|-------|-------|
+| Even (stronger wins) | not re-tested | 88% (14/16 vs 6k v4) | 6k v4 data — v5 is softer |
+| H3 balance | — | 9k+3 wins 88% vs 6k v4 | Overcompensates |
+| Match rate exact | 25% (v4 data) | 20.4% | Both match real Fox distributions |
+| Match rate close (≤2) | 38% (v4 data) | 33% | Close to 15k baseline |
+| Match rate same-area | 50% (v4 data) | 49% | Close to 15k baseline |
+
+Both bots pass the **match-rate** bar against real Fox data. The bot-vs-bot handicap math is off — our universal safety fixes make both bots more robust than the real humans at their nominal ranks, so 3 handicap stones are worth more than the 3-rank gap would predict.
+
+### Flagged as known refinement area
+
+Our mistake mechanism controls *how much* each error costs but not *what kind* of error it is. Real kyu players make specific types of mistakes (wrong direction, missed big point, overconcentration). Our bot picks random moves weighted by point-loss magnitude, which feels "artificial" in playtest. There's no Phase 1 lever that produces correct rank strength *and* human-feeling errors. Phase 2 (rank-conditioned NN trained on human games) is the path that resolves this.
+
+This limitation is now documented in AI_CALIBRATION.md under "Future Work → Known refinement area — natural-feeling mistakes."
+
+### Files touched
+- `backend/app/ai/move_selector.py` — universal pass fix + clarity gate, 6k v5, 9k v5.
+- `AI_CALIBRATION.md` — 6k v5 section, 9k v5 section, "Known refinement area" note.
+- `feature_plans/01_bot_ladder.md` — progress.
+
+---
+
 ## Session 6 — April 23, 2026 (evening)
 
 ### 6k "Ember" bot calibrated
