@@ -25,7 +25,7 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 | 10 | [iPad app](10_ipad_app.md) | 📝 Planned | Medium | 09 (or parallel) |
 | 11 | [Avatars (expansion & polish)](11_avatars.md) | 📝 Planned | Medium | 01, 05, 12 |
 | 12 | [Animations & sound effects](12_animations_and_sound.md) | 📝 Planned | Medium | 04, 08, 11 |
-| 13 | [Smaller boards (9×9, 13×13)](13_smaller_boards.md) | 📝 Planned | High | — |
+| 13 | [Smaller boards (9×9, 13×13)](13_smaller_boards.md) | ✅ Done | High | — |
 | 14 | [Parent-facing dashboard](14_parent_dashboard.md) | 📝 Planned | High | 01, 02, 03, 15 |
 | 15 | [Rewards loop (milestones, cosmetics, streaks)](15_rewards_loop.md) | 📝 Planned | High | 02, 03, 11, 12, 14 |
 | 16 | [Mistake tracking across games](16_mistake_tracking.md) | 📝 Planned | Medium | 04, 02, 03, 14 |

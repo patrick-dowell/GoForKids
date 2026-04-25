@@ -5,10 +5,10 @@ Authoritative game state lives here.
 
 from __future__ import annotations
 from enum import IntEnum
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
-BOARD_SIZE = 19
+BOARD_SIZE = 19  # Default size; Board instances carry their own size.
 
 
 class Color(IntEnum):
@@ -29,23 +29,23 @@ class Point:
     row: int
     col: int
 
-    def index(self) -> int:
-        return self.row * BOARD_SIZE + self.col
+    def index(self, size: int = BOARD_SIZE) -> int:
+        return self.row * size + self.col
 
-    def neighbors(self) -> list["Point"]:
+    def neighbors(self, size: int = BOARD_SIZE) -> list["Point"]:
         result = []
         if self.row > 0:
             result.append(Point(self.row - 1, self.col))
-        if self.row < BOARD_SIZE - 1:
+        if self.row < size - 1:
             result.append(Point(self.row + 1, self.col))
         if self.col > 0:
             result.append(Point(self.row, self.col - 1))
-        if self.col < BOARD_SIZE - 1:
+        if self.col < size - 1:
             result.append(Point(self.row, self.col + 1))
         return result
 
-    def is_valid(self) -> bool:
-        return 0 <= self.row < BOARD_SIZE and 0 <= self.col < BOARD_SIZE
+    def is_valid(self, size: int = BOARD_SIZE) -> bool:
+        return 0 <= self.row < size and 0 <= self.col < size
 
 
 @dataclass
@@ -57,15 +57,16 @@ class MoveRecord:
 
 
 class Board:
-    def __init__(self):
-        self.grid: list[int] = [Color.EMPTY] * (BOARD_SIZE * BOARD_SIZE)
+    def __init__(self, size: int = BOARD_SIZE):
+        self.size = size
+        self.grid: list[int] = [Color.EMPTY] * (size * size)
         self.captures = {Color.BLACK: 0, Color.WHITE: 0}
         self.ko_point: Optional[Point] = None
         self._position_history: set[str] = set()
         self._position_history.add(self._hash())
 
     def clone(self) -> "Board":
-        b = Board()
+        b = Board(self.size)
         b.grid = self.grid[:]
         b.captures = dict(self.captures)
         b.ko_point = self.ko_point
@@ -73,17 +74,17 @@ class Board:
         return b
 
     def get(self, p: Point) -> int:
-        return self.grid[p.index()]
+        return self.grid[p.index(self.size)]
 
     def _set(self, p: Point, c: int):
-        self.grid[p.index()] = c
+        self.grid[p.index(self.size)] = c
 
     def _hash(self) -> str:
         return "".join(str(c) for c in self.grid)
 
     def try_play(self, color: Color, point: Point) -> tuple[str, list[Point]]:
         """Returns (result, captures). Result is 'ok', 'occupied', 'suicide', or 'ko'."""
-        if not point.is_valid():
+        if not point.is_valid(self.size):
             return ("occupied", [])
 
         if self.get(point) != Color.EMPTY:
@@ -95,13 +96,13 @@ class Board:
         opponent = color.opposite()
         captured: list[Point] = []
         captured_set: set[int] = set()
-        for nb in point.neighbors():
-            if self.get(nb) == opponent and nb.index() not in captured_set:
+        for nb in point.neighbors(self.size):
+            if self.get(nb) == opponent and nb.index(self.size) not in captured_set:
                 group = self._get_group(nb)
                 if self._count_liberties(group) == 0:
                     for s in group:
-                        if s.index() not in captured_set:
-                            captured_set.add(s.index())
+                        if s.index(self.size) not in captured_set:
+                            captured_set.add(s.index(self.size))
                             captured.append(s)
 
         for cp in captured:
@@ -146,24 +147,24 @@ class Board:
         stack = [p]
         while stack:
             current = stack.pop()
-            idx = current.index()
+            idx = current.index(self.size)
             if idx in visited:
                 continue
             if self.get(current) != color:
                 continue
             visited.add(idx)
             group.append(current)
-            for nb in current.neighbors():
-                if nb.index() not in visited:
+            for nb in current.neighbors(self.size):
+                if nb.index(self.size) not in visited:
                     stack.append(nb)
         return group
 
     def _count_liberties(self, group: list[Point]) -> int:
         liberty_set: set[int] = set()
         for stone in group:
-            for nb in stone.neighbors():
+            for nb in stone.neighbors(self.size):
                 if self.get(nb) == Color.EMPTY:
-                    liberty_set.add(nb.index())
+                    liberty_set.add(nb.index(self.size))
         return len(liberty_set)
 
     def score_territory(self) -> tuple[set[int], set[int], set[int]]:
@@ -173,9 +174,9 @@ class Board:
         white_territory: set[int] = set()
         neutral: set[int] = set()
 
-        for row in range(BOARD_SIZE):
-            for col in range(BOARD_SIZE):
-                idx = row * BOARD_SIZE + col
+        for row in range(self.size):
+            for col in range(self.size):
+                idx = row * self.size + col
                 if idx in visited:
                     continue
                 if self.grid[idx] != Color.EMPTY:
@@ -188,7 +189,7 @@ class Board:
 
                 while stack:
                     current = stack.pop()
-                    ci = current.index()
+                    ci = current.index(self.size)
                     c = self.get(current)
                     if c == Color.BLACK:
                         touches_black = True
@@ -200,8 +201,8 @@ class Board:
                         continue
                     visited.add(ci)
                     region.append(ci)
-                    for nb in current.neighbors():
-                        if nb.index() not in visited:
+                    for nb in current.neighbors(self.size):
+                        if nb.index(self.size) not in visited:
                             stack.append(nb)
 
                 if touches_black and not touches_white:
@@ -217,10 +218,10 @@ class Board:
         return black_territory, white_territory, neutral
 
     def to_2d(self) -> list[list[int]]:
-        """Return board as 19x19 2D list for API responses."""
+        """Return board as size×size 2D list for API responses."""
         return [
-            self.grid[row * BOARD_SIZE : (row + 1) * BOARD_SIZE]
-            for row in range(BOARD_SIZE)
+            self.grid[row * self.size : (row + 1) * self.size]
+            for row in range(self.size)
         ]
 
     def count_stones(self) -> tuple[int, int]:

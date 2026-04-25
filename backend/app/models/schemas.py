@@ -23,9 +23,10 @@ class CreateGameRequest(BaseModel):
     mode: GameMode = GameMode.casual
     komi: float = 7.5
     player_color: StoneColor = StoneColor.black
-    handicap: int = 0  # 0-9 handicap stones for black
+    handicap: int = 0  # 0-9 stones (capped to 5 on 9x9). Clamped server-side per board size.
     black_rank: Optional[str] = None  # For bot-vs-bot: black bot rank
     white_rank: Optional[str] = None  # For bot-vs-bot: white bot rank
+    board_size: int = 19  # 9, 13, or 19
 
 
 class PlayMoveRequest(BaseModel):
@@ -35,7 +36,8 @@ class PlayMoveRequest(BaseModel):
 
 class GameStateResponse(BaseModel):
     game_id: str
-    board: list[list[int]]  # 19x19 grid: 0=empty, 1=black, 2=white
+    board: list[list[int]]  # size×size grid: 0=empty, 1=black, 2=white
+    board_size: int = 19
     current_color: StoneColor
     move_number: int
     captures: dict[str, int]  # {"black": N, "white": N}

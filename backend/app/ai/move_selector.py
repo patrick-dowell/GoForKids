@@ -29,9 +29,9 @@ from typing import Optional
 from app.game.engine import Board, Color, Point, BOARD_SIZE
 
 
-def edge_distance(row: int, col: int) -> int:
+def edge_distance(row: int, col: int, size: int = BOARD_SIZE) -> int:
     """Distance from the nearest board edge."""
-    return min(row, col, BOARD_SIZE - 1 - row, BOARD_SIZE - 1 - col)
+    return min(row, col, size - 1 - row, size - 1 - col)
 
 
 def _is_eye_fill(board: Board, color: Color, point: Point) -> bool:
@@ -41,12 +41,14 @@ def _is_eye_fill(board: Board, color: Color, point: Point) -> bool:
     (or board edge) and at least 3 of the 4 diagonals are the same color.
     No human above 30k would do this.
     """
+    size = board.size
+
     # Must be empty
     if board.get(point) != Color.EMPTY:
         return False
 
     # All orthogonal neighbors must be our color or off-board
-    for nb in point.neighbors():
+    for nb in point.neighbors(size):
         c = board.get(nb)
         if c != color:
             return False
@@ -61,7 +63,7 @@ def _is_eye_fill(board: Board, color: Color, point: Point) -> bool:
     friendly_diags = 0
     total_diags = 0
     for d in diagonals:
-        if d.is_valid():
+        if d.is_valid(size):
             total_diags += 1
             if board.get(d) == color:
                 friendly_diags += 1
@@ -76,11 +78,16 @@ from app.katago.engine import get_engine, PositionAnalysis
 
 logger = logging.getLogger(__name__)
 
-# Rank-specific tuning parameters
-# Revised after playtesting: previous version was too chaotic.
-# 15k should feel like "a player who knows the rules and basic shapes
-# but makes strategic errors and can't read more than 2-3 moves."
-RANK_PROFILES = {
+# Rank-specific tuning parameters, indexed by board size.
+# 19x19 is the canonical, well-calibrated set. Smaller boards override only
+# the few ranks we expose in the picker (30k / 15k / 6k); other ranks fall
+# back to the 19x19 profile so existing callers don't break.
+#
+# Why size-specific overrides exist: same visit count is effectively stronger
+# on smaller boards (smaller search space). Without overrides, a "30k bot"
+# on 9x9 plays closer to a 12-15k. The small-board profiles below are
+# first-pass guesses, intentionally weakened, and need playtesting to dial in.
+RANK_PROFILES_19 = {
     "30k": {
         # Weakest KataGo bot. Target: 50/50 vs 18k at 9 handicap stones.
         # v1: 5 visits, 65% mistakes → 17% win rate (too weak)
@@ -232,17 +239,147 @@ RANK_PROFILES = {
 }
 
 
-def get_profile(rank: str) -> dict:
-    return RANK_PROFILES.get(rank, RANK_PROFILES["15k"])
+# Small-board overrides — only the 3 ranks we surface in the picker on 9/13.
+# These are FIRST-PASS GUESSES — calibrate via play, not formal harness yet.
+# Heuristic: cut visits, bump randomness/random_move_chance for the weakest
+# tier, shorten opening_moves to match shorter games.
+# pass_threshold note: smaller than the 19x19 default of 0.3 because shallow
+# visits on small boards add noise to score estimates — at 0.3, the bot reads
+# a real ~1pt endgame move as ~0.25 above pass and passes prematurely.
+RANK_PROFILES_13 = {
+    "30k": {
+        # 19x19's 30k profile felt too strong on 13x13 (smaller search space).
+        # Weaken: cut visits, disable clarity gate so mistake injection
+        # applies in tactical positions, push local_bias high so the bot
+        # mostly responds to the player's last move rather than surveying.
+        "max_point_loss": 35.0,
+        "mistake_freq": 0.65,
+        "policy_weight": 0.10,
+        "randomness": 0.85,
+        "random_move_chance": 0.15,
+        "local_bias": 0.80,
+        "local_bias_in_opening": True,
+        "first_line_chance": 0.0,
+        "visits": 5,
+        "min_candidates": 12,
+        "opening_moves": 4,
+        "pass_threshold": 0.15,
+        "clarity_prior": 1.1,
+        "clarity_score_gap": 999.0,
+    },
+    "15k": {
+        "max_point_loss": 22.0,
+        "mistake_freq": 0.42,
+        "policy_weight": 0.28,
+        "randomness": 0.62,
+        "random_move_chance": 0.06,
+        "local_bias": 0.22,
+        "first_line_chance": 0.0,
+        "visits": 18,
+        "min_candidates": 10,
+        "opening_moves": 8,
+        "pass_threshold": 0.15,
+    },
+    "6k": {
+        "max_point_loss": 9.0,
+        "mistake_freq": 0.22,
+        "policy_weight": 0.50,
+        "randomness": 0.38,
+        "random_move_chance": 0.02,
+        "local_bias": 0.08,
+        "first_line_chance": 0.0,
+        "visits": 70,
+        "min_candidates": 8,
+        "opening_moves": 6,
+        "pass_threshold": 0.15,
+    },
+}
+
+RANK_PROFILES_9 = {
+    "30k": {
+        # User playtest 2026-04-24: even 4-visit KataGo with bumped randomness
+        # was too strong for a beginner because the clarity gate forced the
+        # best tactical move whenever policy >= 0.5 (very common on 9x9).
+        # Disable the clarity gate (huge thresholds) so mistake injection
+        # actually applies in tactical positions — the bot will sometimes
+        # miss obvious captures or atari saves, like a real 30k.
+        # Also: very high local_bias + reactive-in-opening so the bot mostly
+        # plays adjacent to whatever the player just played, rather than
+        # surveying the whole board for the best move. That's how absolute
+        # beginners actually behave.
+        "max_point_loss": 30.0,
+        "mistake_freq": 0.70,
+        "policy_weight": 0.08,
+        "randomness": 0.88,
+        "random_move_chance": 0.20,  # down from 0.30 — local bias carries weakening now
+        "local_bias": 0.85,
+        "local_bias_in_opening": True,
+        "first_line_chance": 0.0,
+        "visits": 4,
+        "min_candidates": 10,
+        "opening_moves": 2,
+        "pass_threshold": 0.10,
+        "clarity_prior": 1.1,       # never triggers (prior is in [0,1])
+        "clarity_score_gap": 999.0, # never triggers
+    },
+    "15k": {
+        "max_point_loss": 18.0,
+        "mistake_freq": 0.45,
+        "policy_weight": 0.25,
+        "randomness": 0.65,
+        "random_move_chance": 0.08,
+        "local_bias": 0.18,
+        "first_line_chance": 0.0,
+        "visits": 12,
+        "min_candidates": 8,
+        "opening_moves": 4,
+        "pass_threshold": 0.10,
+    },
+    "6k": {
+        # User playtest: 6k was passing while real endgame moves remained.
+        # Lower threshold catches them despite shallow-visit estimate noise.
+        "max_point_loss": 8.0,
+        "mistake_freq": 0.22,
+        "policy_weight": 0.50,
+        "randomness": 0.38,
+        "random_move_chance": 0.02,
+        "local_bias": 0.06,
+        "first_line_chance": 0.0,
+        "visits": 50,
+        "min_candidates": 6,
+        "opening_moves": 3,
+        "pass_threshold": 0.10,
+    },
+}
+
+RANK_PROFILES_BY_SIZE = {
+    9: RANK_PROFILES_9,
+    13: RANK_PROFILES_13,
+    19: RANK_PROFILES_19,
+}
+
+# Backwards-compat alias for callers that imported RANK_PROFILES (defaults to 19x19).
+RANK_PROFILES = RANK_PROFILES_19
+
+
+def get_profile(rank: str, size: int = 19) -> dict:
+    """Look up the bot tuning profile for a rank and board size.
+    Falls back to the 19x19 profile when there is no size-specific override
+    (smaller boards only override 30k / 15k / 6k)."""
+    sized = RANK_PROFILES_BY_SIZE.get(size)
+    if sized and rank in sized:
+        return sized[rank]
+    return RANK_PROFILES_19.get(rank, RANK_PROFILES_19["15k"])
 
 
 def _get_nearby_moves(board: Board, color: Color, center: Point, radius: int = 3) -> list[Point]:
     """Get legal moves within `radius` intersections of `center`."""
+    size = board.size
     moves = []
     for dr in range(-radius, radius + 1):
         for dc in range(-radius, radius + 1):
             r, c = center.row + dr, center.col + dc
-            if 0 <= r < BOARD_SIZE and 0 <= c < BOARD_SIZE:
+            if 0 <= r < size and 0 <= c < size:
                 p = Point(r, c)
                 test = board.clone()
                 result, _ = test.try_play(color, p)
@@ -253,16 +390,17 @@ def _get_nearby_moves(board: Board, color: Color, center: Point, radius: int = 3
 
 def _pick_random_legal(board: Board, color: Color) -> Optional[Point]:
     """Pick a random legal move with preference for 3rd/4th line."""
+    size = board.size
     moves = []
     weights = []
-    for row in range(BOARD_SIZE):
-        for col in range(BOARD_SIZE):
+    for row in range(size):
+        for col in range(size):
             p = Point(row, col)
             test = board.clone()
             result, _ = test.try_play(color, p)
             if result == "ok":
                 moves.append(p)
-                ed = edge_distance(row, col)
+                ed = edge_distance(row, col, size)
                 if ed in (2, 3):
                     weights.append(2.5)
                 elif ed in (4, 5):
@@ -286,17 +424,22 @@ def _count_stones(board: Board) -> int:
 
 
 async def select_ai_move(
-    board: Board, color: Color, target_rank: str
+    board: Board, color: Color, target_rank: str,
+    last_opponent_move: Optional[Point] = None,
 ) -> Optional[Point]:
-    """Select a move for the AI at the given target rank."""
-    move = await _select_ai_move_inner(board, color, target_rank)
+    """Select a move for the AI at the given target rank.
+
+    `last_opponent_move` is the location of the most recent opponent stone, used
+    as a preferred anchor for local-bias play (beginner bots respond locally).
+    """
+    move = await _select_ai_move_inner(board, color, target_rank, last_opponent_move)
 
     # Safety check: NEVER fill your own eye. No human above 30k does this.
     if move and _is_eye_fill(board, color, move):
         logger.info(f"[{target_rank}] Rejected eye-filling move at ({move.row},{move.col})")
         # Try to find a non-eye-filling alternative
         for _ in range(5):
-            alt = await _select_ai_move_inner(board, color, target_rank)
+            alt = await _select_ai_move_inner(board, color, target_rank, last_opponent_move)
             if alt and not _is_eye_fill(board, color, alt):
                 return alt
         # All attempts fill eyes — just pass
@@ -306,10 +449,11 @@ async def select_ai_move(
 
 
 async def _select_ai_move_inner(
-    board: Board, color: Color, target_rank: str
+    board: Board, color: Color, target_rank: str,
+    last_opponent_move: Optional[Point] = None,
 ) -> Optional[Point]:
     """Inner move selection (before eye-fill safety check)."""
-    profile = get_profile(target_rank)
+    profile = get_profile(target_rank, board.size)
 
     # 30k bot: pure heuristic, no KataGo needed
     if not profile.get("use_katago", True):
@@ -317,7 +461,7 @@ async def _select_ai_move_inner(
 
     engine = await get_engine()
     if engine:
-        return await _select_with_katago(engine, board, color, target_rank)
+        return await _select_with_katago(engine, board, color, target_rank, last_opponent_move)
     else:
         return _pick_random_legal(board, color)
 
@@ -335,18 +479,19 @@ def _select_beginner_move(
     4. Play a random legal move (prefer 3rd/4th line)
     """
     opponent = Color.WHITE if color == Color.BLACK else Color.BLACK
+    size = board.size
 
     # 1. Save own groups in atari
     if random.random() < profile.get("save_atari_chance", 0.5):
         own_atari_groups = []
         visited: set[int] = set()
-        for r in range(BOARD_SIZE):
-            for c in range(BOARD_SIZE):
+        for r in range(size):
+            for c in range(size):
                 p = Point(r, c)
-                if board.get(p) == color and p.index() not in visited:
+                if board.get(p) == color and p.index(size) not in visited:
                     group = board._get_group(p)
                     for s in group:
-                        visited.add(s.index())
+                        visited.add(s.index(size))
                     if board._count_liberties(group) == 1:
                         own_atari_groups.append(group)
 
@@ -356,9 +501,9 @@ def _select_beginner_move(
             liberties = []
             lib_set: set[int] = set()
             for s in group:
-                for nb in s.neighbors():
-                    if board.get(nb) == Color.EMPTY and nb.index() not in lib_set:
-                        lib_set.add(nb.index())
+                for nb in s.neighbors(size):
+                    if board.get(nb) == Color.EMPTY and nb.index(size) not in lib_set:
+                        lib_set.add(nb.index(size))
                         liberties.append(nb)
             if liberties:
                 lib = liberties[0]
@@ -371,13 +516,13 @@ def _select_beginner_move(
     if random.random() < profile.get("capture_chance", 0.4):
         opp_atari_groups = []
         visited2: set[int] = set()
-        for r in range(BOARD_SIZE):
-            for c in range(BOARD_SIZE):
+        for r in range(size):
+            for c in range(size):
                 p = Point(r, c)
-                if board.get(p) == opponent and p.index() not in visited2:
+                if board.get(p) == opponent and p.index(size) not in visited2:
                     group = board._get_group(p)
                     for s in group:
-                        visited2.add(s.index())
+                        visited2.add(s.index(size))
                     if board._count_liberties(group) == 1:
                         opp_atari_groups.append(group)
 
@@ -386,9 +531,9 @@ def _select_beginner_move(
             group = random.choice(opp_atari_groups)
             lib_set2: set[int] = set()
             for s in group:
-                for nb in s.neighbors():
-                    if board.get(nb) == Color.EMPTY and nb.index() not in lib_set2:
-                        lib_set2.add(nb.index())
+                for nb in s.neighbors(size):
+                    if board.get(nb) == Color.EMPTY and nb.index(size) not in lib_set2:
+                        lib_set2.add(nb.index(size))
                         test = board.clone()
                         result, _ = test.try_play(color, nb)
                         if result == "ok":
@@ -396,8 +541,8 @@ def _select_beginner_move(
 
     # 3. Local response — play near existing stones
     if random.random() < profile.get("local_bias", 0.6):
-        occupied = [Point(r, c) for r in range(BOARD_SIZE)
-                    for c in range(BOARD_SIZE) if board.get(Point(r, c)) != Color.EMPTY]
+        occupied = [Point(r, c) for r in range(size)
+                    for c in range(size) if board.get(Point(r, c)) != Color.EMPTY]
         if occupied:
             # Pick a random recent stone and play nearby
             anchor = random.choice(occupied[-8:]) if len(occupied) > 8 else random.choice(occupied)
@@ -414,7 +559,8 @@ def _select_beginner_move(
 
 
 async def _select_with_katago(
-    engine, board: Board, color: Color, target_rank: str
+    engine, board: Board, color: Color, target_rank: str,
+    last_opponent_move: Optional[Point] = None,
 ) -> Optional[Point]:
     """
     KataGo-backed rank-calibrated move selection.
@@ -427,37 +573,56 @@ async def _select_with_katago(
     - ENDGAME: Play KataGo candidates with moderate mistakes. Auto-pass
       when no meaningful moves remain.
     """
-    profile = get_profile(target_rank)
+    profile = get_profile(target_rank, board.size)
     stone_count = _count_stones(board)
     is_opening = stone_count < profile.get("opening_moves", 20)
 
     try:
         board_2d = board.to_2d()
         player = "B" if color == Color.BLACK else "W"
-        analysis = await engine.analyze(board_2d, player, max_visits=profile["visits"])
+        analysis = await engine.analyze(
+            board_2d, player, max_visits=profile["visits"], size=board.size,
+        )
 
         if not analysis.candidates:
+            logger.info(f"[{target_rank} {board.size}x{board.size}] PASS: no candidates returned")
             return None
 
         # --- Pass detection ---
         # Pass when either:
         #  (a) KataGo's #1 move is literally pass, or
-        #  (b) KataGo lists pass as a candidate and no other move is
-        #      meaningfully better than passing (< 0.3 points).
-        # Without (b), the bot fills dame/own liberties in the endgame
-        # because KataGo scores "fill 0-point dame" and "pass" equally
-        # and our mistake mechanism can then select a strictly worse move
-        # as a "moderate mistake" that still falls under max_point_loss.
-        # The 0.3 threshold (not 0.5) is tuned to still catch real
-        # half-point endgame moves even when KataGo estimate has a bit
-        # of noise — 0.5 made the bot pass on true ~0.5pt hane+connect
-        # sequences that show up as ~0.4 in shallow search.
+        #  (b) KataGo lists pass as a candidate AND that candidate received
+        #      enough visits to trust its score, AND no other move is
+        #      meaningfully better than passing (< pass_threshold points).
+        # The visits gate matters: at low visits a barely-searched pass
+        # candidate has score_lead ≈ value-network prior (no search refinement),
+        # which can be wildly off and trigger spurious passes mid-fuseki.
+        # The 0.3 default is tuned for 19x19 with deep visits. On smaller
+        # boards (shallower visits), pass_threshold drops to keep real
+        # endgame moves above the bar.
         best = analysis.candidates[0]
         if best.move[0] < 0:
+            logger.info(
+                f"[{target_rank} {board.size}x{board.size}] PASS: KataGo top move is pass "
+                f"(visits={best.visits}, score={best.score_lead:.2f})"
+            )
             return None
 
+        pass_threshold = profile.get("pass_threshold", 0.3)
         pass_cand = next((c for c in analysis.candidates if c.move[0] < 0), None)
-        if pass_cand is not None and best.score_lead - pass_cand.score_lead < 0.3:
+        # Require pass to have at least ~10% of the top move's visits before
+        # trusting its score estimate (and a hard floor of 2 visits).
+        min_pass_visits = max(2, best.visits // 10)
+        if (
+            pass_cand is not None
+            and pass_cand.visits >= min_pass_visits
+            and best.score_lead - pass_cand.score_lead < pass_threshold
+        ):
+            logger.info(
+                f"[{target_rank} {board.size}x{board.size}] PASS: best={best.score_lead:.2f} "
+                f"pass={pass_cand.score_lead:.2f} (passV={pass_cand.visits} bestV={best.visits} "
+                f"thr={pass_threshold})"
+            )
             return None
 
         # --- Tactical clarity gate ---
@@ -468,12 +633,17 @@ async def _select_with_katago(
         # a dead group in atari. The mistake mechanism assumes positions
         # have multiple reasonable moves — in tactical moments they don't.
         # Signals of clarity:
-        #   (a) top candidate's policy prior >= 0.5 (concentrated)
-        #   (b) score gap to second candidate >= 5 points (critical)
-        if best.prior >= 0.5:
+        #   (a) top candidate's policy prior >= clarity_prior (concentrated)
+        #   (b) score gap to second candidate >= clarity_score_gap (critical)
+        # Set the thresholds high (e.g. 1.1 / 999) on a profile to disable
+        # the gate so even tactical positions go through mistake injection —
+        # appropriate for 30k where the player is meant to miss obvious moves.
+        clarity_prior = profile.get("clarity_prior", 0.5)
+        clarity_score_gap = profile.get("clarity_score_gap", 5.0)
+        if best.prior >= clarity_prior:
             return Point(best.move[0], best.move[1])
         non_pass = [c for c in analysis.candidates if c.move[0] >= 0]
-        if len(non_pass) >= 2 and non_pass[0].score_lead - non_pass[1].score_lead >= 5.0:
+        if len(non_pass) >= 2 and non_pass[0].score_lead - non_pass[1].score_lead >= clarity_score_gap:
             return Point(non_pass[0].move[0], non_pass[0].move[1])
 
         # --- OPENING: play sensibly ---
@@ -492,18 +662,33 @@ async def _select_with_katago(
             if rand_move:
                 return rand_move
 
-        # --- Local bias (midgame only) ---
-        if not is_opening and random.random() < profile["local_bias"]:
-            # Find stones near the last-played area and respond locally
-            occupied = [Point(r, c) for r in range(BOARD_SIZE)
-                       for c in range(BOARD_SIZE) if board.get(Point(r, c)) != Color.EMPTY]
-            if occupied:
-                anchor = random.choice(occupied[-10:])  # Bias toward recent stones
+        # --- Local bias (also applies in opening for very-reactive profiles) ---
+        # Beginners tend to respond directly to whatever the opponent just
+        # played. Prefer the opponent's last move as anchor; fall back to a
+        # random recent stone if we don't know it (e.g. opening move 1).
+        # Profiles that want this even during the opening (e.g. 30k) can set
+        # `local_bias_in_opening: True`.
+        local_bias_active = (
+            random.random() < profile["local_bias"]
+            and (not is_opening or profile.get("local_bias_in_opening", False))
+        )
+        if local_bias_active:
+            sz = board.size
+            anchor: Optional[Point] = None
+            if last_opponent_move is not None and last_opponent_move.is_valid(sz):
+                anchor = last_opponent_move
+            else:
+                occupied = [Point(r, c) for r in range(sz)
+                           for c in range(sz) if board.get(Point(r, c)) != Color.EMPTY]
+                if occupied:
+                    anchor = random.choice(occupied[-10:])
+            if anchor is not None:
                 nearby = _get_nearby_moves(board, color, anchor, radius=2)
                 if nearby:
                     return random.choice(nearby)
 
         # --- KataGo candidate selection with rank-based mistakes ---
+        size = board.size
         best_score = analysis.candidates[0].score_lead
 
         # Filter candidates within acceptable point loss
@@ -517,13 +702,14 @@ async def _select_with_katago(
 
         # Also drop candidates strictly worse than passing. Without this,
         # the mistake mechanism can pick an endgame move that fills own
-        # territory/liberty when passing is strictly better. The profile's
-        # max_point_loss caps the *gap from the top move*, not the gap
-        # from pass, so a 1pt-worse-than-pass move can still sneak in.
-        if pass_cand is not None:
+        # territory/liberty when passing is strictly better. Only apply
+        # this filter when pass has enough visits to trust its score —
+        # otherwise a barely-searched pass with a noisy estimate can wipe
+        # out every legitimate move.
+        if pass_cand is not None and pass_cand.visits >= min_pass_visits:
             filtered = [
                 (c, pl) for (c, pl) in filtered
-                if c.score_lead >= pass_cand.score_lead - 0.3
+                if c.score_lead >= pass_cand.score_lead - pass_threshold
             ]
 
         if not filtered:

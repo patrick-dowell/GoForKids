@@ -1,5 +1,6 @@
 /** Core types for the Go game engine */
 
+/** Default board size. Board instances carry their own size; helpers default to this. */
 export const BOARD_SIZE = 19;
 export const TOTAL_INTERSECTIONS = BOARD_SIZE * BOARD_SIZE;
 
@@ -15,36 +16,36 @@ export function oppositeColor(c: Color): Color {
   return Color.Empty;
 }
 
-/** Board coordinates: row 0..18, col 0..18 (top-left origin) */
+/** Board coordinates. Size-agnostic — the caller supplies size to helpers. */
 export interface Point {
   row: number;
   col: number;
 }
 
 /** Encode a point as a single integer for fast set operations */
-export function pointToIndex(p: Point): number {
-  return p.row * BOARD_SIZE + p.col;
+export function pointToIndex(p: Point, size: number = BOARD_SIZE): number {
+  return p.row * size + p.col;
 }
 
-export function indexToPoint(i: number): Point {
-  return { row: Math.floor(i / BOARD_SIZE), col: i % BOARD_SIZE };
+export function indexToPoint(i: number, size: number = BOARD_SIZE): Point {
+  return { row: Math.floor(i / size), col: i % size };
 }
 
 export function pointsEqual(a: Point, b: Point): boolean {
   return a.row === b.row && a.col === b.col;
 }
 
-export function isValidPoint(p: Point): boolean {
-  return p.row >= 0 && p.row < BOARD_SIZE && p.col >= 0 && p.col < BOARD_SIZE;
+export function isValidPoint(p: Point, size: number = BOARD_SIZE): boolean {
+  return p.row >= 0 && p.row < size && p.col >= 0 && p.col < size;
 }
 
 /** Get orthogonal neighbors of a point */
-export function neighbors(p: Point): Point[] {
+export function neighbors(p: Point, size: number = BOARD_SIZE): Point[] {
   const result: Point[] = [];
   if (p.row > 0) result.push({ row: p.row - 1, col: p.col });
-  if (p.row < BOARD_SIZE - 1) result.push({ row: p.row + 1, col: p.col });
+  if (p.row < size - 1) result.push({ row: p.row + 1, col: p.col });
   if (p.col > 0) result.push({ row: p.row, col: p.col - 1 });
-  if (p.col < BOARD_SIZE - 1) result.push({ row: p.row, col: p.col + 1 });
+  if (p.col < size - 1) result.push({ row: p.row, col: p.col + 1 });
   return result;
 }
 

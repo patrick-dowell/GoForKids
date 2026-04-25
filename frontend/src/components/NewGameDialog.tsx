@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useGameStore, type GameMode } from '../store/gameStore';
+import { useState, useEffect } from 'react';
+import { useGameStore, MAX_HANDICAP_BY_SIZE, type GameMode } from '../store/gameStore';
 import { Color } from '../engine/types';
 import { AvatarPicker } from './AvatarPicker';
 import { Avatar, BOT_AVATARS, type PlayerAvatarType } from './Avatar';
@@ -8,21 +8,44 @@ interface NewGameDialogProps {
   onClose: () => void;
 }
 
-const RANK_OPTIONS: { value: string; label: string; validated: boolean }[] = [
-  { value: '30k', label: '30 kyu — Seedling', validated: true },
-  { value: '18k', label: '18 kyu — Sprout', validated: true },
-  { value: '15k', label: '15 kyu — Pebble', validated: true },
-  { value: '12k', label: '12 kyu — Stream', validated: true },
-  { value: '9k',  label: '9 kyu — Boulder', validated: true },
-  { value: '6k',  label: '6 kyu — Ember', validated: true },
-  { value: '3k',  label: '3 kyu — Storm', validated: false },
-  { value: '1d',  label: '1 dan — Void', validated: false },
+type RankOption = {
+  value: string;
+  label: string;
+  validated: boolean;
+  /** Board sizes this bot has a tuned profile for. Other sizes are disabled in the picker. */
+  sizes: number[];
+};
+
+// Small boards only expose 30k / 15k / 6k (the calibrated tiers).
+// Other ranks are 19x19-only — they'd technically run via the 19x19 fallback,
+// but the rank labels would be misleading on smaller boards.
+const ALL_SIZES = [9, 13, 19];
+const NINETEEN_ONLY = [19];
+
+const RANK_OPTIONS: RankOption[] = [
+  { value: '30k', label: '30 kyu — Seedling', validated: true,  sizes: ALL_SIZES },
+  { value: '18k', label: '18 kyu — Sprout',   validated: true,  sizes: NINETEEN_ONLY },
+  { value: '15k', label: '15 kyu — Pebble',   validated: true,  sizes: ALL_SIZES },
+  { value: '12k', label: '12 kyu — Stream',   validated: true,  sizes: NINETEEN_ONLY },
+  { value: '9k',  label: '9 kyu — Boulder',   validated: true,  sizes: NINETEEN_ONLY },
+  { value: '6k',  label: '6 kyu — Ember',     validated: true,  sizes: ALL_SIZES },
+  { value: '3k',  label: '3 kyu — Storm',     validated: false, sizes: NINETEEN_ONLY },
+  { value: '1d',  label: '1 dan — Void',      validated: false, sizes: NINETEEN_ONLY },
 ];
 
-function rankOption(opt: { value: string; label: string; validated: boolean }) {
+function isRankAvailable(opt: RankOption, size: number): boolean {
+  return opt.validated && opt.sizes.includes(size);
+}
+
+function rankOption(opt: RankOption, size: number) {
+  const sizeOK = opt.sizes.includes(size);
+  const disabled = !opt.validated || !sizeOK;
+  let suffix = '';
+  if (!opt.validated) suffix = ' — coming soon';
+  else if (!sizeOK) suffix = ` — ${size}×${size} not tuned`;
   return (
-    <option key={opt.value} value={opt.value} disabled={!opt.validated}>
-      {opt.label}{opt.validated ? '' : ' — coming soon'}
+    <option key={opt.value} value={opt.value} disabled={disabled}>
+      {opt.label}{suffix}
     </option>
   );
 }
@@ -35,6 +58,20 @@ function getSavedAvatar(): PlayerAvatarType {
   return 'blackhole';
 }
 
+const BOARD_SIZE_OPTIONS = [
+  { value: 9,  label: '9×9',  description: 'Quickest games — best for new players' },
+  { value: 13, label: '13×13', description: 'Mid-size — short but full of strategy' },
+  { value: 19, label: '19×19', description: 'Standard — full Go board' },
+];
+
+function getSavedBoardSize(): number {
+  try {
+    const saved = parseInt(localStorage.getItem('goforkids_board_size') || '', 10);
+    if (saved === 9 || saved === 13 || saved === 19) return saved;
+  } catch {}
+  return 19;
+}
+
 export function NewGameDialog({ onClose }: NewGameDialogProps) {
   const [gameMode, setGameMode] = useState<GameMode>('ai');
   const [playerColor, setPlayerColor] = useState<Color>(Color.Black);
@@ -42,15 +79,33 @@ export function NewGameDialog({ onClose }: NewGameDialogProps) {
   const [handicap, setHandicap] = useState(0);
   const [isRanked, setIsRanked] = useState(false);
   const [playerAvatar, setPlayerAvatar] = useState<PlayerAvatarType>(getSavedAvatar());
+  const [boardSize, setBoardSize] = useState<number>(getSavedBoardSize());
+  const maxHandicap = MAX_HANDICAP_BY_SIZE[boardSize] ?? 9;
   // Bot vs bot ranks
   const [blackRank, setBlackRank] = useState('18k');
   const [whiteRank, setWhiteRank] = useState('15k');
+
+  // Re-clamp handicap and snap selected ranks when the user switches board size.
+  useEffect(() => {
+    if (handicap > maxHandicap) setHandicap(maxHandicap);
+    const fallback = (rank: string): string => {
+      const opt = RANK_OPTIONS.find((o) => o.value === rank);
+      if (opt && isRankAvailable(opt, boardSize)) return rank;
+      const next = RANK_OPTIONS.find((o) => isRankAvailable(o, boardSize));
+      return next ? next.value : rank;
+    };
+    setTargetRank((r) => fallback(r));
+    setBlackRank((r) => fallback(r));
+    setWhiteRank((r) => fallback(r));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardSize]);
 
   const newGame = useGameStore((s) => s.newGame);
   const botInfo = BOT_AVATARS[gameMode === 'botvsbot' ? whiteRank : targetRank] || BOT_AVATARS['15k'];
 
   const handleStart = () => {
     localStorage.setItem('goforkids_avatar', playerAvatar);
+    localStorage.setItem('goforkids_board_size', String(boardSize));
     newGame({
       playerColor,
       targetRank: gameMode === 'botvsbot' ? blackRank : targetRank,
@@ -61,6 +116,7 @@ export function NewGameDialog({ onClose }: NewGameDialogProps) {
       handicap,
       blackRank: gameMode === 'botvsbot' ? blackRank : undefined,
       whiteRank: gameMode === 'botvsbot' ? whiteRank : undefined,
+      boardSize,
     });
     onClose();
   };
@@ -92,6 +148,23 @@ export function NewGameDialog({ onClose }: NewGameDialogProps) {
             >
               Local
             </button>
+          </div>
+        </div>
+
+        {/* Board size */}
+        <div className="dialog-field">
+          <label>Board size</label>
+          <div className="mode-picker">
+            {BOARD_SIZE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                className={`mode-btn ${boardSize === opt.value ? 'selected' : ''}`}
+                onClick={() => setBoardSize(opt.value)}
+                title={opt.description}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -131,7 +204,7 @@ export function NewGameDialog({ onClose }: NewGameDialogProps) {
             <div className="opponent-preview">
               <Avatar type={botInfo.type} size={40} />
               <select value={targetRank} onChange={(e) => setTargetRank(e.target.value)}>
-                {RANK_OPTIONS.map(rankOption)}
+                {RANK_OPTIONS.map((opt) => rankOption(opt, boardSize))}
               </select>
             </div>
           </div>
@@ -145,7 +218,7 @@ export function NewGameDialog({ onClose }: NewGameDialogProps) {
               <div className="opponent-preview">
                 <Avatar type={(BOT_AVATARS[blackRank] || BOT_AVATARS['15k']).type} size={40} />
                 <select value={blackRank} onChange={(e) => setBlackRank(e.target.value)}>
-                  {RANK_OPTIONS.map(rankOption)}
+                  {RANK_OPTIONS.map((opt) => rankOption(opt, boardSize))}
                 </select>
               </div>
             </div>
@@ -154,7 +227,7 @@ export function NewGameDialog({ onClose }: NewGameDialogProps) {
               <div className="opponent-preview">
                 <Avatar type={(BOT_AVATARS[whiteRank] || BOT_AVATARS['15k']).type} size={40} />
                 <select value={whiteRank} onChange={(e) => setWhiteRank(e.target.value)}>
-                  {RANK_OPTIONS.map(rankOption)}
+                  {RANK_OPTIONS.map((opt) => rankOption(opt, boardSize))}
                 </select>
               </div>
             </div>
@@ -167,14 +240,14 @@ export function NewGameDialog({ onClose }: NewGameDialogProps) {
           <input
             type="range"
             min={0}
-            max={9}
+            max={maxHandicap}
             value={handicap}
             onChange={(e) => setHandicap(parseInt(e.target.value))}
             className="handicap-slider"
           />
           <div className="handicap-labels">
             <span>Even</span>
-            <span>9</span>
+            <span>{maxHandicap}</span>
           </div>
         </div>
 

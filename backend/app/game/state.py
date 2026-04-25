@@ -9,7 +9,7 @@ from typing import Optional, Union
 
 import logging
 
-from app.game.engine import Board, Color, Point, MoveRecord, BOARD_SIZE
+from app.game.engine import Board, Color, Point, MoveRecord
 from app.models.schemas import (
     CreateGameRequest,
     GameStateResponse,
@@ -43,8 +43,10 @@ class ActiveGame:
     white_rank: Optional[str] = None  # For bot-vs-bot
 
 
-# Standard handicap stone positions (row, col)
-HANDICAP_POSITIONS = {
+# Standard handicap stone positions (row, col), per board size.
+# Pattern follows 19x19 convention: diagonal corners (2), then 3 corners,
+# then all 4 corners, then tengen, then edge midpoints, mixing in tengen.
+HANDICAP_POSITIONS_19 = {
     2: [(15, 3), (3, 15)],
     3: [(15, 3), (3, 15), (15, 15)],
     4: [(15, 3), (3, 15), (3, 3), (15, 15)],
@@ -55,6 +57,47 @@ HANDICAP_POSITIONS = {
     9: [(15, 3), (3, 15), (3, 3), (15, 15), (9, 3), (9, 15), (3, 9), (15, 9), (9, 9)],
 }
 
+# 13x13 hoshi: corners (3,3), (3,9), (9,3), (9,9), tengen (6,6),
+# plus edge midpoints (3,6), (6,3), (6,9), (9,6).
+HANDICAP_POSITIONS_13 = {
+    2: [(9, 3), (3, 9)],
+    3: [(9, 3), (3, 9), (9, 9)],
+    4: [(9, 3), (3, 9), (3, 3), (9, 9)],
+    5: [(9, 3), (3, 9), (3, 3), (9, 9), (6, 6)],
+    6: [(9, 3), (3, 9), (3, 3), (9, 9), (6, 3), (6, 9)],
+    7: [(9, 3), (3, 9), (3, 3), (9, 9), (6, 3), (6, 9), (6, 6)],
+    8: [(9, 3), (3, 9), (3, 3), (9, 9), (6, 3), (6, 9), (3, 6), (9, 6)],
+    9: [(9, 3), (3, 9), (3, 3), (9, 9), (6, 3), (6, 9), (3, 6), (9, 6), (6, 6)],
+}
+
+# 9x9 hoshi: only 5 points exist — corners (2,2), (2,6), (6,2), (6,6) and tengen (4,4).
+# Cap at 5 since there are no edge-midpoint hoshi to extend the pattern.
+HANDICAP_POSITIONS_9 = {
+    2: [(6, 2), (2, 6)],
+    3: [(6, 2), (2, 6), (6, 6)],
+    4: [(6, 2), (2, 6), (2, 2), (6, 6)],
+    5: [(6, 2), (2, 6), (2, 2), (6, 6), (4, 4)],
+}
+
+_HANDICAP_BY_SIZE = {
+    9: HANDICAP_POSITIONS_9,
+    13: HANDICAP_POSITIONS_13,
+    19: HANDICAP_POSITIONS_19,
+}
+
+# Maximum handicap stones per size (drives clamping).
+MAX_HANDICAP_BY_SIZE = {9: 5, 13: 9, 19: 9}
+
+
+def _handicap_positions(size: int, handicap: int) -> list[tuple[int, int]]:
+    table = _HANDICAP_BY_SIZE.get(size)
+    if not table:
+        return []
+    return table.get(handicap, [])
+
+
+SUPPORTED_SIZES = (9, 13, 19)
+
 
 class GameManager:
     def __init__(self):
@@ -62,15 +105,17 @@ class GameManager:
 
     def create_game(self, game_id: str, req: CreateGameRequest) -> GameStateResponse:
         player_color = Color.BLACK if req.player_color == StoneColor.black else Color.WHITE
-        handicap = max(0, min(9, req.handicap))
+        size = req.board_size if req.board_size in SUPPORTED_SIZES else 19
+        max_h = MAX_HANDICAP_BY_SIZE.get(size, 0)
+        handicap = max(0, min(max_h, req.handicap))
         komi = 0.5 if handicap > 0 else req.komi
 
-        board = Board()
+        board = Board(size)
 
         # Place handicap stones
-        if handicap >= 2 and handicap in HANDICAP_POSITIONS:
-            for r, c in HANDICAP_POSITIONS[handicap]:
-                board.grid[r * BOARD_SIZE + c] = Color.BLACK
+        handi_points = _handicap_positions(size, handicap)
+        for r, c in handi_points:
+            board.grid[r * size + c] = Color.BLACK
 
         # After handicap, White moves first
         current_color = Color.WHITE if handicap >= 2 else Color.BLACK
@@ -179,8 +224,9 @@ class GameManager:
             return "Cannot undo in this phase"
 
         # Replay all moves except the last
+        size = game.board.size
         moves = game.move_history[:-1]
-        game.board = Board()
+        game.board = Board(size)
         game.current_color = Color.BLACK
         game.move_history = []
         game.consecutive_passes = 0
@@ -225,7 +271,10 @@ class GameManager:
             board_2d = game.board.to_2d()
             player = "B" if game.current_color == Color.BLACK else "W"
             try:
-                analysis = await engine.analyze(board_2d, player, max_visits=500, komi=game.komi)
+                analysis = await engine.analyze(
+                    board_2d, player, max_visits=500,
+                    komi=game.komi, size=game.board.size,
+                )
             except Exception as e:
                 logger.error(f"Auto-complete KataGo failed: {e}")
                 break
@@ -291,7 +340,17 @@ class GameManager:
         else:
             rank = game.target_rank
 
-        point = await select_ai_move(game.board, game.current_color, rank)
+        # Last opponent stone — feeds reactive play for beginner-style profiles.
+        last_opponent_move: Optional[Point] = None
+        for record in reversed(game.move_history):
+            if record.color != game.current_color and record.point is not None:
+                last_opponent_move = record.point
+                break
+
+        point = await select_ai_move(
+            game.board, game.current_color, rank,
+            last_opponent_move=last_opponent_move,
+        )
 
         if point is None:
             # AI passes
@@ -336,14 +395,16 @@ class GameManager:
                 analysis = await engine.analyze(
                     board_2d, "B", max_visits=200,
                     komi=game.komi, include_ownership=True,
+                    size=game.board.size,
                 )
                 if analysis.ownership:
                     # Ownership values: +1 = definitely black, -1 = definitely white
                     # A stone is "dead" if the ownership says the intersection
                     # belongs to the opponent with high confidence
-                    for row in range(BOARD_SIZE):
-                        for col in range(BOARD_SIZE):
-                            idx = row * BOARD_SIZE + col
+                    size = game.board.size
+                    for row in range(size):
+                        for col in range(size):
+                            idx = row * size + col
                             stone = game.board.get(Point(row, col))
                             own = analysis.ownership[idx]
 
@@ -362,7 +423,7 @@ class GameManager:
         scoring_board = game.board.clone()
         for ds in dead_stones:
             stone_color = scoring_board.get(ds)
-            scoring_board.grid[ds.index()] = Color.EMPTY
+            scoring_board.grid[ds.index(scoring_board.size)] = Color.EMPTY
             # Count dead stones as captures for the opponent
             if stone_color == Color.BLACK:
                 scoring_board.captures[Color.WHITE] += 1
@@ -423,7 +484,7 @@ class GameManager:
         """Save a finished game to SQLite."""
         try:
             # Build SGF
-            sgf = f"(;GM[1]FF[4]SZ[19]KM[{game.komi}]RU[Japanese]"
+            sgf = f"(;GM[1]FF[4]SZ[{game.board.size}]KM[{game.komi}]RU[Japanese]"
             if game.result:
                 winner = game.result.get("winner", "?")[0].upper()
                 margin = game.result.get("margin", 0)
@@ -488,6 +549,7 @@ class GameManager:
         return GameStateResponse(
             game_id=game.game_id,
             board=game.board.to_2d(),
+            board_size=game.board.size,
             current_color=StoneColor.black
             if game.current_color == Color.BLACK
             else StoneColor.white,
@@ -505,14 +567,13 @@ class GameManager:
 
     def _generate_sgf(self, game: ActiveGame) -> str:
         """Generate SGF from the full move history, including handicap setup."""
-        sgf = f"(;GM[1]FF[4]SZ[19]KM[{game.komi}]RU[Japanese]"
+        sgf = f"(;GM[1]FF[4]SZ[{game.board.size}]KM[{game.komi}]RU[Japanese]"
 
         # Add handicap stones as AB[] (Add Black) properties
-        if game.handicap >= 2 and game.handicap in HANDICAP_POSITIONS:
+        handi_points = _handicap_positions(game.board.size, game.handicap)
+        if handi_points:
             sgf += f"HA[{game.handicap}]"
-            ab_points = []
-            for r, c in HANDICAP_POSITIONS[game.handicap]:
-                ab_points.append(f"{chr(97 + c)}{chr(97 + r)}")
+            ab_points = [f"{chr(97 + c)}{chr(97 + r)}" for r, c in handi_points]
             sgf += "AB" + "".join(f"[{p}]" for p in ab_points)
 
         if game.result:

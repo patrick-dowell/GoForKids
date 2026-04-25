@@ -12,14 +12,17 @@ import type { Theme } from '../../theme/themes';
 
 const BOARD_PADDING = 40;
 const CANVAS_SIZE = 700;
-const boardSize = CANVAS_SIZE - BOARD_PADDING * 2;
-const cellSize = boardSize / (BOARD_SIZE - 1);
-const stoneRadius = cellSize * 0.45;
 
-function toScreen(row: number, col: number) {
+function geom(size: number) {
+  const boardPixels = CANVAS_SIZE - BOARD_PADDING * 2;
+  const cellSize = boardPixels / (size - 1);
   return {
-    x: BOARD_PADDING + col * cellSize,
-    y: BOARD_PADDING + row * cellSize,
+    cellSize,
+    stoneRadius: cellSize * 0.45,
+    toScreen: (row: number, col: number) => ({
+      x: BOARD_PADDING + col * cellSize,
+      y: BOARD_PADDING + row * cellSize,
+    }),
   };
 }
 
@@ -27,7 +30,8 @@ function toScreen(row: number, col: number) {
  * Stone placement: satisfying snap with squash/stretch and shadow settle.
  * Intensity scales the squash amount and ripple — low for classic, full for cosmic.
  */
-export function createPlacementAnimation(point: Point, color: Color, theme: Theme): Animation {
+export function createPlacementAnimation(point: Point, color: Color, theme: Theme, size: number = BOARD_SIZE): Animation {
+  const { stoneRadius, toScreen } = geom(size);
   const { x, y } = toScreen(point.row, point.col);
   const intensity = theme.animationIntensity;
 
@@ -94,7 +98,9 @@ export function createCaptureAnimation(
   captorPoint: Point,
   color: Color,
   theme: Theme,
+  size: number = BOARD_SIZE,
 ): Animation {
+  const { stoneRadius, toScreen } = geom(size);
   const captor = toScreen(captorPoint.row, captorPoint.col);
   const count = captured.length;
   const isBigCapture = count >= 3;
@@ -232,7 +238,9 @@ export function createConnectionAnimation(
   stones: Point[],
   color: Color,
   theme: Theme,
+  size: number = BOARD_SIZE,
 ): Animation {
+  const { stoneRadius, toScreen } = geom(size);
   return {
     id: `connect-${Date.now()}`,
     duration: 600,
@@ -262,7 +270,9 @@ export function createAtariAnimation(
   stones: Point[],
   _color: Color,
   theme: Theme,
+  size: number = BOARD_SIZE,
 ): Animation {
+  const { stoneRadius, toScreen } = geom(size);
   return {
     id: `atari-${stones[0].row}-${stones[0].col}`,
     duration: 1000,

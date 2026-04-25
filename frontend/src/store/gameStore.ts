@@ -50,8 +50,9 @@ interface TerritoryMap {
 
 export type GameMode = 'ai' | 'botvsbot' | 'local';
 
-// Standard handicap stone positions (row, col)
-const HANDICAP_POSITIONS: Record<number, [number, number][]> = {
+// Standard handicap stone positions (row, col), per board size.
+// Mirrors backend/app/game/state.py — keep these in sync.
+const HANDICAP_POSITIONS_19: Record<number, [number, number][]> = {
   2: [[15, 3], [3, 15]],
   3: [[15, 3], [3, 15], [15, 15]],
   4: [[15, 3], [3, 15], [3, 3], [15, 15]],
@@ -61,6 +62,36 @@ const HANDICAP_POSITIONS: Record<number, [number, number][]> = {
   8: [[15, 3], [3, 15], [3, 3], [15, 15], [9, 3], [9, 15], [3, 9], [15, 9]],
   9: [[15, 3], [3, 15], [3, 3], [15, 15], [9, 3], [9, 15], [3, 9], [15, 9], [9, 9]],
 };
+
+const HANDICAP_POSITIONS_13: Record<number, [number, number][]> = {
+  2: [[9, 3], [3, 9]],
+  3: [[9, 3], [3, 9], [9, 9]],
+  4: [[9, 3], [3, 9], [3, 3], [9, 9]],
+  5: [[9, 3], [3, 9], [3, 3], [9, 9], [6, 6]],
+  6: [[9, 3], [3, 9], [3, 3], [9, 9], [6, 3], [6, 9]],
+  7: [[9, 3], [3, 9], [3, 3], [9, 9], [6, 3], [6, 9], [6, 6]],
+  8: [[9, 3], [3, 9], [3, 3], [9, 9], [6, 3], [6, 9], [3, 6], [9, 6]],
+  9: [[9, 3], [3, 9], [3, 3], [9, 9], [6, 3], [6, 9], [3, 6], [9, 6], [6, 6]],
+};
+
+const HANDICAP_POSITIONS_9: Record<number, [number, number][]> = {
+  2: [[6, 2], [2, 6]],
+  3: [[6, 2], [2, 6], [6, 6]],
+  4: [[6, 2], [2, 6], [2, 2], [6, 6]],
+  5: [[6, 2], [2, 6], [2, 2], [6, 6], [4, 4]],
+};
+
+const HANDICAP_BY_SIZE: Record<number, Record<number, [number, number][]>> = {
+  9: HANDICAP_POSITIONS_9,
+  13: HANDICAP_POSITIONS_13,
+  19: HANDICAP_POSITIONS_19,
+};
+
+export const MAX_HANDICAP_BY_SIZE: Record<number, number> = { 9: 5, 13: 9, 19: 9 };
+
+function handicapPositions(size: number, n: number): [number, number][] {
+  return HANDICAP_BY_SIZE[size]?.[n] ?? [];
+}
 
 interface NewGameOptions {
   komi?: number;
@@ -73,10 +104,12 @@ interface NewGameOptions {
   handicap?: number;
   blackRank?: string;  // For bot-vs-bot
   whiteRank?: string;  // For bot-vs-bot
+  boardSize?: number;  // 9, 13, or 19
 }
 
 interface GameState {
   grid: GridSnapshot;
+  boardSize: number;
   phase: GamePhase;
   currentColor: Color;
   moveCount: number;
@@ -130,6 +163,7 @@ function snapshot(game: Game, extras?: Partial<GameState>): Partial<GameState> {
 
   return {
     grid: [...game.board.grid],
+    boardSize: game.board.size,
     phase: game.phase,
     currentColor: game.currentColor,
     moveCount: game.moveHistory.length,
@@ -152,12 +186,12 @@ function syncServerScoring(
   serverState: { board: number[][]; result?: any },
 ): { row: number; col: number; color: Color }[] {
   const deadStones: { row: number; col: number; color: Color }[] = [];
+  const size = game.board.size;
 
-  // Identify dead stones: compare server board to local board
-  // Stones that exist locally but are empty on the server = dead
-  for (let r = 0; r < BOARD_SIZE; r++) {
-    for (let c = 0; c < BOARD_SIZE; c++) {
-      const localColor = game.board.grid[r * BOARD_SIZE + c];
+  // Identify dead stones: stones that exist locally but are empty on the server = dead
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const localColor = game.board.grid[r * size + c];
       const serverColor = serverState.board[r][c];
       if (localColor !== Color.Empty && serverColor === Color.Empty) {
         deadStones.push({ row: r, col: c, color: localColor as Color });
@@ -166,9 +200,9 @@ function syncServerScoring(
   }
 
   // Now sync the board
-  for (let r = 0; r < BOARD_SIZE; r++) {
-    for (let c = 0; c < BOARD_SIZE; c++) {
-      game.board.grid[r * BOARD_SIZE + c] = serverState.board[r][c];
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      game.board.grid[r * size + c] = serverState.board[r][c];
     }
   }
 
@@ -192,6 +226,7 @@ function syncServerScoring(
 
 export const useGameStore = create<GameState>((set, get) => ({
   grid: new Array(BOARD_SIZE * BOARD_SIZE).fill(Color.Empty),
+  boardSize: BOARD_SIZE,
   phase: 'playing',
   currentColor: Color.Black,
   moveCount: 0,
@@ -227,9 +262,14 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (prevTimer) clearTimeout(prevTimer);
 
     const gameMode = options?.gameMode ?? 'ai';
-    const handicap = options?.handicap ?? 0;
-    const komi = handicap > 0 ? 0.5 : (options?.komi ?? 7.5);
-    const game = new Game(komi);
+    const requestedSize = options?.boardSize ?? BOARD_SIZE;
+    const boardSize = [9, 13, 19].includes(requestedSize) ? requestedSize : BOARD_SIZE;
+    const maxHandicap = MAX_HANDICAP_BY_SIZE[boardSize] ?? 0;
+    const handicap = Math.max(0, Math.min(maxHandicap, options?.handicap ?? 0));
+    // Smaller boards traditionally use 7 komi (Japanese); 19x19 uses 7.5.
+    const defaultKomi = boardSize === 19 ? 7.5 : 7;
+    const komi = handicap > 0 ? 0.5 : (options?.komi ?? defaultKomi);
+    const game = new Game(komi, boardSize);
     const playerColor = options?.playerColor ?? Color.Black;
     const targetRank = options?.targetRank ?? '15k';
     const isRanked = options?.isRanked ?? false;
@@ -242,9 +282,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     const botInfo = BOT_AVATARS[botRank] || BOT_AVATARS['15k'];
 
     // Place handicap stones on the local board
-    if (handicap >= 2 && HANDICAP_POSITIONS[handicap]) {
-      for (const [r, c] of HANDICAP_POSITIONS[handicap]) {
-        game.board.grid[r * BOARD_SIZE + c] = Color.Black;
+    const handiPoints = handicapPositions(boardSize, handicap);
+    if (handiPoints.length > 0) {
+      for (const [r, c] of handiPoints) {
+        game.board.grid[r * boardSize + c] = Color.Black;
       }
       game.currentColor = Color.White; // White moves first after handicap
     }
@@ -262,6 +303,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           handicap,
           black_rank: blackRank,
           white_rank: whiteRank,
+          board_size: boardSize,
         });
         gameId = res.game_id;
       } catch (e) {
@@ -286,6 +328,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       whiteRank,
       botVsBotPaused: false,
       _botVsBotTimer: null,
+      deadStones: [],
     });
 
     // Bot vs Bot: start the auto-play loop

@@ -1,5 +1,6 @@
 import { Board } from './Board';
 import {
+  BOARD_SIZE,
   Color,
   oppositeColor,
   Point,
@@ -10,7 +11,7 @@ import {
 
 export type GamePhase = 'playing' | 'scoring' | 'finished';
 
-const DEFAULT_KOMI = 7.5; // Standard komi for 19x19
+const DEFAULT_KOMI = 7.5; // Standard komi for 19x19; callers should adjust for smaller boards.
 
 /**
  * Full game controller — manages turns, move history, pass detection,
@@ -25,8 +26,8 @@ export class Game {
   consecutivePasses: number;
   result: GameResult | null;
 
-  constructor(komi: number = DEFAULT_KOMI) {
-    this.board = new Board();
+  constructor(komi: number = DEFAULT_KOMI, size: number = BOARD_SIZE) {
+    this.board = new Board(size);
     this.currentColor = Color.Black;
     this.moveHistory = [];
     this.phase = 'playing';
@@ -107,7 +108,6 @@ export class Game {
   score(): GameResult {
     const { blackTerritory, whiteTerritory } = this.board.scoreTerritory();
 
-    // Japanese scoring: territory + captures
     const blackCaptures = this.board.captures[Color.Black];
     const whiteCaptures = this.board.captures[Color.White];
     const blackScore = blackTerritory.size + blackCaptures;
@@ -135,9 +135,9 @@ export class Game {
     if (this.moveHistory.length === 0) return false;
     if (this.phase !== 'playing') return false;
 
-    // Replay all moves except the last one
+    const size = this.board.size;
     const moves = this.moveHistory.slice(0, -1);
-    this.board = new Board();
+    this.board = new Board(size);
     this.currentColor = Color.Black;
     this.moveHistory = [];
     this.consecutivePasses = 0;
@@ -158,10 +158,9 @@ export class Game {
     if (this.phase !== 'playing') return [];
 
     const moves: Point[] = [];
-    for (let row = 0; row < 19; row++) {
-      for (let col = 0; col < 19; col++) {
+    for (let row = 0; row < this.board.size; row++) {
+      for (let col = 0; col < this.board.size; col++) {
         const point = { row, col };
-        // Test on a clone to avoid mutating state
         const testBoard = this.board.clone();
         const { result } = testBoard.tryPlay(this.currentColor, point);
         if (result === MoveResult.Ok) {
@@ -175,7 +174,7 @@ export class Game {
   /** Export game to SGF format */
   toSGF(): string {
     let sgf = '(;GM[1]FF[4]CA[UTF-8]';
-    sgf += `SZ[19]`;
+    sgf += `SZ[${this.board.size}]`;
     sgf += `KM[${this.komi}]`;
     sgf += `RU[Japanese]`;
 
@@ -188,11 +187,11 @@ export class Game {
     for (const move of this.moveHistory) {
       const colorChar = move.color === Color.Black ? 'B' : 'W';
       if (move.point) {
-        const col = String.fromCharCode(97 + move.point.col); // a-s
-        const row = String.fromCharCode(97 + move.point.row); // a-s
+        const col = String.fromCharCode(97 + move.point.col);
+        const row = String.fromCharCode(97 + move.point.row);
         sgf += `;${colorChar}[${col}${row}]`;
       } else {
-        sgf += `;${colorChar}[]`; // pass
+        sgf += `;${colorChar}[]`;
       }
     }
 
@@ -202,16 +201,18 @@ export class Game {
 
   /** Import game from SGF string */
   static fromSGF(sgf: string): Game {
-    const game = new Game();
+    // Extract size (default 19)
+    const sizeMatch = sgf.match(/SZ\[(\d+)\]/);
+    const size = sizeMatch ? parseInt(sizeMatch[1], 10) : BOARD_SIZE;
 
-    // Extract komi
+    // Extract komi (default 7.5)
     const komiMatch = sgf.match(/KM\[([^\]]+)\]/);
-    if (komiMatch) {
-      game.komi = parseFloat(komiMatch[1]);
-    }
+    const komi = komiMatch ? parseFloat(komiMatch[1]) : DEFAULT_KOMI;
 
-    // Extract moves
-    const moveRegex = /;([BW])\[([a-s]{0,2})\]/g;
+    const game = new Game(komi, size);
+
+    // Extract moves. SGF coords use 'a'..'s' for 19 (and subsets for smaller boards).
+    const moveRegex = /;([BW])\[([a-z]{0,2})\]/g;
     let match: RegExpExecArray | null;
 
     while ((match = moveRegex.exec(sgf)) !== null) {

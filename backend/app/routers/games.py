@@ -27,19 +27,21 @@ async def list_saved_games(limit: int = 50):
 @router.post("/score-position")
 async def score_position(req: dict):
     """Score a board position using KataGo ownership analysis. Returns dead stones."""
-    from app.katago.engine import get_engine, BOARD_SIZE
-    from app.game.engine import Color
+    from app.katago.engine import get_engine
 
     board = req.get("board", [])
-    if len(board) != 19 or any(len(row) != 19 for row in board):
-        raise HTTPException(status_code=400, detail="Board must be 19x19")
+    size = len(board)
+    if size not in (9, 13, 19) or any(len(row) != size for row in board):
+        raise HTTPException(status_code=400, detail="Board must be square 9, 13, or 19")
 
     engine = await get_engine()
     if not engine:
         raise HTTPException(status_code=503, detail="KataGo not available")
 
     try:
-        analysis = await engine.analyze(board, "B", max_visits=200, komi=7.5, include_ownership=True)
+        analysis = await engine.analyze(
+            board, "B", max_visits=200, komi=7.5, include_ownership=True, size=size,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"KataGo analysis failed: {e}")
 
@@ -47,13 +49,9 @@ async def score_position(req: dict):
     if analysis.ownership:
         # Ownership: +1 = black controls, -1 = white controls
         # A stone is dead if the opponent controls that intersection
-        # Black stone with ownership > 0.5 → black controls → alive
-        # Black stone with ownership < -0.5 → white controls → dead
-        # White stone with ownership > 0.5 → black controls → dead
-        # White stone with ownership < -0.5 → white controls → alive
-        for row in range(BOARD_SIZE):
-            for col in range(BOARD_SIZE):
-                idx = row * BOARD_SIZE + col
+        for row in range(size):
+            for col in range(size):
+                idx = row * size + col
                 stone = board[row][col]
                 own = analysis.ownership[idx]
                 if stone == 1 and own < -0.3:  # Black stone, white controls → dead
