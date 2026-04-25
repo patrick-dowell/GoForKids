@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react';
-import { BOARD_SIZE, Color, type Point } from '../engine/types';
+import { Color, type Point } from '../engine/types';
 import { useGameStore } from '../store/gameStore';
 import { useReplayStore } from '../store/replayStore';
 import { useSettingsStore } from '../store/settingsStore';
@@ -12,30 +12,53 @@ import {
 
 const BOARD_PADDING = 40;
 const CANVAS_SIZE = 700;
-const STAR_POINTS = [
-  [3, 3], [3, 9], [3, 15],
-  [9, 3], [9, 9], [9, 15],
-  [15, 3], [15, 9], [15, 15],
-];
 
-const boardPixels = CANVAS_SIZE - BOARD_PADDING * 2;
-const cellSize = boardPixels / (BOARD_SIZE - 1);
-const stoneRadius = cellSize * 0.45;
+/** Standard hoshi (star point) positions per board size. */
+const STAR_POINTS: Record<number, [number, number][]> = {
+  9: [
+    [2, 2], [2, 6],
+    [6, 2], [6, 6],
+    [4, 4],
+  ],
+  13: [
+    [3, 3], [3, 9],
+    [9, 3], [9, 9],
+    [6, 6],
+  ],
+  19: [
+    [3, 3], [3, 9], [3, 15],
+    [9, 3], [9, 9], [9, 15],
+    [15, 3], [15, 9], [15, 15],
+  ],
+};
 
-function toScreen(row: number, col: number) {
+/** Compute board geometry for a given size. cellSize, stoneRadius scale with size. */
+function geometry(size: number) {
+  const boardPixels = CANVAS_SIZE - BOARD_PADDING * 2;
+  const cellSize = boardPixels / (size - 1);
   return {
-    x: BOARD_PADDING + col * cellSize,
-    y: BOARD_PADDING + row * cellSize,
+    cellSize,
+    stoneRadius: cellSize * 0.45,
+    toScreen: (row: number, col: number) => ({
+      x: BOARD_PADDING + col * cellSize,
+      y: BOARD_PADDING + row * cellSize,
+    }),
   };
 }
 
-function toBoard(clientX: number, clientY: number, canvas: HTMLCanvasElement): Point | null {
+function toBoard(
+  clientX: number,
+  clientY: number,
+  canvas: HTMLCanvasElement,
+  size: number,
+): Point | null {
   const rect = canvas.getBoundingClientRect();
   const x = (clientX - rect.left) * (CANVAS_SIZE / rect.width);
   const y = (clientY - rect.top) * (CANVAS_SIZE / rect.height);
+  const { cellSize } = geometry(size);
   const col = Math.round((x - BOARD_PADDING) / cellSize);
   const row = Math.round((y - BOARD_PADDING) / cellSize);
-  if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) return null;
+  if (row < 0 || row >= size || col < 0 || col >= size) return null;
   return { row, col };
 }
 
@@ -50,6 +73,7 @@ interface DeadStone { row: number; col: number; color: Color; }
 function drawBoard(
   ctx: CanvasRenderingContext2D,
   theme: Theme,
+  size: number,
   grid: number[],
   lastMove: Point | null,
   lastMoveNumber: number,
@@ -59,6 +83,9 @@ function drawBoard(
   territory: TerritoryMap | null = null,
   deadStones: DeadStone[] = [],
 ) {
+  const { cellSize, stoneRadius, toScreen } = geometry(size);
+  const starPoints = STAR_POINTS[size] ?? [];
+
   // Canvas background
   ctx.fillStyle = theme.canvasBackground;
   ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
@@ -72,20 +99,21 @@ function drawBoard(
   // Grid
   ctx.strokeStyle = theme.lineColor;
   ctx.lineWidth = theme.lineWidth;
-  for (let i = 0; i < BOARD_SIZE; i++) {
+  for (let i = 0; i < size; i++) {
     const p = toScreen(i, 0);
-    const pe = toScreen(i, BOARD_SIZE - 1);
+    const pe = toScreen(i, size - 1);
     ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(pe.x, p.y); ctx.stroke();
     const q = toScreen(0, i);
-    const qe = toScreen(BOARD_SIZE - 1, i);
+    const qe = toScreen(size - 1, i);
     ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(q.x, qe.y); ctx.stroke();
   }
 
-  // Star points
+  // Star points — radius scales mildly with cellSize so 9x9 hoshi don't look huge
+  const starRadius = Math.max(2, theme.starRadius * (size === 19 ? 1 : 0.85));
   ctx.fillStyle = theme.starColor;
-  for (const [r, c] of STAR_POINTS) {
+  for (const [r, c] of starPoints) {
     const { x, y } = toScreen(r, c);
-    ctx.beginPath(); ctx.arc(x, y, theme.starRadius, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, starRadius, 0, Math.PI * 2); ctx.fill();
   }
 
   // Coordinates
@@ -94,9 +122,9 @@ function drawBoard(
   ctx.font = '10px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  for (let i = 0; i < BOARD_SIZE; i++) {
+  for (let i = 0; i < size; i++) {
     ctx.fillText(labels[i], toScreen(0, i).x, 15);
-    ctx.fillText(String(BOARD_SIZE - i), 15, toScreen(i, 0).y);
+    ctx.fillText(String(size - i), 15, toScreen(i, 0).y);
   }
 
   // Atari glow
@@ -109,9 +137,9 @@ function drawBoard(
   }
 
   // Stones
-  for (let row = 0; row < BOARD_SIZE; row++) {
-    for (let col = 0; col < BOARD_SIZE; col++) {
-      const color = grid[row * BOARD_SIZE + col];
+  for (let row = 0; row < size; row++) {
+    for (let col = 0; col < size; col++) {
+      const color = grid[row * size + col];
       if (color === Color.Empty) continue;
       const { x, y } = toScreen(row, col);
       theme.drawStone(ctx, x, y, stoneRadius, color as Color);
@@ -123,14 +151,14 @@ function drawBoard(
     ctx.save();
     ctx.globalAlpha = 0.9;
     for (const idx of territory.black) {
-      const row = Math.floor(idx / BOARD_SIZE);
-      const col = idx % BOARD_SIZE;
+      const row = Math.floor(idx / size);
+      const col = idx % size;
       const { x, y } = toScreen(row, col);
       theme.drawTerritory(ctx, x, y, cellSize, 'black');
     }
     for (const idx of territory.white) {
-      const row = Math.floor(idx / BOARD_SIZE);
-      const col = idx % BOARD_SIZE;
+      const row = Math.floor(idx / size);
+      const col = idx % size;
       const { x, y } = toScreen(row, col);
       theme.drawTerritory(ctx, x, y, cellSize, 'white');
     }
@@ -140,16 +168,16 @@ function drawBoard(
     ctx.globalAlpha = 0.7;
     for (const idx of territory.black) {
       if (grid[idx] !== Color.Empty) continue;
-      const row = Math.floor(idx / BOARD_SIZE);
-      const col = idx % BOARD_SIZE;
+      const row = Math.floor(idx / size);
+      const col = idx % size;
       const { x, y } = toScreen(row, col);
       ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2);
       ctx.fillStyle = theme.territoryMarkerBlack; ctx.fill();
     }
     for (const idx of territory.white) {
       if (grid[idx] !== Color.Empty) continue;
-      const row = Math.floor(idx / BOARD_SIZE);
-      const col = idx % BOARD_SIZE;
+      const row = Math.floor(idx / size);
+      const col = idx % size;
       const { x, y } = toScreen(row, col);
       ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2);
       ctx.fillStyle = theme.territoryMarkerWhite; ctx.fill();
@@ -185,12 +213,11 @@ function drawBoard(
     }
   }
 
-  // Last move marker — halo ring around the stone + move number inside
+  // Last move marker
   if (lastMove && lastMoveNumber > 0) {
     const { x, y } = toScreen(lastMove.row, lastMove.col);
-    const c = grid[lastMove.row * BOARD_SIZE + lastMove.col];
+    const c = grid[lastMove.row * size + lastMove.col];
 
-    // Halo ring just outside the stone
     ctx.save();
     ctx.beginPath();
     ctx.arc(x, y, stoneRadius + 3, 0, Math.PI * 2);
@@ -199,7 +226,6 @@ function drawBoard(
     ctx.stroke();
     ctx.restore();
 
-    // Move number centered on the stone — scale font for 1/2/3+ digit numbers
     const numStr = String(lastMoveNumber);
     const fontScale = numStr.length >= 3 ? 0.7 : numStr.length === 2 ? 0.85 : 1.0;
     const fontPx = Math.round(stoneRadius * fontScale);
@@ -215,7 +241,7 @@ function drawBoard(
   // Hover
   if (hoverPoint && phase === 'playing') {
     const { x, y } = toScreen(hoverPoint.row, hoverPoint.col);
-    const occupied = grid[hoverPoint.row * BOARD_SIZE + hoverPoint.col] !== Color.Empty;
+    const occupied = grid[hoverPoint.row * size + hoverPoint.col] !== Color.Empty;
     if (!occupied) {
       ctx.beginPath(); ctx.arc(x, y, stoneRadius, 0, Math.PI * 2);
       ctx.fillStyle = theme.hoverValid; ctx.fill();
@@ -234,12 +260,14 @@ export function GoBoard() {
   // Replay mode overrides the live game
   const replayActive = useReplayStore((s) => s.active);
   const replayGrid = useReplayStore((s) => s.grid);
+  const replayBoardSize = useReplayStore((s) => s.boardSize);
   const replayLastMove = useReplayStore((s) => s.lastMove);
   const replayCurrentMove = useReplayStore((s) => s.currentMove);
   const replayTerritory = useReplayStore((s) => s.territory);
   const replayDeadStones = useReplayStore((s) => s.deadStones);
 
   const liveGrid = useGameStore((s) => s.grid);
+  const liveBoardSize = useGameStore((s) => s.boardSize);
   const phase = useGameStore((s) => s.phase);
   const liveLastMove = useGameStore((s) => s.lastMove);
   const lastCaptures = useGameStore((s) => s.lastCaptures);
@@ -252,6 +280,7 @@ export function GoBoard() {
   const deadStones = useGameStore((s) => s.deadStones);
 
   const grid = replayActive ? replayGrid : liveGrid;
+  const size = replayActive ? replayBoardSize : liveBoardSize;
   const lastMove = replayActive ? replayLastMove : liveLastMove;
   const replayTotalMoves = useReplayStore((s) => s.totalMoves);
   const lastMoveNumber = replayActive ? replayCurrentMove : moveCount;
@@ -284,9 +313,9 @@ export function GoBoard() {
     const activeAtari = replayActive ? [] : atariGroups;
     const activeTerritory = replayActive ? replayTerritory : territory;
     const activeDead = replayActive ? replayDeadStones : deadStones;
-    drawBoard(ctx, theme, grid, lastMove, lastMoveNumber, activeAtari, hoverPoint, effectivePhase, activeTerritory, activeDead);
+    drawBoard(ctx, theme, size, grid, lastMove, lastMoveNumber, activeAtari, hoverPoint, effectivePhase, activeTerritory, activeDead);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grid, lastMove, lastMoveNumber, hoverPoint, effectivePhase, moveCount, replayCurrentMove, themeId,
+  }, [grid, size, lastMove, lastMoveNumber, hoverPoint, effectivePhase, moveCount, replayCurrentMove, themeId,
       atariGroups.length, deadStones.length,
       territory ? territory.black.size : -1,
       replayTerritory ? replayTerritory.black.size : -1,
@@ -310,22 +339,22 @@ export function GoBoard() {
     const activeDead = replayActive ? replayDeadStones : deadStones;
 
     if (lastMove) {
-      const stoneColor = grid[lastMove.row * BOARD_SIZE + lastMove.col];
+      const stoneColor = grid[lastMove.row * size + lastMove.col];
       if (stoneColor !== Color.Empty) {
         animManager.attach(canvas, () => {
           const ctx = canvas.getContext('2d');
           if (!ctx) return;
           const dpr = window.devicePixelRatio || 1;
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          drawBoard(ctx, theme, grid, lastMove, lastMoveNumber, atariGroups, null, effectivePhase, activeTerritory, activeDead);
+          drawBoard(ctx, theme, size, grid, lastMove, lastMoveNumber, atariGroups, null, effectivePhase, activeTerritory, activeDead);
         });
-        animManager.add(createPlacementAnimation(lastMove, stoneColor as Color, theme));
+        animManager.add(createPlacementAnimation(lastMove, stoneColor as Color, theme, size));
       }
     }
 
     if (lastCaptures.length > 0 && lastMove) {
       const capturedColor = currentColor;
-      animManager.add(createCaptureAnimation(lastCaptures, lastMove, capturedColor, theme));
+      animManager.add(createCaptureAnimation(lastCaptures, lastMove, capturedColor, theme, size));
     }
 
     return () => {
@@ -338,12 +367,12 @@ export function GoBoard() {
       ref={canvasRef}
       onClick={(e) => {
         if (!canClick) return;
-        const p = toBoard(e.clientX, e.clientY, canvasRef.current!);
+        const p = toBoard(e.clientX, e.clientY, canvasRef.current!, size);
         if (p) playMove(p);
       }}
       onMouseMove={(e) => {
         if (!canClick) { setHoverPoint(null); return; }
-        setHoverPoint(toBoard(e.clientX, e.clientY, canvasRef.current!));
+        setHoverPoint(toBoard(e.clientX, e.clientY, canvasRef.current!, size));
       }}
       onMouseLeave={() => setHoverPoint(null)}
       style={{

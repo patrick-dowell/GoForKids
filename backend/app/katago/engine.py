@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-BOARD_SIZE = 19
+BOARD_SIZE = 19  # Default; analyze() takes size per-call.
 
 # Default paths for brew-installed KataGo on macOS
 _BREW_SHARE = "/opt/homebrew/share/katago"
@@ -53,19 +53,19 @@ class PositionAnalysis:
     ownership: Optional[list[float]] = None  # 361 floats: -1 (white) to +1 (black)
 
 
-def point_to_gtp(row: int, col: int) -> str:
+def point_to_gtp(row: int, col: int, size: int = BOARD_SIZE) -> str:
     """Convert (row, col) to GTP coordinate like 'D4'."""
     letters = "ABCDEFGHJKLMNOPQRST"
-    return f"{letters[col]}{BOARD_SIZE - row}"
+    return f"{letters[col]}{size - row}"
 
 
-def gtp_to_point(gtp: str) -> tuple[int, int]:
+def gtp_to_point(gtp: str, size: int = BOARD_SIZE) -> tuple[int, int]:
     """Convert GTP coordinate like 'D4' to (row, col)."""
     if gtp.lower() == "pass":
         return (-1, -1)
     letters = "ABCDEFGHJKLMNOPQRST"
     col = letters.index(gtp[0].upper())
-    row = BOARD_SIZE - int(gtp[1:])
+    row = size - int(gtp[1:])
     return (row, col)
 
 
@@ -132,6 +132,7 @@ class KataGoEngine:
         max_visits: Optional[int] = None,
         komi: float = 7.5,
         include_ownership: bool = False,
+        size: int = BOARD_SIZE,
     ) -> PositionAnalysis:
         """Analyze a board position. Returns candidate moves with evaluations."""
         if not self.process or self.process.poll() is not None:
@@ -142,19 +143,19 @@ class KataGoEngine:
 
         # Build initial stones from 2D board
         initial_stones: list[list[str]] = []
-        for row in range(BOARD_SIZE):
-            for col in range(BOARD_SIZE):
+        for row in range(size):
+            for col in range(size):
                 if board[row][col] == 1:
-                    initial_stones.append(["B", point_to_gtp(row, col)])
+                    initial_stones.append(["B", point_to_gtp(row, col, size)])
                 elif board[row][col] == 2:
-                    initial_stones.append(["W", point_to_gtp(row, col)])
+                    initial_stones.append(["W", point_to_gtp(row, col, size)])
 
         query = {
             "id": query_id,
             "rules": "japanese",
             "komi": komi,
-            "boardXSize": BOARD_SIZE,
-            "boardYSize": BOARD_SIZE,
+            "boardXSize": size,
+            "boardYSize": size,
             "initialStones": initial_stones,
             "moves": [],
             "initialPlayer": current_player,
@@ -170,7 +171,7 @@ class KataGoEngine:
             self.process.stdin.flush()
 
         result = await asyncio.wait_for(future, timeout=30.0)
-        return self._parse_response(result)
+        return self._parse_response(result, size)
 
     async def _read_loop(self):
         """Background task: read JSON responses from KataGo stdout."""
@@ -199,7 +200,7 @@ class KataGoEngine:
         except Exception as e:
             logger.error(f"KataGo reader error: {e}")
 
-    def _parse_response(self, response: dict) -> PositionAnalysis:
+    def _parse_response(self, response: dict, size: int = BOARD_SIZE) -> PositionAnalysis:
         """Parse the flat KataGo analysis JSON response."""
         # KataGo analysis response has moveInfos and rootInfo at top level
         root_info = response.get("rootInfo", {})
@@ -208,7 +209,7 @@ class KataGoEngine:
         candidates = []
         for i, info in enumerate(move_infos):
             move_str = info.get("move", "pass")
-            point = gtp_to_point(move_str) if move_str.lower() != "pass" else (-1, -1)
+            point = gtp_to_point(move_str, size) if move_str.lower() != "pass" else (-1, -1)
 
             candidates.append(MoveCandidate(
                 move=point,

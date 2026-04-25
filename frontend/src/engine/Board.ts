@@ -7,7 +7,6 @@ import {
   neighbors,
   isValidPoint,
   MoveResult,
-  type MoveRecord,
 } from './types';
 
 /**
@@ -15,7 +14,9 @@ import {
  * Pure logic, no UI dependencies.
  */
 export class Board {
-  /** Flat grid: index = row * 19 + col */
+  /** Board dimension (9, 13, or 19). */
+  readonly size: number;
+  /** Flat grid: index = row * size + col */
   grid: Color[];
   /** Number of stones captured by each side */
   captures: { [Color.Black]: number; [Color.White]: number };
@@ -24,8 +25,9 @@ export class Board {
   /** Set of all previous board hashes for positional superko */
   private positionHistory: Set<string>;
 
-  constructor() {
-    this.grid = new Array(BOARD_SIZE * BOARD_SIZE).fill(Color.Empty);
+  constructor(size: number = BOARD_SIZE) {
+    this.size = size;
+    this.grid = new Array(size * size).fill(Color.Empty);
     this.captures = { [Color.Black]: 0, [Color.White]: 0 };
     this.koPoint = null;
     this.positionHistory = new Set();
@@ -34,7 +36,7 @@ export class Board {
 
   /** Deep clone */
   clone(): Board {
-    const b = new Board();
+    const b = new Board(this.size);
     b.grid = [...this.grid];
     b.captures = { ...this.captures };
     b.koPoint = this.koPoint ? { ...this.koPoint } : null;
@@ -43,16 +45,15 @@ export class Board {
   }
 
   get(p: Point): Color {
-    return this.grid[pointToIndex(p)];
+    return this.grid[pointToIndex(p, this.size)];
   }
 
   private set(p: Point, c: Color): void {
-    this.grid[pointToIndex(p)] = c;
+    this.grid[pointToIndex(p, this.size)] = c;
   }
 
   /** Hash the current board state for superko detection */
   hash(): string {
-    // Simple but effective: encode grid as string
     return this.grid.join('');
   }
 
@@ -61,7 +62,7 @@ export class Board {
    * Does NOT mutate if the move is illegal.
    */
   tryPlay(color: Color, point: Point): { result: MoveResult; captures: Point[] } {
-    if (!isValidPoint(point)) {
+    if (!isValidPoint(point, this.size)) {
       return { result: MoveResult.Occupied, captures: [] };
     }
 
@@ -77,12 +78,12 @@ export class Board {
     const opponent = oppositeColor(color);
     const captured: Point[] = [];
     const capturedSet = new Set<number>();
-    for (const nb of neighbors(point)) {
-      if (this.get(nb) === opponent && !capturedSet.has(pointToIndex(nb))) {
+    for (const nb of neighbors(point, this.size)) {
+      if (this.get(nb) === opponent && !capturedSet.has(pointToIndex(nb, this.size))) {
         const group = this.getGroup(nb);
         if (this.countLiberties(group) === 0) {
           for (const s of group) {
-            const idx = pointToIndex(s);
+            const idx = pointToIndex(s, this.size);
             if (!capturedSet.has(idx)) {
               capturedSet.add(idx);
               captured.push(s);
@@ -100,7 +101,6 @@ export class Board {
     // Check suicide: if our group has no liberties after removing captures
     const ownGroup = this.getGroup(point);
     if (this.countLiberties(ownGroup) === 0) {
-      // Restore board
       this.grid = backup.grid;
       this.captures = backup.captures;
       this.koPoint = backup.koPoint;
@@ -111,7 +111,6 @@ export class Board {
     // Check positional superko
     const newHash = this.hash();
     if (this.positionHistory.has(newHash)) {
-      // Restore board
       this.grid = backup.grid;
       this.captures = backup.captures;
       this.koPoint = backup.koPoint;
@@ -144,15 +143,15 @@ export class Board {
 
     while (stack.length > 0) {
       const current = stack.pop()!;
-      const idx = pointToIndex(current);
+      const idx = pointToIndex(current, this.size);
       if (visited.has(idx)) continue;
       if (this.get(current) !== color) continue;
 
       visited.add(idx);
       group.push(current);
 
-      for (const nb of neighbors(current)) {
-        if (!visited.has(pointToIndex(nb))) {
+      for (const nb of neighbors(current, this.size)) {
+        if (!visited.has(pointToIndex(nb, this.size))) {
           stack.push(nb);
         }
       }
@@ -165,9 +164,9 @@ export class Board {
   countLiberties(group: Point[]): number {
     const libertySet = new Set<number>();
     for (const stone of group) {
-      for (const nb of neighbors(stone)) {
+      for (const nb of neighbors(stone, this.size)) {
         if (this.get(nb) === Color.Empty) {
-          libertySet.add(pointToIndex(nb));
+          libertySet.add(pointToIndex(nb, this.size));
         }
       }
     }
@@ -179,8 +178,8 @@ export class Board {
     const libertySet = new Set<number>();
     const liberties: Point[] = [];
     for (const stone of group) {
-      for (const nb of neighbors(stone)) {
-        const idx = pointToIndex(nb);
+      for (const nb of neighbors(stone, this.size)) {
+        const idx = pointToIndex(nb, this.size);
         if (this.get(nb) === Color.Empty && !libertySet.has(idx)) {
           libertySet.add(idx);
           liberties.push(nb);
@@ -195,15 +194,15 @@ export class Board {
     const visited = new Set<number>();
     const groups: { color: Color; stones: Point[]; liberties: number }[] = [];
 
-    for (let row = 0; row < BOARD_SIZE; row++) {
-      for (let col = 0; col < BOARD_SIZE; col++) {
-        const idx = row * BOARD_SIZE + col;
+    for (let row = 0; row < this.size; row++) {
+      for (let col = 0; col < this.size; col++) {
+        const idx = row * this.size + col;
         if (visited.has(idx)) continue;
         const color = this.grid[idx];
         if (color === Color.Empty) continue;
 
         const group = this.getGroup({ row, col });
-        for (const s of group) visited.add(pointToIndex(s));
+        for (const s of group) visited.add(pointToIndex(s, this.size));
         groups.push({
           color,
           stones: group,
@@ -227,7 +226,7 @@ export class Board {
   }
 
   /**
-   * Score the board using Chinese rules (area scoring).
+   * Score the board using territory (Japanese-style).
    * Returns territory for each color.
    */
   scoreTerritory(): {
@@ -240,9 +239,9 @@ export class Board {
     const whiteTerritory = new Set<number>();
     const neutral = new Set<number>();
 
-    for (let row = 0; row < BOARD_SIZE; row++) {
-      for (let col = 0; col < BOARD_SIZE; col++) {
-        const idx = row * BOARD_SIZE + col;
+    for (let row = 0; row < this.size; row++) {
+      for (let col = 0; col < this.size; col++) {
+        const idx = row * this.size + col;
         if (visited.has(idx)) continue;
         if (this.grid[idx] !== Color.Empty) continue; // skip stones, don't mark visited
 
@@ -254,7 +253,7 @@ export class Board {
 
         while (stack.length > 0) {
           const current = stack.pop()!;
-          const ci = pointToIndex(current);
+          const ci = pointToIndex(current, this.size);
 
           const color = this.get(current);
           if (color === Color.Black) {
@@ -270,8 +269,8 @@ export class Board {
           visited.add(ci);
           region.push(ci);
 
-          for (const nb of neighbors(current)) {
-            if (!visited.has(pointToIndex(nb))) {
+          for (const nb of neighbors(current, this.size)) {
+            if (!visited.has(pointToIndex(nb, this.size))) {
               stack.push(nb);
             }
           }
@@ -307,6 +306,6 @@ export class Board {
 
   /** Check if two boards have the same stone positions */
   equals(other: Board): boolean {
-    return this.hash() === other.hash();
+    return this.size === other.size && this.hash() === other.hash();
   }
 }

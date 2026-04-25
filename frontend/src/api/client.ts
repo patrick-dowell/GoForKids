@@ -13,6 +13,7 @@ interface CreateGameOptions {
   handicap?: number;
   black_rank?: string;
   white_rank?: string;
+  board_size?: number;
 }
 
 interface PointDTO {
@@ -23,6 +24,7 @@ interface PointDTO {
 interface GameStateDTO {
   game_id: string;
   board: number[][];
+  board_size: number;
   current_color: 'black' | 'white';
   move_number: number;
   captures: { black: number; white: number };
@@ -63,6 +65,7 @@ export const api = {
         handicap: options.handicap ?? 0,
         black_rank: options.black_rank ?? null,
         white_rank: options.white_rank ?? null,
+        board_size: options.board_size ?? 19,
       }),
     }),
 
