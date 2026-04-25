@@ -2,20 +2,24 @@
 
 A Go (board game) teaching app built kid-first — but with enough depth for returning adult players. Play against a rank-calibrated AI that feels like a real opponent, not a crippled engine. Review your games with plain-language explanations powered by Claude.
 
-**Status:** v1 technical foundation. Proves the AI rank ladder, board feel, and study mode on 19x19. Kid-facing onboarding, smaller boards, and the parent surface land in v2.
+**Status:** v1 technical foundation. Proves the AI rank ladder, board feel, study mode, and small-board play on 9×9 / 13×13 / 19×19. Kid-facing onboarding and the parent surface land in v2.
 
 ## What's Working
 
-- **19x19 board** with a cosmic dark theme (gold-tinted grid, gradient stones, star points)
-- **Play vs KataGo AI** with rank-calibrated move selection (15k–3k). The AI plays human-like moves at the target rank, not random or uniformly weakened
-- **Animations** — stone placement snap, capture shatter with particles, atari glow
-- **Procedural sound** — position-varying placement chimes, layered capture impacts, game-end chord (Web Audio API, no asset files)
-- **Game controls** — pass, resign, undo (undoes both your move and the AI's response)
+- **9×9, 13×13, and 19×19 boards** with a cosmic dark theme (gold-tinted grid, gradient stones, star points). Per-size hoshi, coords, and handicap (max 5 on 9×9, 9 elsewhere)
+- **Play vs KataGo AI** with rank-calibrated move selection (30k–6k validated; 3k / 1d shown as "coming soon"). The AI plays human-like moves at the target rank, not random or uniformly weakened. Small boards have their own profiles for 30k / 15k / 6k; the rest fall back to 19×19 tunings
+- **Bot vs Bot mode** — pick two ranks and watch
+- **Animations** — stone placement snap, capture celebration scaled across 3 tiers (small / medium / hero), connection pulse on group merges, atari glow, capture shatter with particles
+- **Procedural sound** — position-varying placement chimes, layered capture impacts, game-end chord (Web Audio API, no asset files); routed through a single master gain so the density toggle controls volume
+- **Density toggle** — Full / Zen mode dampens both visuals and audio for adults / focused study
+- **Live score graph** — toggleable in settings; KataGo-backed (~30 visits per move) point-margin estimate from Black's perspective, with player names and stone icons. Final point matches the rules-based tally
+- **Game controls** — pass, resign, undo (undoes both your move and the AI's response), auto-finish from move 20+
 - **Game library** — auto-saves finished games, persists across sessions
+- **Replay mode** — step / autoplay through saved games with sound
 - **Study mode** — post-game analysis with KataGo evaluation + Claude API narrative explanations calibrated to player reading level
 - **Dead stone detection** — KataGo ownership analysis removes dead stones before scoring
 - **Glicko-2 rating system** — tracks player improvement across ranked games
-- **SGF export/import** — standard Go game record format
+- **SGF export/import** — standard Go game record format, any size
 
 ## Stack
 
