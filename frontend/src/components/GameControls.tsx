@@ -1,6 +1,8 @@
 import { useGameStore } from '../store/gameStore';
+import { useSettingsStore } from '../store/settingsStore';
 import { BOT_AVATARS } from './Avatar';
 import { Color } from '../engine/types';
+import { ScoreGraph } from './ScoreGraph';
 
 export function GameControls() {
   const phase = useGameStore((s) => s.phase);
@@ -22,6 +24,7 @@ export function GameControls() {
   const resign = useGameStore((s) => s.resign);
   const undo = useGameStore((s) => s.undo);
   const autoComplete = useGameStore((s) => s.autoComplete);
+  const showScoreGraph = useSettingsStore((s) => s.showScoreGraph);
 
   const isBotVsBot = gameMode === 'botvsbot';
   const isAIGame = !!gameId && !isBotVsBot;
@@ -41,10 +44,16 @@ export function GameControls() {
     return winnerColor === Color.Black ? 'Black' : 'White';
   }
 
+  // "You win" reads naturally; everything else is third-person ("Black wins").
+  function winsVerb(name: string): string {
+    return name === 'You' ? 'win' : 'wins';
+  }
+
   function getTurnText() {
     if (phase !== 'playing') {
       if (phase === 'finished' && result) {
-        return `${getWinnerName(result.winner)} wins`;
+        const name = getWinnerName(result.winner);
+        return `${name} ${winsVerb(name)}`;
       }
       return phase === 'scoring' ? 'Scoring' : 'Game over';
     }
@@ -57,6 +66,9 @@ export function GameControls() {
     if (isAIGame) return 'Your turn';
     return `${currentColor === Color.Black ? 'Black' : 'White'} to play`;
   }
+
+  const finishedWinnerName = result ? getWinnerName(result.winner) : '';
+  const finishedWinsVerb = winsVerb(finishedWinnerName);
 
   return (
     <div className="game-controls">
@@ -84,6 +96,8 @@ export function GameControls() {
         </div>
 
         <div className="move-counter">Move {moveCount}</div>
+
+        {showScoreGraph && <ScoreGraph />}
       </div>
 
       {phase === 'playing' && !isBotVsBot && (
@@ -124,28 +138,34 @@ export function GameControls() {
           <div className="result-detail">
             {result.blackScore === 0 && result.whiteScore === 0 ? (
               <div className="result-headline">
-                {getWinnerName(result.winner)} wins by resignation
+                {finishedWinnerName} {finishedWinsVerb} by resignation
               </div>
             ) : (
               <>
                 <div className="result-headline">
-                  {getWinnerName(result.winner)} wins by{' '}
+                  {finishedWinnerName} {finishedWinsVerb} by{' '}
                   {Math.abs(result.blackScore - result.whiteScore).toFixed(1)} points
                 </div>
                 <div className="score-breakdown">
                   <div className="score-row">
-                    <div className="score-label"><div className="stone-icon black" /> Black</div>
+                    <div className="score-label">
+                      <div className="stone-icon black" /> Black
+                      <span className="score-total">= {result.blackScore} total</span>
+                    </div>
                     <div className="score-values">
                       <span>{result.blackTerritory} territory</span>
-                      <span>{result.blackCaptures} captures</span>
+                      <span>+ {result.blackCaptures} captures</span>
                     </div>
                   </div>
                   <div className="score-row">
-                    <div className="score-label"><div className="stone-icon white" /> White</div>
+                    <div className="score-label">
+                      <div className="stone-icon white" /> White
+                      <span className="score-total">= {result.whiteScore} total</span>
+                    </div>
                     <div className="score-values">
                       <span>{result.whiteTerritory} territory</span>
-                      <span>{result.whiteCaptures} captures</span>
-                      <span>{result.komi} komi</span>
+                      <span>+ {result.whiteCaptures} captures</span>
+                      <span>+ {result.komi} komi</span>
                     </div>
                   </div>
                 </div>

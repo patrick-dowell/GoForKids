@@ -1,6 +1,6 @@
 # 12 — Animations & sound effects (expansion)
 
-**Status:** 📝 Planned
+**Status:** 🧪 Beta — first cut shipped (density toggle, capture tiers, score graph, connection pulse). Two-eye shimmer + tactical callouts deferred.
 **Priority:** Medium
 
 ## What
@@ -43,18 +43,22 @@ Expand the reactive animation and sound layer beyond placement + capture. The de
 - **Performance.** All animations stay Canvas2D where possible; avoid creating detection work that blocks the render thread on low-end iPads.
 
 ## Scope — first cut
-- Connection pulse wired to group-merge detection.
-- Two-eye shimmer (detect + render).
-- Named callouts for ladder and snapback only (the two most common).
-- Capture celebration scaled to 3 tiers (small/medium/hero).
-- Ambient sound bed with one register.
-- Density toggle in settings.
+- Density toggle in settings (Full / Zen). ✅ Drives both animation intensity (theme `withDensity` helper) and audio (single master gain node in `SoundManager` that all sounds route through). Persisted in `localStorage`.
+- Capture celebration scaled to 3 tiers (small/medium/hero) via `tierFor(count)` in `stoneAnimations.ts`. ✅
+- **Live score graph** in the right sidebar — small line chart of black-perspective lead per move, toggleable in settings, off by default. ✅ KataGo-backed: backend runs a 30-visit eval after every move and returns `score_lead` in the response. Frontend pushes that to `gameStore.scoreHistory`. Local-mode games fall back to `scoreTerritory()`-based count.
+- Connection pulse wired to group-merge detection (`Board.detectMergedGroups` returns merged stones if 2+ same-color groups are adjacent to the played point). ✅ Animation has impact halo + dual expanding rings (was too subtle in v1, flared up in v2 after playtest).
+- Two-eye shimmer **deferred** — needs eye geometry + per-game dedup so it doesn't refire each move.
 
 ## Out of scope (first cut)
-- Seki / net / throw-in detection (harder to get right, add in iteration 2).
+- Two-eye shimmer (deferred to next session).
+- Named callouts for ladder / snapback / seki / net / throw-in — punted to feature 04 (AI teacher), which shares the tactical detector.
+- Ambient sound bed — open question on sourcing/licensing. Defer.
 - Multi-register ambient (casual vs ranked).
-- Stinger sounds for every named moment.
 - Avatar signature motion (covered in feature 11).
+
+## Resolved
+- **Score graph data source:** KataGo at 30 visits per move (`SCORE_ESTIMATE_VISITS` in [state.py](../backend/app/game/state.py)). Decoupled from bot strength so all bots produce comparable graph values. Adds ~50–150ms per move on Mac Metal. Local-only games still get a flood-fill fallback so the graph isn't blank.
+- **Density application:** single multiplier (Zen = 0.4×) feeds both `theme.animationIntensity` and a `GainNode` master volume. Subscribed to settings store so toggling Full/Zen ramps audio in 50ms without restart.
 
 ## Open questions
 - How do we test that these animations feel good without actual kid playtesting? Beta hosting (09) gates real validation.

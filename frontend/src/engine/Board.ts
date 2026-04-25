@@ -214,6 +214,30 @@ export class Board {
     return groups;
   }
 
+  /**
+   * If `color` plays at `point`, would the move connect 2+ separate own-color
+   * groups? Returns all stones that would be merged (NOT including the new
+   * stone) if so, otherwise an empty array.
+   *
+   * Call BEFORE `tryPlay` — once the stone is placed, the groups are already
+   * one. Used to detect connection events for the merge pulse animation.
+   */
+  detectMergedGroups(color: Color, point: Point): Point[] {
+    const seen = new Set<number>();
+    const merged: Point[] = [];
+    let groupCount = 0;
+    for (const nb of neighbors(point, this.size)) {
+      if (this.get(nb) !== color) continue;
+      const idx = pointToIndex(nb, this.size);
+      if (seen.has(idx)) continue;
+      const group = this.getGroup(nb);
+      for (const s of group) seen.add(pointToIndex(s, this.size));
+      groupCount++;
+      merged.push(...group);
+    }
+    return groupCount >= 2 ? merged : [];
+  }
+
   /** Find all groups in atari (exactly 1 liberty) */
   getAtariGroups(): { color: Color; stones: Point[]; liberty: Point }[] {
     return this.getAllGroups()

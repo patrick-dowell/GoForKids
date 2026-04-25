@@ -48,6 +48,25 @@ interface TerritoryMap {
   neutral: Set<number>;
 }
 
+/** One sample for the live score graph: black lead at this move number. */
+export interface ScorePoint {
+  move: number;
+  /** black_score - (white_score + komi). Positive = black ahead. */
+  lead: number;
+}
+
+/** Compute the current black-lead from territory + captures + komi. */
+function currentLead(game: Game): number {
+  const { blackTerritory, whiteTerritory } = game.board.scoreTerritory();
+  const black = blackTerritory.size + game.board.captures[Color.Black];
+  const white = whiteTerritory.size + game.board.captures[Color.White] + game.komi;
+  return black - white;
+}
+
+function appendScorePoint(history: ScorePoint[], game: Game): ScorePoint[] {
+  return [...history, { move: game.moveHistory.length, lead: currentLead(game) }];
+}
+
 export type GameMode = 'ai' | 'botvsbot' | 'local';
 
 // Standard handicap stone positions (row, col), per board size.
@@ -136,6 +155,10 @@ interface GameState {
   botVsBotPaused: boolean;
   autoCompleting: boolean;
   deadStones: { row: number; col: number; color: Color }[];  // Stones marked dead at scoring
+  scoreHistory: ScorePoint[];  // Live score per move (for the score graph)
+  /** Stones merged by the most recent move (or empty). Renderer reads this
+   *  to fire a connection pulse, then it gets cleared on the next move. */
+  lastMerged: { color: Color; stones: Point[] };
 
   _game: Game;
   _botVsBotTimer: number | null;
@@ -253,6 +276,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   botVsBotPaused: false,
   autoCompleting: false,
   deadStones: [],
+  scoreHistory: [{ move: 0, lead: 0 }],
+  lastMerged: { color: Color.Empty, stones: [] },
   _game: new Game(),
   _botVsBotTimer: null,
 
@@ -329,6 +354,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       botVsBotPaused: false,
       _botVsBotTimer: null,
       deadStones: [],
+      scoreHistory: [{ move: 0, lead: currentLead(game) }],
+      lastMerged: { color: Color.Empty, stones: [] },
     });
 
     // Bot vs Bot: start the auto-play loop
@@ -354,17 +381,40 @@ export const useGameStore = create<GameState>((set, get) => ({
     // Block if it's not the player's turn (in AI games)
     if (gameId && currentColor !== playerColor) return MoveResult.GameOver;
 
+    const merged = _game.board.detectMergedGroups(currentColor, point);
     const { result, captures } = _game.playMove(point);
     if (result === MoveResult.Ok) {
       playPlaceSound(point.row, point.col);
       if (captures.length > 0) {
         setTimeout(() => playCaptureSound(captures.length), 100);
       }
-      set(snapshot(_game, { lastMove: point, lastCaptures: captures }));
+      // Optimistic snapshot. For local-only games we also push a local score
+      // estimate; for backend games we'll replace that with KataGo's estimate
+      // once the server response arrives.
+      const localScored = !gameId;
+      set({
+        ...snapshot(_game, { lastMove: point, lastCaptures: captures }),
+        ...(localScored ? { scoreHistory: appendScorePoint(get().scoreHistory, _game) } : {}),
+        lastMerged: merged.length > 0
+          ? { color: currentColor, stones: [...merged, point] }
+          : { color: Color.Empty, stones: [] },
+      });
 
       // Sync with backend and request AI response
       if (gameId && _game.phase === 'playing') {
-        api.playMove(gameId, point.row, point.col).catch(console.warn);
+        api.playMove(gameId, point.row, point.col)
+          .then((serverState) => {
+            // Replace local scoreTerritory-based estimate with KataGo's.
+            if (typeof serverState.score_lead === 'number') {
+              set((s) => ({
+                scoreHistory: [
+                  ...s.scoreHistory,
+                  { move: _game.moveHistory.length, lead: serverState.score_lead as number },
+                ],
+              }));
+            }
+          })
+          .catch(console.warn);
         // Small delay so the player sees their stone land before AI responds
         setTimeout(() => get().requestAIMove(), 400);
       }
@@ -383,26 +433,27 @@ export const useGameStore = create<GameState>((set, get) => ({
       api.pass(gameId).catch(console.warn);
     }
 
+    const passHistory = appendScorePoint(get().scoreHistory, _game);
     if (_game.phase === 'finished') {
       playGameEndSound();
       if (gameId) {
         api.getGame(gameId).then((serverState) => {
           if (serverState.result) {
             const dead = syncServerScoring(_game, serverState);
-            set({ deadStones: dead, ...snapshot(_game) });
+            set({ deadStones: dead, ...snapshot(_game), scoreHistory: passHistory });
             autoSaveGame(get());
           }
         }).catch((e) => {
           console.warn('Failed to sync scoring:', e);
-          set({ deadStones: [], ...snapshot(_game) });
+          set({ deadStones: [], ...snapshot(_game), scoreHistory: passHistory });
           autoSaveGame(get());
         });
       } else {
-        set({ deadStones: [], ...snapshot(_game) });
+        set({ deadStones: [], ...snapshot(_game), scoreHistory: passHistory });
         autoSaveGame(get());
       }
     } else {
-      set(snapshot(_game));
+      set({ ...snapshot(_game), scoreHistory: passHistory });
       if (gameId && _game.phase === 'playing') {
         setTimeout(() => get().requestAIMove(), 400);
       }
@@ -429,7 +480,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       _game.undo(); // undo AI's move
       _game.undo(); // undo player's move
       const lastRecord = _game.moveHistory[_game.moveHistory.length - 1];
-      set(snapshot(_game, { lastMove: lastRecord?.point ?? null }));
+      const trimmed = get().scoreHistory.slice(0, _game.moveHistory.length + 1);
+      set({ ...snapshot(_game, { lastMove: lastRecord?.point ?? null }), scoreHistory: trimmed });
       api.undo(gameId).then(() => api.undo(gameId!)).catch(console.warn);
       return true;
     }
@@ -438,7 +490,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     const success = _game.undo();
     if (success) {
       const lastRecord = _game.moveHistory[_game.moveHistory.length - 1];
-      set(snapshot(_game, { lastMove: lastRecord?.point ?? null }));
+      const trimmed = get().scoreHistory.slice(0, _game.moveHistory.length + 1);
+      set({ ...snapshot(_game, { lastMove: lastRecord?.point ?? null }), scoreHistory: trimmed });
     }
     return success;
   },
@@ -459,15 +512,29 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       if (aiMove.point.row >= 0 && aiMove.point.col >= 0) {
         const point = { row: aiMove.point.row, col: aiMove.point.col };
+        const aiColor = _game.currentColor;
+        const merged = _game.board.detectMergedGroups(aiColor, point);
         const { result, captures } = _game.playMove(point);
         if (result === MoveResult.Ok) {
           playPlaceSound(point.row, point.col);
           if (captures.length > 0) {
             setTimeout(() => playCaptureSound(captures.length), 100);
           }
+          // Prefer KataGo's estimate from the server; fall back to local
+          // territory-count if the server didn't return one.
+          const nextHistory = typeof aiMove.score_lead === 'number'
+            ? [
+                ...get().scoreHistory,
+                { move: _game.moveHistory.length, lead: aiMove.score_lead as number },
+              ]
+            : appendScorePoint(get().scoreHistory, _game);
           set({
             aiThinking: false,
             ...snapshot(_game, { lastMove: point, lastCaptures: captures }),
+            scoreHistory: nextHistory,
+            lastMerged: merged.length > 0
+              ? { color: aiColor, stones: [...merged, point] }
+              : { color: Color.Empty, stones: [] },
           });
           return;
         }
@@ -476,23 +543,24 @@ export const useGameStore = create<GameState>((set, get) => ({
       // AI passed
       _game.pass();
       playPassSound();
+      const aiPassHistory = appendScorePoint(get().scoreHistory, _game);
       if (_game.phase === 'finished') {
         playGameEndSound();
         try {
           const serverState = await api.getGame(gameId);
           if (serverState.result) {
             const dead = syncServerScoring(_game, serverState);
-            set({ aiThinking: false, deadStones: dead, ...snapshot(_game) });
+            set({ aiThinking: false, deadStones: dead, ...snapshot(_game), scoreHistory: aiPassHistory });
             autoSaveGame(get());
             return;
           }
         } catch (e) {
           console.warn('Failed to sync scoring from backend:', e);
         }
-        set({ aiThinking: false, deadStones: [], ...snapshot(_game) });
+        set({ aiThinking: false, deadStones: [], ...snapshot(_game), scoreHistory: aiPassHistory });
         autoSaveGame(get());
       } else {
-        set({ aiThinking: false, ...snapshot(_game) });
+        set({ aiThinking: false, ...snapshot(_game), scoreHistory: aiPassHistory });
       }
     } catch (e) {
       console.warn('AI move failed:', e);
@@ -515,15 +583,27 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       if (aiMove.point.row >= 0 && aiMove.point.col >= 0) {
         const point = { row: aiMove.point.row, col: aiMove.point.col };
+        const botColor = _game.currentColor;
+        const merged = _game.board.detectMergedGroups(botColor, point);
         const { result, captures } = _game.playMove(point);
         if (result === MoveResult.Ok) {
           playPlaceSound(point.row, point.col);
           if (captures.length > 0) {
             setTimeout(() => playCaptureSound(captures.length), 100);
           }
+          const nextHistory = typeof aiMove.score_lead === 'number'
+            ? [
+                ...get().scoreHistory,
+                { move: _game.moveHistory.length, lead: aiMove.score_lead as number },
+              ]
+            : appendScorePoint(get().scoreHistory, _game);
           set({
             aiThinking: false,
             ...snapshot(_game, { lastMove: point, lastCaptures: captures }),
+            scoreHistory: nextHistory,
+            lastMerged: merged.length > 0
+              ? { color: botColor, stones: [...merged, point] }
+              : { color: Color.Empty, stones: [] },
           });
           // Schedule next move
           const timer = window.setTimeout(() => get().requestBotVsBotMove(), botVsBotSpeed);
@@ -535,23 +615,24 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Bot passed
       _game.pass();
       playPassSound();
+      const bvbPassHistory = appendScorePoint(get().scoreHistory, _game);
       if (_game.phase === 'finished') {
         playGameEndSound();
         try {
           const serverState = await api.getGame(gameId);
           if (serverState.result) {
             const dead = syncServerScoring(_game, serverState);
-            set({ aiThinking: false, deadStones: dead, ...snapshot(_game) });
+            set({ aiThinking: false, deadStones: dead, ...snapshot(_game), scoreHistory: bvbPassHistory });
             autoSaveGame(get());
             return;
           }
         } catch (e) {
           console.warn('Failed to sync scoring:', e);
         }
-        set({ aiThinking: false, deadStones: [], ...snapshot(_game) });
+        set({ aiThinking: false, deadStones: [], ...snapshot(_game), scoreHistory: bvbPassHistory });
         autoSaveGame(get());
       } else {
-        set({ aiThinking: false, ...snapshot(_game) });
+        set({ aiThinking: false, ...snapshot(_game), scoreHistory: bvbPassHistory });
         const timer = window.setTimeout(() => get().requestBotVsBotMove(), botVsBotSpeed);
         set({ _botVsBotTimer: timer });
       }

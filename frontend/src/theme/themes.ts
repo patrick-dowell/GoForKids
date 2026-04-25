@@ -314,3 +314,13 @@ export const THEMES: Record<ThemeId, Theme> = {
 export function getTheme(id: ThemeId): Theme {
   return THEMES[id] ?? cosmicTheme;
 }
+
+/**
+ * Apply a density multiplier to the theme's animation intensity. Used so the
+ * "zen" density setting dampens visuals globally without each animation
+ * needing to know about the user's preference.
+ */
+export function withDensity(theme: Theme, multiplier: number): Theme {
+  if (multiplier === 1) return theme;
+  return { ...theme, animationIntensity: theme.animationIntensity * multiplier };
+}
