@@ -110,7 +110,14 @@ SCORE_ESTIMATE_VISITS = 30
 
 async def _compute_score_lead(game: "ActiveGame") -> Optional[float]:
     """KataGo's estimated point margin from Black's perspective on the current
-    board. Positive = Black ahead. Returns None if KataGo isn't available."""
+    board. Positive = Black ahead. Returns None if KataGo isn't available.
+
+    Empirically verified (2026-04-25 playtest + sign tests): rootInfo.scoreLead
+    from KataGo's analysis engine is always Black-perspective regardless of
+    the `initialPlayer` we send. An earlier flip-on-white-to-move caused the
+    graph to invert sign every move (B+20 → W+20 → B+20 with the same
+    underlying position). Don't flip — return the value as-is.
+    """
     engine = await get_engine()
     if engine is None:
         return None
@@ -121,10 +128,7 @@ async def _compute_score_lead(game: "ActiveGame") -> Optional[float]:
             max_visits=SCORE_ESTIMATE_VISITS,
             komi=game.komi, size=game.board.size,
         )
-        # KataGo's score_lead is from `player`'s perspective.
-        # Convert to Black's perspective for a consistent graph.
-        lead = analysis.score_lead
-        return lead if game.current_color == Color.BLACK else -lead
+        return analysis.score_lead
     except Exception as e:
         logger.warning(f"Score estimate failed: {e}")
         return None
@@ -387,15 +391,21 @@ class GameManager:
         )
 
         if point is None:
-            # AI passes
+            # AI passes — board unchanged, the prior score_lead is still valid.
             await self.pass_move(game_id)
-            return AIMoveResponse(point=PointSchema(row=-1, col=-1), captures=[])
+            return AIMoveResponse(
+                point=PointSchema(row=-1, col=-1), captures=[],
+                score_lead=game.score_lead,
+            )
 
         result, captures = game.board.try_play(game.current_color, point)
         if result != "ok":
             # Fallback: pass if the selected move is illegal
             await self.pass_move(game_id)
-            return AIMoveResponse(point=PointSchema(row=-1, col=-1), captures=[])
+            return AIMoveResponse(
+                point=PointSchema(row=-1, col=-1), captures=[],
+                score_lead=game.score_lead,
+            )
 
         game.move_history.append(
             MoveRecord(
