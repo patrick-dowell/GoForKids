@@ -469,7 +469,8 @@ body {
 
 .score-values {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   padding-left: 21px;
   font-size: 12px;
   color: var(--text-muted);
