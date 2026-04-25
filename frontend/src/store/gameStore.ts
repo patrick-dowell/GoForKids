@@ -433,7 +433,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       api.pass(gameId).catch(console.warn);
     }
 
-    const passHistory = appendScorePoint(get().scoreHistory, _game);
+    // Pass doesn't change the board, so the prior KataGo lead is still
+    // valid for backend games. Carry it forward instead of recomputing
+    // (the local fallback would otherwise overwrite a real ~+65 with the
+    // flood-fill ~0 territory count).
+    const prevHistory = get().scoreHistory;
+    const lastLead = prevHistory.length > 0 ? prevHistory[prevHistory.length - 1].lead : 0;
+    const passHistory = gameId
+      ? [...prevHistory, { move: _game.moveHistory.length, lead: lastLead }]
+      : appendScorePoint(prevHistory, _game);
     if (_game.phase === 'finished') {
       playGameEndSound();
       if (gameId) {
@@ -540,10 +548,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       }
 
-      // AI passed
+      // AI passed — carry the prior KataGo lead forward (board unchanged).
+      // Server's AIMoveResponse for a pass also includes its prior score_lead.
       _game.pass();
       playPassSound();
-      const aiPassHistory = appendScorePoint(get().scoreHistory, _game);
+      const prevAi = get().scoreHistory;
+      const lastAiLead = typeof aiMove.score_lead === 'number'
+        ? aiMove.score_lead
+        : (prevAi.length > 0 ? prevAi[prevAi.length - 1].lead : 0);
+      const aiPassHistory = [...prevAi, { move: _game.moveHistory.length, lead: lastAiLead }];
       if (_game.phase === 'finished') {
         playGameEndSound();
         try {
@@ -612,10 +625,14 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       }
 
-      // Bot passed
+      // Bot passed — carry the prior lead forward (board unchanged).
       _game.pass();
       playPassSound();
-      const bvbPassHistory = appendScorePoint(get().scoreHistory, _game);
+      const prevBvb = get().scoreHistory;
+      const lastBvbLead = typeof aiMove.score_lead === 'number'
+        ? aiMove.score_lead
+        : (prevBvb.length > 0 ? prevBvb[prevBvb.length - 1].lead : 0);
+      const bvbPassHistory = [...prevBvb, { move: _game.moveHistory.length, lead: lastBvbLead }];
       if (_game.phase === 'finished') {
         playGameEndSound();
         try {
