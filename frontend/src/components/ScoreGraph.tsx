@@ -72,7 +72,14 @@ export function ScoreGraph() {
       <div className="score-graph-header">
         <span className="score-graph-label">{label}</span>
         <span className="score-graph-value">
-          {currentLead === 0 ? 'Even' : `${leader} +${leadAbs}`}
+          {currentLead === 0 ? (
+            'Even'
+          ) : (
+            <>
+              <span className={`stone-icon ${currentLead > 0 ? 'black' : 'white'}`} />
+              {leader} +{leadAbs}
+            </>
+          )}
         </span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" preserveAspectRatio="none" aria-hidden>

@@ -67,6 +67,16 @@ function appendScorePoint(history: ScorePoint[], game: Game): ScorePoint[] {
   return [...history, { move: game.moveHistory.length, lead: currentLead(game) }];
 }
 
+/** Replace the final history point with the rules-based result.black - result.white,
+ *  so the graph's last point matches what's shown in the final tally (instead of
+ *  the pre-scoring KataGo estimate, which differs by dead-stone cleanup). */
+function appendFinalScore(history: ScorePoint[], moveNum: number, result: any): ScorePoint[] {
+  if (!result) return history;
+  const black = typeof result.black_score === 'number' ? result.black_score : 0;
+  const white = typeof result.white_score === 'number' ? result.white_score : 0;
+  return [...history, { move: moveNum, lead: black - white }];
+}
+
 export type GameMode = 'ai' | 'botvsbot' | 'local';
 
 // Standard handicap stone positions (row, col), per board size.
@@ -448,7 +458,10 @@ export const useGameStore = create<GameState>((set, get) => ({
         api.getGame(gameId).then((serverState) => {
           if (serverState.result) {
             const dead = syncServerScoring(_game, serverState);
-            set({ deadStones: dead, ...snapshot(_game), scoreHistory: passHistory });
+            // Replace the carried-forward estimate with the actual final
+            // result, so the graph's last point matches the tally.
+            const finalHistory = appendFinalScore(passHistory, _game.moveHistory.length + 1, serverState.result);
+            set({ deadStones: dead, ...snapshot(_game), scoreHistory: finalHistory });
             autoSaveGame(get());
           }
         }).catch((e) => {
@@ -563,7 +576,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           const serverState = await api.getGame(gameId);
           if (serverState.result) {
             const dead = syncServerScoring(_game, serverState);
-            set({ aiThinking: false, deadStones: dead, ...snapshot(_game), scoreHistory: aiPassHistory });
+            const finalHistory = appendFinalScore(aiPassHistory, _game.moveHistory.length + 1, serverState.result);
+            set({ aiThinking: false, deadStones: dead, ...snapshot(_game), scoreHistory: finalHistory });
             autoSaveGame(get());
             return;
           }
@@ -639,7 +653,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           const serverState = await api.getGame(gameId);
           if (serverState.result) {
             const dead = syncServerScoring(_game, serverState);
-            set({ aiThinking: false, deadStones: dead, ...snapshot(_game), scoreHistory: bvbPassHistory });
+            const finalHistory = appendFinalScore(bvbPassHistory, _game.moveHistory.length + 1, serverState.result);
+            set({ aiThinking: false, deadStones: dead, ...snapshot(_game), scoreHistory: finalHistory });
             autoSaveGame(get());
             return;
           }
