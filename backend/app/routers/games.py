@@ -85,7 +85,7 @@ async def get_game(game_id: str):
 @router.post("/{game_id}/move", response_model=GameStateResponse)
 async def play_move(game_id: str, req: PlayMoveRequest):
     """Play a move in the game."""
-    result = manager.play_move(game_id, req.row, req.col)
+    result = await manager.play_move(game_id, req.row, req.col)
     if result is None:
         raise HTTPException(status_code=404, detail="Game not found")
     if isinstance(result, str):

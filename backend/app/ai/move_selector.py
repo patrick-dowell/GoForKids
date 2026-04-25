@@ -443,6 +443,7 @@ async def select_ai_move(
             if alt and not _is_eye_fill(board, color, alt):
                 return alt
         # All attempts fill eyes — just pass
+        logger.warning(f"[{target_rank} {board.size}x{board.size}] PASS: 5 alternatives all filled eyes")
         return None
 
     return move
@@ -585,7 +586,34 @@ async def _select_with_katago(
         )
 
         if not analysis.candidates:
-            logger.info(f"[{target_rank} {board.size}x{board.size}] PASS: no candidates returned")
+            logger.warning(f"[{target_rank} {board.size}x{board.size}] PASS: no candidates returned")
+            return None
+
+        # Filter out illegal moves before any decision logic. KataGo only sees
+        # the position we send (empty `moves`), so it can recommend ko
+        # recaptures and other moves our engine rejects. Without this filter
+        # such moves either silently fall back to pass (state.py) or break
+        # the candidate list. We keep the pass candidate (move[0] < 0) since
+        # it's the legal "no move" choice.
+        def _is_legal(cand) -> bool:
+            if cand.move[0] < 0:
+                return True
+            test = board.clone()
+            res, _ = test.try_play(color, Point(cand.move[0], cand.move[1]))
+            return res == "ok"
+
+        before = len(analysis.candidates)
+        analysis.candidates = [c for c in analysis.candidates if _is_legal(c)]
+        if len(analysis.candidates) < before:
+            logger.info(
+                f"[{target_rank} {board.size}x{board.size}] dropped "
+                f"{before - len(analysis.candidates)} illegal candidate(s) "
+                f"(likely ko)"
+            )
+        if not analysis.candidates:
+            logger.warning(
+                f"[{target_rank} {board.size}x{board.size}] PASS: all candidates illegal"
+            )
             return None
 
         # --- Pass detection ---
@@ -602,7 +630,7 @@ async def _select_with_katago(
         # endgame moves above the bar.
         best = analysis.candidates[0]
         if best.move[0] < 0:
-            logger.info(
+            logger.warning(
                 f"[{target_rank} {board.size}x{board.size}] PASS: KataGo top move is pass "
                 f"(visits={best.visits}, score={best.score_lead:.2f})"
             )
@@ -618,7 +646,7 @@ async def _select_with_katago(
             and pass_cand.visits >= min_pass_visits
             and best.score_lead - pass_cand.score_lead < pass_threshold
         ):
-            logger.info(
+            logger.warning(
                 f"[{target_rank} {board.size}x{board.size}] PASS: best={best.score_lead:.2f} "
                 f"pass={pass_cand.score_lead:.2f} (passV={pass_cand.visits} bestV={best.visits} "
                 f"thr={pass_threshold})"

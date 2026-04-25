@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -5,6 +6,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import games, study
 from app.game.storage import init_db
+
+# Surface app logger output (logger.info / logger.warning in app.* modules) at
+# INFO level. Uvicorn's default config doesn't propagate non-uvicorn loggers,
+# so the bot pass-detection diagnostics were invisible without this.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 
 @asynccontextmanager

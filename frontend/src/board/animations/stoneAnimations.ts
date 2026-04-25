@@ -90,8 +90,38 @@ export function createPlacementAnimation(point: Point, color: Color, theme: Them
 }
 
 /**
+ * Capture tiers control how dramatic the celebration is.
+ * - small  (1–2 stones): subtle pop, no shockwave
+ * - medium (3–6 stones): flash + single shockwave (the previous "big" tier)
+ * - hero   (7+ stones): big flash, double shockwave, longer duration, hero color
+ */
+type CaptureTier = 'small' | 'medium' | 'hero';
+
+interface TierSpec {
+  durationMs: number;
+  flashEnabled: boolean;
+  flashColor: 'small' | 'big';
+  shockwaveCount: 0 | 1 | 2;
+  shockwaveScale: number;     // multiplier on first wave radius
+  shockwaveAlpha: number;     // first wave starting alpha
+  particleSpeedMultiplier: number;
+}
+
+function tierFor(count: number): CaptureTier {
+  if (count >= 7) return 'hero';
+  if (count >= 3) return 'medium';
+  return 'small';
+}
+
+const TIER_SPECS: Record<CaptureTier, TierSpec> = {
+  small:  { durationMs: 500, flashEnabled: false, flashColor: 'small', shockwaveCount: 0, shockwaveScale: 2, shockwaveAlpha: 0.3, particleSpeedMultiplier: 0.85 },
+  medium: { durationMs: 700, flashEnabled: true,  flashColor: 'small', shockwaveCount: 1, shockwaveScale: 3, shockwaveAlpha: 0.5, particleSpeedMultiplier: 1.0 },
+  hero:   { durationMs: 950, flashEnabled: true,  flashColor: 'big',   shockwaveCount: 2, shockwaveScale: 4, shockwaveAlpha: 0.7, particleSpeedMultiplier: 1.25 },
+};
+
+/**
  * Capture animation: stones shatter outward, particles scatter, flash at impact.
- * Bigger captures = more dramatic. Intensity dampens the whole thing for classic.
+ * Bigger captures = more dramatic (3 tiers). Intensity dampens for classic theme.
  */
 export function createCaptureAnimation(
   captured: Point[],
@@ -103,9 +133,11 @@ export function createCaptureAnimation(
   const { stoneRadius, toScreen } = geom(size);
   const captor = toScreen(captorPoint.row, captorPoint.col);
   const count = captured.length;
-  const isBigCapture = count >= 3;
+  const tier = tierFor(count);
+  const spec = TIER_SPECS[tier];
   const intensity = theme.animationIntensity;
 
+  const particleSpeed = spec.particleSpeedMultiplier;
   const particles = captured.map((stone) => {
     const { x, y } = toScreen(stone.row, stone.col);
     const dx = x - captor.x;
@@ -113,11 +145,11 @@ export function createCaptureAnimation(
     const dist = Math.sqrt(dx * dx + dy * dy) || 1;
     return {
       x, y,
-      vx: (dx / dist) * (40 + Math.random() * 30) * intensity,
-      vy: (dy / dist) * (40 + Math.random() * 30) * intensity - 20 * intensity,
+      vx: (dx / dist) * (40 + Math.random() * 30) * intensity * particleSpeed,
+      vy: (dy / dist) * (40 + Math.random() * 30) * intensity * particleSpeed - 20 * intensity,
       fragments: Array.from({ length: Math.max(1, Math.floor((3 + Math.random() * 3) * intensity)) }, () => ({
         angle: Math.random() * Math.PI * 2,
-        speed: (15 + Math.random() * 35) * intensity,
+        speed: (15 + Math.random() * 35) * intensity * particleSpeed,
         size: 1.5 + Math.random() * 2.5,
       })),
     };
@@ -125,7 +157,7 @@ export function createCaptureAnimation(
 
   return {
     id: `capture-${Date.now()}`,
-    duration: isBigCapture ? 700 : 550,
+    duration: spec.durationMs,
     draw: (ctx, progress) => {
       for (let i = 0; i < captured.length; i++) {
         const p = particles[i];
@@ -137,11 +169,11 @@ export function createCaptureAnimation(
           const flashAlpha = t;
 
           ctx.save();
-          if (intensity > 0.5) {
-            ctx.globalAlpha = flashAlpha * 0.5;
+          if (spec.flashEnabled && intensity > 0.5) {
+            ctx.globalAlpha = flashAlpha * (tier === 'hero' ? 0.7 : 0.5);
             ctx.beginPath();
-            ctx.arc(p.x, p.y, stoneRadius * swell * 1.5, 0, Math.PI * 2);
-            ctx.fillStyle = isBigCapture ? theme.captureFlashBig : theme.captureFlashSmall;
+            ctx.arc(p.x, p.y, stoneRadius * swell * (tier === 'hero' ? 2 : 1.5), 0, Math.PI * 2);
+            ctx.fillStyle = spec.flashColor === 'big' ? theme.captureFlashBig : theme.captureFlashSmall;
             ctx.fill();
           }
 
@@ -197,33 +229,34 @@ export function createCaptureAnimation(
         }
       }
 
-      // Shockwave — only for higher-intensity themes
-      if (intensity > 0.5 && progress > 0.1 && progress < 0.6) {
+      // Primary shockwave (medium + hero only)
+      if (spec.shockwaveCount >= 1 && intensity > 0.5 && progress > 0.1 && progress < 0.6) {
         const waveT = (progress - 0.1) / 0.5;
-        const waveRadius = stoneRadius * (1 + waveT * (isBigCapture ? 3 : 2));
-        const waveAlpha = (1 - waveT) * (isBigCapture ? 0.5 : 0.3);
+        const waveRadius = stoneRadius * (1 + waveT * spec.shockwaveScale);
+        const waveAlpha = (1 - waveT) * spec.shockwaveAlpha;
 
         ctx.save();
         ctx.globalAlpha = waveAlpha;
         ctx.beginPath();
         ctx.arc(captor.x, captor.y, waveRadius, 0, Math.PI * 2);
-        ctx.strokeStyle = isBigCapture ? theme.shockwaveBig : theme.shockwaveSmall;
-        ctx.lineWidth = isBigCapture ? 2.5 : 1.5;
+        ctx.strokeStyle = tier === 'hero' ? theme.shockwaveBig : (tier === 'medium' ? theme.shockwaveBig : theme.shockwaveSmall);
+        ctx.lineWidth = tier === 'hero' ? 3.5 : 2.5;
         ctx.stroke();
         ctx.restore();
       }
 
-      if (intensity > 0.5 && isBigCapture && progress > 0.2 && progress < 0.7) {
-        const waveT = (progress - 0.2) / 0.5;
-        const waveRadius = stoneRadius * (1 + waveT * 4);
-        const waveAlpha = (1 - waveT) * 0.25;
+      // Trailing shockwave (hero only)
+      if (spec.shockwaveCount >= 2 && intensity > 0.5 && progress > 0.2 && progress < 0.8) {
+        const waveT = (progress - 0.2) / 0.6;
+        const waveRadius = stoneRadius * (1 + waveT * (spec.shockwaveScale + 2));
+        const waveAlpha = (1 - waveT) * 0.4;
 
         ctx.save();
         ctx.globalAlpha = waveAlpha;
         ctx.beginPath();
         ctx.arc(captor.x, captor.y, waveRadius, 0, Math.PI * 2);
         ctx.strokeStyle = theme.shockwaveBig;
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1.5;
         ctx.stroke();
         ctx.restore();
       }
@@ -232,7 +265,12 @@ export function createCaptureAnimation(
 }
 
 /**
- * Connection pulse: glow along newly-shared liberties when groups join.
+ * Connection pulse — fires once when a move merges 2+ same-color groups.
+ * Three layers per stone:
+ *   1. A bright halo flash at impact (first ~150ms).
+ *   2. A big primary ring sweeping outward (~1.7× stone radius).
+ *   3. A trailing secondary ring (~1.3× stone radius) starting later.
+ * Combined, the merge feels like the stones share an energetic moment.
  */
 export function createConnectionAnimation(
   stones: Point[],
@@ -241,23 +279,64 @@ export function createConnectionAnimation(
   size: number = BOARD_SIZE,
 ): Animation {
   const { stoneRadius, toScreen } = geom(size);
+  const intensity = theme.animationIntensity;
+  const ringColor = color === Color.Black ? theme.placementRippleBlack : theme.placementRippleWhite;
+  // Hotter color for the impact flash so the moment reads as "energetic
+  // connection" rather than another generic ring.
+  const flashColor = color === Color.Black ? '#a8c6ff' : '#ffe9b8';
+
   return {
     id: `connect-${Date.now()}`,
-    duration: 600,
+    duration: 900,
     draw: (ctx, progress) => {
-      const pulseAlpha = Math.sin(progress * Math.PI) * 0.3;
-
       for (const stone of stones) {
         const { x, y } = toScreen(stone.row, stone.col);
 
-        ctx.save();
-        ctx.globalAlpha = pulseAlpha;
-        ctx.beginPath();
-        ctx.arc(x, y, stoneRadius + 4, 0, Math.PI * 2);
-        ctx.strokeStyle = color === Color.Black ? theme.placementRippleBlack : theme.placementRippleWhite;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.restore();
+        // 1. Impact halo (bright filled glow, fades fast)
+        if (progress < 0.35) {
+          const t = progress / 0.35;
+          const haloAlpha = (1 - t) * 0.55 * intensity;
+          const haloR = stoneRadius * (1 + t * 0.6);
+          ctx.save();
+          ctx.globalAlpha = haloAlpha;
+          ctx.beginPath();
+          ctx.arc(x, y, haloR, 0, Math.PI * 2);
+          ctx.fillStyle = flashColor;
+          ctx.fill();
+          ctx.restore();
+        }
+
+        // 2. Primary ring sweeping outward
+        const t1 = Math.min(1, progress / 0.75);
+        const r1 = stoneRadius * (1 + t1 * 1.2);
+        const a1 = Math.sin(t1 * Math.PI) * 0.95 * intensity;
+        if (a1 > 0) {
+          ctx.save();
+          ctx.globalAlpha = a1;
+          ctx.beginPath();
+          ctx.arc(x, y, r1, 0, Math.PI * 2);
+          ctx.strokeStyle = ringColor;
+          ctx.lineWidth = 3;
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // 3. Trailing ring (starts later, smaller travel)
+        if (progress > 0.2) {
+          const t2 = Math.min(1, (progress - 0.2) / 0.7);
+          const r2 = stoneRadius * (1 + t2 * 0.8);
+          const a2 = Math.sin(t2 * Math.PI) * 0.7 * intensity;
+          if (a2 > 0) {
+            ctx.save();
+            ctx.globalAlpha = a2;
+            ctx.beginPath();
+            ctx.arc(x, y, r2, 0, Math.PI * 2);
+            ctx.strokeStyle = ringColor;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
       }
     },
   };

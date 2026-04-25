@@ -33,12 +33,16 @@ interface GameStateDTO {
   ko_point: PointDTO | null;
   result: Record<string, unknown> | null;
   sgf: string | null;
+  /** KataGo's point-margin estimate from Black's perspective. Null when KataGo
+   *  isn't available. Drives the live score graph in the sidebar. */
+  score_lead: number | null;
 }
 
 interface AIMoveDTO {
   point: PointDTO;
   captures: PointDTO[];
   debug?: Record<string, unknown>;
+  score_lead?: number | null;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {

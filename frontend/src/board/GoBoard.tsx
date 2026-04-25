@@ -3,11 +3,13 @@ import { Color, type Point } from '../engine/types';
 import { useGameStore } from '../store/gameStore';
 import { useReplayStore } from '../store/replayStore';
 import { useSettingsStore } from '../store/settingsStore';
-import { getTheme, type Theme } from '../theme/themes';
+import { getTheme, withDensity, type Theme } from '../theme/themes';
+import { densityMultiplier } from '../store/settingsStore';
 import { AnimationManager } from './animations/AnimationManager';
 import {
   createPlacementAnimation,
   createCaptureAnimation,
+  createConnectionAnimation,
 } from './animations/stoneAnimations';
 
 const BOARD_PADDING = 40;
@@ -255,7 +257,8 @@ export function GoBoard() {
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
 
   const themeId = useSettingsStore((s) => s.themeId);
-  const theme = getTheme(themeId);
+  const density = useSettingsStore((s) => s.density);
+  const theme = withDensity(getTheme(themeId), densityMultiplier(density));
 
   // Replay mode overrides the live game
   const replayActive = useReplayStore((s) => s.active);
@@ -278,6 +281,7 @@ export function GoBoard() {
   const aiThinking = useGameStore((s) => s.aiThinking);
   const territory = useGameStore((s) => s.territory);
   const deadStones = useGameStore((s) => s.deadStones);
+  const lastMerged = useGameStore((s) => s.lastMerged);
 
   const grid = replayActive ? replayGrid : liveGrid;
   const size = replayActive ? replayBoardSize : liveBoardSize;
@@ -355,6 +359,11 @@ export function GoBoard() {
     if (lastCaptures.length > 0 && lastMove) {
       const capturedColor = currentColor;
       animManager.add(createCaptureAnimation(lastCaptures, lastMove, capturedColor, theme, size));
+    }
+
+    // Connection pulse — fires when the latest move merged 2+ same-color groups.
+    if (!replayActive && lastMerged.stones.length > 0) {
+      animManager.add(createConnectionAnimation(lastMerged.stones, lastMerged.color, theme, size));
     }
 
     return () => {

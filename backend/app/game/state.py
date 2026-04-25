@@ -41,6 +41,9 @@ class ActiveGame:
     handicap: int = 0
     black_rank: Optional[str] = None  # For bot-vs-bot
     white_rank: Optional[str] = None  # For bot-vs-bot
+    # KataGo's last point-margin estimate from Black's perspective.
+    # Updated after every move; surfaced to the UI for the live score graph.
+    score_lead: Optional[float] = None
 
 
 # Standard handicap stone positions (row, col), per board size.
@@ -98,6 +101,34 @@ def _handicap_positions(size: int, handicap: int) -> list[tuple[int, int]]:
 
 SUPPORTED_SIZES = (9, 13, 19)
 
+# Visit budget for the live score-graph estimate. Low enough to keep
+# per-move latency tolerable but deep enough that the estimate isn't
+# just the value-network prior. Independent of the bot's profile so the
+# graph stays consistent across all bot strengths.
+SCORE_ESTIMATE_VISITS = 30
+
+
+async def _compute_score_lead(game: "ActiveGame") -> Optional[float]:
+    """KataGo's estimated point margin from Black's perspective on the current
+    board. Positive = Black ahead. Returns None if KataGo isn't available."""
+    engine = await get_engine()
+    if engine is None:
+        return None
+    try:
+        player = "B" if game.current_color == Color.BLACK else "W"
+        analysis = await engine.analyze(
+            game.board.to_2d(), player,
+            max_visits=SCORE_ESTIMATE_VISITS,
+            komi=game.komi, size=game.board.size,
+        )
+        # KataGo's score_lead is from `player`'s perspective.
+        # Convert to Black's perspective for a consistent graph.
+        lead = analysis.score_lead
+        return lead if game.current_color == Color.BLACK else -lead
+    except Exception as e:
+        logger.warning(f"Score estimate failed: {e}")
+        return None
+
 
 class GameManager:
     def __init__(self):
@@ -143,7 +174,7 @@ class GameManager:
             return None
         return self._to_response(game)
 
-    def play_move(
+    async def play_move(
         self, game_id: str, row: int, col: int
     ) -> Optional[Union[GameStateResponse, str]]:
         game = self.games.get(game_id)
@@ -168,6 +199,9 @@ class GameManager:
         )
         game.consecutive_passes = 0
         game.current_color = game.current_color.opposite()
+
+        # Refresh the live score estimate for the UI graph.
+        game.score_lead = await _compute_score_lead(game)
 
         return self._to_response(game)
 
@@ -374,9 +408,13 @@ class GameManager:
         game.consecutive_passes = 0
         game.current_color = game.current_color.opposite()
 
+        # Refresh the live score estimate for the UI graph.
+        game.score_lead = await _compute_score_lead(game)
+
         return AIMoveResponse(
             point=PointSchema(row=point.row, col=point.col),
             captures=[PointSchema(row=c.row, col=c.col) for c in captures],
+            score_lead=game.score_lead,
         )
 
     async def _score_game_async(self, game: ActiveGame):
@@ -563,6 +601,7 @@ class GameManager:
             ko_point=ko_point,
             result=game.result,
             sgf=sgf,
+            score_lead=game.score_lead,
         )
 
     def _generate_sgf(self, game: ActiveGame) -> str:

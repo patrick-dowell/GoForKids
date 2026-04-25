@@ -4,16 +4,42 @@
  * Active sound pack is selected via the settings store's themeId.
  */
 
-import { useSettingsStore } from '../store/settingsStore';
+import { useSettingsStore, densityMultiplier } from '../store/settingsStore';
 import { getTheme } from '../theme/themes';
 
 let audioCtx: AudioContext | null = null;
+let masterGainNode: GainNode | null = null;
 
 function getContext(): AudioContext {
   if (!audioCtx) {
     audioCtx = new AudioContext();
   }
   return audioCtx;
+}
+
+/**
+ * Single output node every sound goes through, so density / mute can be
+ * applied in one place. Connected to ctx.destination once at first use.
+ * Updated reactively whenever the settings store changes density.
+ */
+function getMasterGain(): GainNode {
+  const ctx = getContext();
+  if (!masterGainNode) {
+    masterGainNode = ctx.createGain();
+    masterGainNode.gain.setValueAtTime(
+      densityMultiplier(useSettingsStore.getState().density),
+      ctx.currentTime,
+    );
+    masterGainNode.connect(ctx.destination);
+    // React to density changes without restart.
+    useSettingsStore.subscribe((s, prev) => {
+      if (s.density === prev.density) return;
+      const node = masterGainNode;
+      if (!node) return;
+      node.gain.setTargetAtTime(densityMultiplier(s.density), ctx.currentTime, 0.05);
+    });
+  }
+  return masterGainNode;
 }
 
 // ---------- Sample playback for classic pack ----------
@@ -62,7 +88,7 @@ function playSample(key: SampleKey, volume = 1): boolean {
   const gain = ctx.createGain();
   gain.gain.setValueAtTime(volume, ctx.currentTime);
   src.connect(gain);
-  gain.connect(ctx.destination);
+  gain.connect(getMasterGain());
   src.start();
   return true;
 }
@@ -101,7 +127,7 @@ function cosmicPlace(row: number, col: number) {
   gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
 
   osc.connect(gain);
-  gain.connect(ctx.destination);
+  gain.connect(getMasterGain());
   osc.start(now);
   osc.stop(now + 0.3);
 
@@ -115,7 +141,7 @@ function cosmicPlace(row: number, col: number) {
   clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
 
   click.connect(clickGain);
-  clickGain.connect(ctx.destination);
+  clickGain.connect(getMasterGain());
   click.start(now);
   click.stop(now + 0.03);
 }
@@ -135,7 +161,7 @@ function cosmicCapture(captureCount: number) {
   const thudGain = ctx.createGain();
   thudGain.gain.setValueAtTime(0.25 + intensity * 0.15, now);
   thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-  thud.connect(thudGain); thudGain.connect(ctx.destination);
+  thud.connect(thudGain); thudGain.connect(getMasterGain());
   thud.start(now); thud.stop(now + 0.2);
 
   // Bright crack
@@ -146,7 +172,7 @@ function cosmicCapture(captureCount: number) {
   const crackGain = ctx.createGain();
   crackGain.gain.setValueAtTime(0.08 + intensity * 0.05, now);
   crackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-  crack.connect(crackGain); crackGain.connect(ctx.destination);
+  crack.connect(crackGain); crackGain.connect(getMasterGain());
   crack.start(now); crack.stop(now + 0.08);
 
   // Descending swoosh
@@ -159,7 +185,7 @@ function cosmicCapture(captureCount: number) {
   swooshGain.gain.setValueAtTime(0.001, now);
   swooshGain.gain.linearRampToValueAtTime(0.12 + intensity * 0.08, now + 0.08);
   swooshGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05 + swooshDur);
-  swoosh.connect(swooshGain); swooshGain.connect(ctx.destination);
+  swoosh.connect(swooshGain); swooshGain.connect(getMasterGain());
   swoosh.start(now); swoosh.stop(now + 0.05 + swooshDur);
 
   // Noise burst
@@ -176,7 +202,7 @@ function cosmicCapture(captureCount: number) {
   filter.type = 'bandpass';
   filter.frequency.setValueAtTime(1200 + intensity * 800, now);
   filter.Q.setValueAtTime(1.5, now);
-  noise.connect(filter); filter.connect(noiseGain); noiseGain.connect(ctx.destination);
+  noise.connect(filter); filter.connect(noiseGain); noiseGain.connect(getMasterGain());
   noise.start(now);
 
   if (isBig) {
@@ -187,7 +213,7 @@ function cosmicCapture(captureCount: number) {
     bellGain.gain.setValueAtTime(0.001, now);
     bellGain.gain.linearRampToValueAtTime(0.08, now + 0.15);
     bellGain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
-    bell.connect(bellGain); bellGain.connect(ctx.destination);
+    bell.connect(bellGain); bellGain.connect(getMasterGain());
     bell.start(now + 0.1); bell.stop(now + 0.8);
 
     const bell2 = ctx.createOscillator();
@@ -197,7 +223,7 @@ function cosmicCapture(captureCount: number) {
     bell2Gain.gain.setValueAtTime(0.001, now);
     bell2Gain.gain.linearRampToValueAtTime(0.04, now + 0.17);
     bell2Gain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
-    bell2.connect(bell2Gain); bell2Gain.connect(ctx.destination);
+    bell2.connect(bell2Gain); bell2Gain.connect(getMasterGain());
     bell2.start(now + 0.12); bell2.stop(now + 0.7);
   }
 }
@@ -211,7 +237,7 @@ function cosmicPass() {
   const gain = ctx.createGain();
   gain.gain.setValueAtTime(0.06, now);
   gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-  osc.connect(gain); gain.connect(ctx.destination);
+  osc.connect(gain); gain.connect(getMasterGain());
   osc.start(now); osc.stop(now + 0.2);
 }
 
@@ -226,7 +252,7 @@ function cosmicGameEnd() {
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.06, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
-    osc.connect(gain); gain.connect(ctx.destination);
+    osc.connect(gain); gain.connect(getMasterGain());
     osc.start(now); osc.stop(now + 1.5);
   }
 }
@@ -264,7 +290,7 @@ function classicPlaceSynth() {
   const noiseGain = ctx.createGain();
   noiseGain.gain.setValueAtTime(0.4, now);
   noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
-  noise.connect(hp); hp.connect(crack); crack.connect(noiseGain); noiseGain.connect(ctx.destination);
+  noise.connect(hp); hp.connect(crack); crack.connect(noiseGain); noiseGain.connect(getMasterGain());
   noise.start(now);
 
   // Layer 2 — wooden "knock" (the board resonance)
@@ -277,7 +303,7 @@ function classicPlaceSynth() {
   knockGain.gain.setValueAtTime(0.001, now);
   knockGain.gain.linearRampToValueAtTime(0.25, now + 0.003);
   knockGain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
-  knock.connect(knockGain); knockGain.connect(ctx.destination);
+  knock.connect(knockGain); knockGain.connect(getMasterGain());
   knock.start(now); knock.stop(now + 0.08);
 
   // Layer 3 — brief harmonic of the knock for wood grain character
@@ -289,7 +315,7 @@ function classicPlaceSynth() {
   grainGain.gain.setValueAtTime(0.001, now);
   grainGain.gain.linearRampToValueAtTime(0.08, now + 0.002);
   grainGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-  grain.connect(grainGain); grainGain.connect(ctx.destination);
+  grain.connect(grainGain); grainGain.connect(getMasterGain());
   grain.start(now); grain.stop(now + 0.05);
 }
 
@@ -319,7 +345,7 @@ function classicCaptureSynth(captureCount: number) {
   const noiseGain = ctx.createGain();
   noiseGain.gain.setValueAtTime(0.35 + intensity * 0.15, now);
   noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
-  noise.connect(filter); filter.connect(noiseGain); noiseGain.connect(ctx.destination);
+  noise.connect(filter); filter.connect(noiseGain); noiseGain.connect(getMasterGain());
   noise.start(now);
 
   // Body thump
@@ -330,7 +356,7 @@ function classicCaptureSynth(captureCount: number) {
   const bodyGain = ctx.createGain();
   bodyGain.gain.setValueAtTime(0.22 + intensity * 0.12, now);
   bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-  body.connect(bodyGain); bodyGain.connect(ctx.destination);
+  body.connect(bodyGain); bodyGain.connect(getMasterGain());
   body.start(now); body.stop(now + 0.18);
 }
 
@@ -345,7 +371,7 @@ function classicPass() {
   const bodyGain = ctx.createGain();
   bodyGain.gain.setValueAtTime(0.1, now);
   bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-  body.connect(bodyGain); bodyGain.connect(ctx.destination);
+  body.connect(bodyGain); bodyGain.connect(getMasterGain());
   body.start(now); body.stop(now + 0.1);
 }
 
@@ -361,7 +387,7 @@ function classicGameEnd() {
     const bodyGain = ctx.createGain();
     bodyGain.gain.setValueAtTime(0.12, start);
     bodyGain.gain.exponentialRampToValueAtTime(0.001, start + 0.15);
-    body.connect(bodyGain); bodyGain.connect(ctx.destination);
+    body.connect(bodyGain); bodyGain.connect(getMasterGain());
     body.start(start); body.stop(start + 0.15);
   }
 }

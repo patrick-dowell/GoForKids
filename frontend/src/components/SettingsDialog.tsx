@@ -1,4 +1,4 @@
-import { useSettingsStore } from '../store/settingsStore';
+import { useSettingsStore, type Density } from '../store/settingsStore';
 import { THEMES, type ThemeId } from '../theme/themes';
 
 interface SettingsDialogProps {
@@ -8,8 +8,16 @@ interface SettingsDialogProps {
 export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const themeId = useSettingsStore((s) => s.themeId);
   const setTheme = useSettingsStore((s) => s.setTheme);
+  const density = useSettingsStore((s) => s.density);
+  const setDensity = useSettingsStore((s) => s.setDensity);
+  const showScoreGraph = useSettingsStore((s) => s.showScoreGraph);
+  const setShowScoreGraph = useSettingsStore((s) => s.setShowScoreGraph);
 
   const options: ThemeId[] = ['cosmic', 'classic'];
+  const densityOptions: { value: Density; label: string; desc: string }[] = [
+    { value: 'full', label: 'Full',  desc: 'Cosmic celebrations, full sound' },
+    { value: 'zen',  label: 'Zen',   desc: 'Quieter visuals, softer audio' },
+  ];
 
   return (
     <div className="dialog-overlay" onClick={onClose}>
@@ -42,6 +50,33 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               );
             })}
           </div>
+        </div>
+
+        <div className="dialog-field">
+          <label>Animation & sound density</label>
+          <div className="mode-picker">
+            {densityOptions.map((opt) => (
+              <button
+                key={opt.value}
+                className={`mode-btn ${density === opt.value ? 'selected' : ''}`}
+                onClick={() => setDensity(opt.value)}
+                title={opt.desc}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="dialog-field">
+          <label>
+            <input
+              type="checkbox"
+              checked={showScoreGraph}
+              onChange={(e) => setShowScoreGraph(e.target.checked)}
+            />
+            {' '}Show score graph during play
+          </label>
         </div>
       </div>
     </div>

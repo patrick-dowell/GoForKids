@@ -46,12 +46,17 @@ class GameStateResponse(BaseModel):
     ko_point: Optional[PointSchema] = None
     result: Optional[dict] = None
     sgf: Optional[str] = None  # Full SGF when game is finished
+    # KataGo's estimated point margin from Black's perspective at the current
+    # board state. Positive = Black ahead, negative = White ahead. None if
+    # KataGo wasn't available. Used by the live score graph.
+    score_lead: Optional[float] = None
 
 
 class AIMoveResponse(BaseModel):
     point: PointSchema
     captures: list[PointSchema]
     debug: Optional[dict] = None  # For development: KataGo analysis info
+    score_lead: Optional[float] = None  # See GameStateResponse.score_lead.
 
 
 class StudyAnalysisRequest(BaseModel):
