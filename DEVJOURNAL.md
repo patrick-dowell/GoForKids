@@ -1,5 +1,50 @@
 # Development Journal
 
+## Session 8 — April 24-25, 2026
+
+Two major features landed plus a stack of polish.
+
+### Smaller boards (feature 13) — shipped end-to-end
+- **Engine refactor.** `Board` (TS + Py) takes a `size` constructor arg; `Point.index/neighbors/is_valid` accept size with default 19. SGF round-trips `SZ[n]`. New tests in `SmallBoards.test.ts` cover `Board(9)` and `Board(13)` for capture, scoring, ko.
+- **Renderer.** `GoBoard.tsx` reads `boardSize` from the store, computes geometry per render, draws the right hoshi pattern (5 points on 9×9 corners + tengen, 5 hoshi + 4 edge midpoints on 13×13, 9 hoshi on 19×19) and per-size coord labels.
+- **Picker + persistence.** Board size selector in New Game dialog; last-used size in `localStorage`. Ranks not calibrated for the chosen size are greyed out and labeled "X×X not tuned"; the selected rank auto-snaps to a valid tier when size changes.
+- **Handicap** on all three sizes — hoshi-only on 9×9 (cap 5), full 9-stone pattern on 13×13.
+- **Bot calibration v1** — `RANK_PROFILES_BY_SIZE[size][rank]` with 19×19 fallback. Six small-board profiles (30k / 15k / 6k × 9 / 13). New profile knobs: `pass_threshold`, `clarity_prior`, `clarity_score_gap`, `local_bias_in_opening`. 30k on small boards uses very high `local_bias` anchored to the opponent's last move (threaded through `state.py`) and disables the clarity gate so mistake injection actually applies in tactical positions — plays like an absolute beginner who responds to whatever you just played.
+- **Pass detection refinement.** Visits-gated. A pass candidate is only trusted if it received `max(2, best.visits // 10)` visits during search — at low total visits, pass with 1 visit is just the value-network prior and was triggering spurious mid-fuseki passes.
+- **Ko illegal-move filter.** KataGo doesn't see our move history (we send empty `moves`), so it can recommend ko recaptures. Bot picks one → engine rejects → state.py falls back to pass. Fix: filter all KataGo candidates through `board.try_play` on a clone before any decision logic so illegal moves never leave `_select_with_katago`. Resolved the "9k bot passes during ko fights" complaint.
+
+### Animations & sound effects (feature 12) — first cut
+- **Density toggle (Full / Zen).** Single 0.4× multiplier feeds both `theme.animationIntensity` (via `withDensity` helper) and a master `GainNode` in `SoundManager` that every sound routes through. Subscribed to the settings store so flipping ramps audio in ~50ms. (Caught a self-connection bug where my `replace_all` hit the destination-bound line — silent audio for one commit. Fixed.)
+- **Capture celebration scaled to 3 tiers** in `stoneAnimations.ts` via `tierFor(count)`: small (1–2), medium (3–6), hero (7+). Each tier configures duration, flash on/off, flash color, shockwave count (0/1/2), shockwave scale and alpha, particle speed.
+- **Connection pulse** fires when a move merges 2+ separate same-color groups. New `Board.detectMergedGroups` runs before `tryPlay`; result lands in `gameStore.lastMerged` and `GoBoard.tsx` fires the animation. v1 was too subtle ("you might want to make it flare more"); v2 has an impact halo plus two staggered expanding rings.
+- **Live score graph** in the right sidebar — KataGo-backed (`SCORE_ESTIMATE_VISITS = 30` in `state.py`), point-margin from Black's perspective, decoupled from bot strength so all bots produce comparable values. `play_move` is now async to await the eval; ~50–150ms per move on Mac Metal. Toggleable in Settings → off by default. Header shows "Score (You − Seedling)" with player names; leader chip shows a stone icon for the side that's leading.
+
+### Two real bugs in the score graph
+- **Sign flipped every move.** Empirical testing showed `rootInfo.scoreLead` from KataGo's analysis engine is always Black-perspective regardless of `initialPlayer` (despite docs implying side-to-move). My flip-when-white-to-move was making the displayed lead swing B+20 → W+20 → B+20 with the same underlying position. Fixed by removing the flip.
+- **Score reset to ~0 after a pass.** Pass branches called `appendScorePoint()` which uses the local `scoreTerritory()` flood-fill — useless mid-game. Fix: backend `AIMoveResponse` for pass branches now includes the carried-over `game.score_lead` (board unchanged on pass, so the prior estimate is valid). Frontend pass branches read that instead of recomputing.
+- **Final point matches tally.** When the game ends, push `result.black_score - result.white_score` as the last data point so the line ends at the rules-based final number, not the pre-scoring KataGo estimate that's offset by dead-stone cleanup.
+
+### Polish
+- "You wins by N" → "**You win** by N"; third-person ("Black wins") kept.
+- Final tally now shows "= 67 total" alongside each side's territory + captures + komi breakdown.
+- Komi chip was overflowing on the white row → `flex-wrap: wrap` on `.score-values`.
+- Greyed-out / not-tuned rank labels in the New Game picker on smaller boards.
+- Backend `logging.basicConfig(INFO)` so `logger.info` / `logger.warning` in `app.*` modules surface in uvicorn output (was invisible before, masking diagnostic logs).
+
+### Deferred
+- **Two-eye shimmer** — needs eye geometry + per-game dedup so it doesn't refire each move. Punted.
+- **Named tactical callouts** (ladder / snapback / seki / net / throw-in) — folds into feature 04 (AI teacher) where the tactical detector belongs.
+- **Ambient sound bed** — open question on sourcing/licensing.
+
+### Hosting plan finalized in [09_publishing.md](feature_plans/09_publishing.md)
+CPU VPS for bots (~$15/mo) + on-demand GPU pod for reviews (warm-pool-of-one pattern). Beta budget ceiling $100/mo, expected $25–60/mo.
+
+### Status of feature plans after this session
+- 13 (Smaller boards): ✅ Done
+- 12 (Animations & sound): 🧪 Beta — first cut shipped
+
+---
+
 ## Session 7 — April 23-24, 2026
 
 ### Two code-level fixes that apply to every bot rank
@@ -324,14 +369,14 @@ Not worth further tuning right now — fixing H3 exactly requires either making 
 - [ ] **What-if exploration** — click alternate move in study mode, see KataGo eval update live
 
 ### Medium Priority
-- [ ] **Connection pulse animation** — code exists in stoneAnimations.ts but never triggers (detect when groups merge)
+- [x] **Connection pulse animation** — wired to group-merge detection (Session 8)
 - [ ] **Milestone stickers** — "First Capture!", "First Win!", "10 Games Played!" — the reward loop for kids
 - [ ] **Rules refresher** — short interactive tutorial (capture, ko, two eyes, scoring) for returning adults
-- [ ] **Ladder/snapback/seki callouts** — detect special moves geometrically, show a named callout the first few times
+- [ ] **Ladder/snapback/seki callouts** — detect special moves geometrically, show a named callout the first few times (folded into feature 04, the AI teacher, which shares the tactical detector)
 - [ ] **Validate 12k–3k bots** — run bot-vs-bot and test_bot_vs_real for each rank pair, download Fox data for each
 
 ### Low Priority
-- [ ] **Zen mode toggle** — reduce animation density for adults
+- [x] **Zen mode toggle** — Settings → "Animation & sound density" Full/Zen, scales theme intensity and master gain (Session 8)
 - [ ] **Unlockable cosmetics** — board styles, stone styles, sound packs earned through play
 - [ ] **Daily streak** — gentle play streak, no FOMO mechanics
 - [ ] **Mistake tracking across games** — "you keep making this mistake" teacher pattern
@@ -342,7 +387,7 @@ Not worth further tuning right now — fixing H3 exactly requires either making 
 ## V2 Roadmap (from design doc)
 
 - **Kid-first onboarding** — full age-7 tutorial, rules teaching, guided first game
-- **9x9 and 13x13 boards** — paired with kid onboarding as the "kid ramp"
+- ~~**9x9 and 13x13 boards**~~ — shipped early (Session 8). 30k / 15k / 6k tunings per size; 18k / 12k / 9k / 3k / 1d marked "not tuned" on small boards
 - **Phase 2 AI** — train rank-conditioned neural network on OGS data (56M games)
 - **Parent-facing surface** — "what your kid is learning" stats, rank progress, time played
 - **iOS / Unity port** — animation specs in tool-agnostic JSON for portability
