@@ -175,6 +175,17 @@
   transform: translateY(-2px);
 }
 
+.home-btn-learn {
+  background: linear-gradient(135deg, #ffd166, #d4a045);
+  color: #1a1a30;
+  box-shadow: 0 4px 20px rgba(255, 209, 102, 0.25);
+}
+
+.home-btn-learn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 28px rgba(255, 209, 102, 0.4);
+}
+
 /* Bot roster */
 .home-bots {
   text-align: center;

@@ -2,12 +2,13 @@
 
 A Go (board game) teaching app built kid-first — but with enough depth for returning adult players. Play against a rank-calibrated AI that feels like a real opponent, not a crippled engine. Review your games with plain-language explanations powered by Claude.
 
-**Status:** v1 technical foundation. Proves the AI rank ladder, board feel, study mode, and small-board play on 9×9 / 13×13 / 19×19. Kid-facing onboarding and the parent surface land in v2.
+**Status:** v1 technical foundation + first 5 lessons of the kid-facing onboarding. Proves the AI rank ladder, board feel, study mode, small-board play on 5×5 / 9×9 / 13×13 / 19×19, and an interactive Learn-to-Play flow that teaches placement, capture, and survival before launching the player into a real game.
 
 ## What's Working
 
-- **9×9, 13×13, and 19×19 boards** with a cosmic dark theme (gold-tinted grid, gradient stones, star points). Per-size hoshi, coords, and handicap (max 5 on 9×9, 9 elsewhere)
-- **Play vs KataGo AI** with rank-calibrated move selection (30k–6k validated; 3k / 1d shown as "coming soon"). The AI plays human-like moves at the target rank, not random or uniformly weakened. Small boards have their own profiles for 30k / 15k / 6k; the rest fall back to 19×19 tunings
+- **Learn-to-Play onboarding (lessons 1–5)** — interactive puzzles teach stone placement, capturing one stone, capturing connected groups, and rescuing a group under attack with a chasing opponent. Completion unlocks a "Cosmic Board" reward and transitions into a 5×5 game vs the friendliest bot. Modal-based step UX (no auto-advance), config-driven lesson engine in `frontend/src/learn/lessons.ts`. Lessons 6–10 (eyes, life/death, territory, 9×9 transition) pending
+- **5×5, 9×9, 13×13, and 19×19 boards** with a cosmic dark theme (gold-tinted grid, gradient stones, star points). Per-size hoshi, coords, and handicap (max 5 on 9×9, 9 elsewhere). 5×5 used by the first-game flow with komi=0 so Black's first-move advantage feels real for new players
+- **Play vs KataGo AI** with rank-calibrated move selection (30k–6k validated; 3k / 1d shown as "coming soon"). The AI plays human-like moves at the target rank, not random or uniformly weakened. 5×5 has a first-game-tuned 30k profile; 9×9 / 13×13 have their own profiles for 30k / 15k / 6k; the rest fall back to 19×19 tunings
 - **Bot vs Bot mode** — pick two ranks and watch
 - **Animations** — stone placement snap, capture celebration scaled across 3 tiers (small / medium / hero), connection pulse on group merges, atari glow, capture shatter with particles
 - **Procedural sound** — position-varying placement chimes, layered capture impacts, game-end chord (Web Audio API, no asset files); routed through a single master gain so the density toggle controls volume

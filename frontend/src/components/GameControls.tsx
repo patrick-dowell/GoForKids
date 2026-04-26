@@ -3,6 +3,8 @@ import { useSettingsStore } from '../store/settingsStore';
 import { BOT_AVATARS } from './Avatar';
 import { Color } from '../engine/types';
 import { ScoreGraph } from './ScoreGraph';
+import { WhoIsWinning } from './WhoIsWinning';
+import { LessonGameEndPanel } from './LessonGameEndModal';
 
 export function GameControls() {
   const phase = useGameStore((s) => s.phase);
@@ -24,6 +26,7 @@ export function GameControls() {
   const resign = useGameStore((s) => s.resign);
   const undo = useGameStore((s) => s.undo);
   const autoComplete = useGameStore((s) => s.autoComplete);
+  const lessonContext = useGameStore((s) => s.lessonContext);
   const showScoreGraph = useSettingsStore((s) => s.showScoreGraph);
 
   const isBotVsBot = gameMode === 'botvsbot';
@@ -97,7 +100,7 @@ export function GameControls() {
 
         <div className="move-counter">Move {moveCount}</div>
 
-        {showScoreGraph && <ScoreGraph />}
+        {lessonContext ? <WhoIsWinning /> : showScoreGraph && <ScoreGraph />}
       </div>
 
       {phase === 'playing' && !isBotVsBot && (
@@ -134,45 +137,50 @@ export function GameControls() {
       )}
 
       {phase === 'finished' && result && (
-        <div className="game-result">
-          <div className="result-detail">
-            {result.blackScore === 0 && result.whiteScore === 0 ? (
-              <div className="result-headline">
-                {finishedWinnerName} {finishedWinsVerb} by resignation
-              </div>
-            ) : (
-              <>
+        lessonContext ? (
+          // Lesson 5 game uses a kid-friendly modal + compact panel pair.
+          <LessonGameEndPanel />
+        ) : (
+          <div className="game-result">
+            <div className="result-detail">
+              {result.blackScore === 0 && result.whiteScore === 0 ? (
                 <div className="result-headline">
-                  {finishedWinnerName} {finishedWinsVerb} by{' '}
-                  {Math.abs(result.blackScore - result.whiteScore).toFixed(1)} points
+                  {finishedWinnerName} {finishedWinsVerb} by resignation
                 </div>
-                <div className="score-breakdown">
-                  <div className="score-row">
-                    <div className="score-label">
-                      <div className="stone-icon black" /> Black
-                      <span className="score-total">= {result.blackScore} total</span>
+              ) : (
+                <>
+                  <div className="result-headline">
+                    {finishedWinnerName} {finishedWinsVerb} by{' '}
+                    {Math.abs(result.blackScore - result.whiteScore).toFixed(1)} points
+                  </div>
+                  <div className="score-breakdown">
+                    <div className="score-row">
+                      <div className="score-label">
+                        <div className="stone-icon black" /> Black
+                        <span className="score-total">= {result.blackScore} total</span>
+                      </div>
+                      <div className="score-values">
+                        <span>{result.blackTerritory} territory</span>
+                        <span>+ {result.blackCaptures} captures</span>
+                      </div>
                     </div>
-                    <div className="score-values">
-                      <span>{result.blackTerritory} territory</span>
-                      <span>+ {result.blackCaptures} captures</span>
+                    <div className="score-row">
+                      <div className="score-label">
+                        <div className="stone-icon white" /> White
+                        <span className="score-total">= {result.whiteScore} total</span>
+                      </div>
+                      <div className="score-values">
+                        <span>{result.whiteTerritory} territory</span>
+                        <span>+ {result.whiteCaptures} captures</span>
+                        <span>+ {result.komi} komi</span>
+                      </div>
                     </div>
                   </div>
-                  <div className="score-row">
-                    <div className="score-label">
-                      <div className="stone-icon white" /> White
-                      <span className="score-total">= {result.whiteScore} total</span>
-                    </div>
-                    <div className="score-values">
-                      <span>{result.whiteTerritory} territory</span>
-                      <span>+ {result.whiteCaptures} captures</span>
-                      <span>+ {result.komi} komi</span>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        )
       )}
     </div>
   );

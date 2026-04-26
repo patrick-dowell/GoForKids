@@ -4,11 +4,12 @@ import './HomePage.css';
 interface HomePageProps {
   onNewGame: () => void;
   onLibrary: () => void;
+  onLearn: () => void;
 }
 
 const BOTS = Object.entries(BOT_AVATARS); // Show all bots
 
-export function HomePage({ onNewGame, onLibrary }: HomePageProps) {
+export function HomePage({ onNewGame, onLibrary, onLearn }: HomePageProps) {
   return (
     <div className="home-page">
       {/* Cosmic background with floating stones */}
@@ -29,6 +30,10 @@ export function HomePage({ onNewGame, onLibrary }: HomePageProps) {
 
         {/* Main actions */}
         <div className="home-actions">
+          <button onClick={onLearn} className="home-btn home-btn-learn">
+            <span className="home-btn-icon">✨</span>
+            Learn to Play
+          </button>
           <button onClick={onNewGame} className="home-btn home-btn-primary">
             <span className="home-btn-icon">▶</span>
             Play

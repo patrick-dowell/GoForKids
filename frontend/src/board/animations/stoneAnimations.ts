@@ -9,22 +9,7 @@ import { easeOutBack, easeOutCubic } from './AnimationManager';
 import type { Point } from '../../engine/types';
 import { Color, BOARD_SIZE } from '../../engine/types';
 import type { Theme } from '../../theme/themes';
-
-const BOARD_PADDING = 40;
-const CANVAS_SIZE = 700;
-
-function geom(size: number) {
-  const boardPixels = CANVAS_SIZE - BOARD_PADDING * 2;
-  const cellSize = boardPixels / (size - 1);
-  return {
-    cellSize,
-    stoneRadius: cellSize * 0.45,
-    toScreen: (row: number, col: number) => ({
-      x: BOARD_PADDING + col * cellSize,
-      y: BOARD_PADDING + row * cellSize,
-    }),
-  };
-}
+import { geometry as geom } from '../geometry';
 
 /**
  * Stone placement: satisfying snap with squash/stretch and shadow settle.
@@ -336,6 +321,70 @@ export function createConnectionAnimation(
             ctx.stroke();
             ctx.restore();
           }
+        }
+      }
+    },
+  };
+}
+
+/**
+ * Success ring — a celebratory golden burst at the placed stone, used in
+ * lessons when the user makes the correct move. Two concentric rings expand
+ * outward and fade, plus a brief inner halo.
+ */
+export function createSuccessRingAnimation(
+  point: Point,
+  size: number = BOARD_SIZE,
+): Animation {
+  const { stoneRadius, toScreen } = geom(size);
+  const { x, y } = toScreen(point.row, point.col);
+  const gold = '#ffd166';
+
+  return {
+    id: `success-${point.row}-${point.col}-${Date.now()}`,
+    duration: 900,
+    draw: (ctx, progress) => {
+      // Inner halo flash — bright at start, fades fast.
+      if (progress < 0.4) {
+        const t = progress / 0.4;
+        ctx.save();
+        ctx.globalAlpha = (1 - t) * 0.55;
+        ctx.beginPath();
+        ctx.arc(x, y, stoneRadius * (1 + t * 0.5), 0, Math.PI * 2);
+        ctx.fillStyle = gold;
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Primary expanding ring.
+      const t1 = Math.min(1, progress / 0.85);
+      const r1 = stoneRadius * (1 + t1 * 1.6);
+      const a1 = Math.sin(t1 * Math.PI) * 0.95;
+      if (a1 > 0) {
+        ctx.save();
+        ctx.globalAlpha = a1;
+        ctx.beginPath();
+        ctx.arc(x, y, r1, 0, Math.PI * 2);
+        ctx.strokeStyle = gold;
+        ctx.lineWidth = 3.5;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Trailing ring — slightly delayed.
+      if (progress > 0.18) {
+        const t2 = Math.min(1, (progress - 0.18) / 0.75);
+        const r2 = stoneRadius * (1 + t2 * 1.1);
+        const a2 = Math.sin(t2 * Math.PI) * 0.7;
+        if (a2 > 0) {
+          ctx.save();
+          ctx.globalAlpha = a2;
+          ctx.beginPath();
+          ctx.arc(x, y, r2, 0, Math.PI * 2);
+          ctx.strokeStyle = gold;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.restore();
         }
       }
     },

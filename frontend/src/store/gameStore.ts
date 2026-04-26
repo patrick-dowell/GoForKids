@@ -134,6 +134,9 @@ interface NewGameOptions {
   blackRank?: string;  // For bot-vs-bot
   whiteRank?: string;  // For bot-vs-bot
   boardSize?: number;  // 9, 13, or 19
+  /** Marks this game as the lesson 5 first-game flow — game UI should swap
+   *  the analytical ScoreGraph for a simpler "Who's winning" bar. */
+  lessonContext?: boolean;
 }
 
 interface GameState {
@@ -164,6 +167,16 @@ interface GameState {
   botVsBotSpeed: number;  // ms delay between moves
   botVsBotPaused: boolean;
   autoCompleting: boolean;
+  /** True when this game was launched from the Learn flow (lesson 5 first-game).
+   *  Game UI uses this to swap analytical widgets for kid-friendly explainers. */
+  lessonContext: boolean;
+  /** Set to true the moment the AI passes mid-game. UI watches this to surface
+   *  a "what just happened" modal so newcomers don't think the game silently
+   *  ended. Cleared by either the user passing back or dismissing. */
+  botJustPassed: boolean;
+  /** When true, the lesson 5 game-end modal is hidden (collapsed to the right
+   *  side panel). Player can re-open it from the panel. */
+  lessonGameEndDismissed: boolean;
   deadStones: { row: number; col: number; color: Color }[];  // Stones marked dead at scoring
   scoreHistory: ScorePoint[];  // Live score per move (for the score graph)
   /** Stones merged by the most recent move (or empty). Renderer reads this
@@ -184,6 +197,15 @@ interface GameState {
   toggleBotVsBotPause: () => void;
   autoComplete: () => Promise<void>;
   getBoard: () => Board;
+  /** Dismiss the bot-passed modal without taking action (player keeps playing). */
+  dismissBotPassed: () => void;
+  /** Restart the current game with the same config (used by the lesson 5
+   *  game-end modal's Play Again button). */
+  replayGame: () => void;
+  /** Collapse the lesson game-end modal so the player can see the board. */
+  dismissLessonGameEnd: () => void;
+  /** Re-open the lesson game-end modal from the side-panel re-open button. */
+  reopenLessonGameEnd: () => void;
 }
 
 function snapshot(game: Game, extras?: Partial<GameState>): Partial<GameState> {
@@ -285,6 +307,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   botVsBotSpeed: 800,
   botVsBotPaused: false,
   autoCompleting: false,
+  lessonContext: false,
+  botJustPassed: false,
+  lessonGameEndDismissed: false,
   deadStones: [],
   scoreHistory: [{ move: 0, lead: 0 }],
   lastMerged: { color: Color.Empty, stones: [] },
@@ -298,11 +323,14 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const gameMode = options?.gameMode ?? 'ai';
     const requestedSize = options?.boardSize ?? BOARD_SIZE;
-    const boardSize = [9, 13, 19].includes(requestedSize) ? requestedSize : BOARD_SIZE;
+    // 5 is supported for the lesson 5 first-game flow; the rest are full-game sizes.
+    const boardSize = [5, 9, 13, 19].includes(requestedSize) ? requestedSize : BOARD_SIZE;
     const maxHandicap = MAX_HANDICAP_BY_SIZE[boardSize] ?? 0;
     const handicap = Math.max(0, Math.min(maxHandicap, options?.handicap ?? 0));
-    // Smaller boards traditionally use 7 komi (Japanese); 19x19 uses 7.5.
-    const defaultKomi = boardSize === 19 ? 7.5 : 7;
+    // 5x5 (the lesson 5 first-game flow): no komi, so Black's first-move
+    // advantage feels real and the kid can win straight up.
+    // 9x9/13x13 use 7 (Japanese), 19x19 uses 7.5.
+    const defaultKomi = boardSize === 5 ? 0 : boardSize === 19 ? 7.5 : 7;
     const komi = handicap > 0 ? 0.5 : (options?.komi ?? defaultKomi);
     const game = new Game(komi, boardSize);
     const playerColor = options?.playerColor ?? Color.Black;
@@ -363,6 +391,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       whiteRank,
       botVsBotPaused: false,
       _botVsBotTimer: null,
+      lessonContext: !!options?.lessonContext,
+      botJustPassed: false,
+      lessonGameEndDismissed: false,
       deadStones: [],
       scoreHistory: [{ move: 0, lead: currentLead(game) }],
       lastMerged: { color: Color.Empty, stones: [] },
@@ -408,6 +439,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         lastMerged: merged.length > 0
           ? { color: currentColor, stones: [...merged, point] }
           : { color: Color.Empty, stones: [] },
+        // Player chose to keep playing — clear any leftover bot-passed flag.
+        botJustPassed: false,
       });
 
       // Sync with backend and request AI response
@@ -438,10 +471,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     _game.pass();
     playPassSound();
-
-    if (gameId) {
-      api.pass(gameId).catch(console.warn);
-    }
+    // Player chose Pass — clear the bot-passed flag (modal would dismiss anyway).
+    set({ botJustPassed: false });
 
     // Pass doesn't change the board, so the prior KataGo lead is still
     // valid for backend games. Carry it forward instead of recomputing
@@ -454,26 +485,35 @@ export const useGameStore = create<GameState>((set, get) => ({
       : appendScorePoint(prevHistory, _game);
     if (_game.phase === 'finished') {
       playGameEndSound();
+      // Always commit the local "finished" state first so the UI flips
+      // immediately (Pass button hides, result block shows). The backend
+      // sync on top fills in dead-stone overlay + final score values when
+      // it returns; if it fails or lags, the player still sees that the
+      // game has ended instead of a stuck Pass button.
+      set({ deadStones: [], ...snapshot(_game), scoreHistory: passHistory });
       if (gameId) {
-        api.getGame(gameId).then((serverState) => {
+        // Use the api.pass RESPONSE directly (it already contains the scored
+        // board with dead stones removed + the final result). The previous
+        // fire-and-forget pass + parallel getGame raced the backend and
+        // sometimes saw the pre-pass board, missing the dead-stone overlay.
+        api.pass(gameId).then((serverState) => {
           if (serverState.result) {
             const dead = syncServerScoring(_game, serverState);
-            // Replace the carried-forward estimate with the actual final
-            // result, so the graph's last point matches the tally.
             const finalHistory = appendFinalScore(passHistory, _game.moveHistory.length + 1, serverState.result);
             set({ deadStones: dead, ...snapshot(_game), scoreHistory: finalHistory });
             autoSaveGame(get());
           }
         }).catch((e) => {
           console.warn('Failed to sync scoring:', e);
-          set({ deadStones: [], ...snapshot(_game), scoreHistory: passHistory });
           autoSaveGame(get());
         });
       } else {
-        set({ deadStones: [], ...snapshot(_game), scoreHistory: passHistory });
         autoSaveGame(get());
       }
     } else {
+      if (gameId) {
+        api.pass(gameId).catch(console.warn);
+      }
       set({ ...snapshot(_game), scoreHistory: passHistory });
       if (gameId && _game.phase === 'playing') {
         setTimeout(() => get().requestAIMove(), 400);
@@ -563,6 +603,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // AI passed — carry the prior KataGo lead forward (board unchanged).
       // Server's AIMoveResponse for a pass also includes its prior score_lead.
+      const wasPlayingBeforePass = _game.phase === 'playing';
       _game.pass();
       playPassSound();
       const prevAi = get().scoreHistory;
@@ -587,7 +628,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         set({ aiThinking: false, deadStones: [], ...snapshot(_game), scoreHistory: aiPassHistory });
         autoSaveGame(get());
       } else {
-        set({ aiThinking: false, ...snapshot(_game), scoreHistory: aiPassHistory });
+        // The bot passed and the game is still on. Surface a modal so the
+        // player understands what just happened and can choose to keep
+        // playing or pass back to end the game.
+        set({
+          aiThinking: false,
+          ...snapshot(_game),
+          scoreHistory: aiPassHistory,
+          botJustPassed: wasPlayingBeforePass,
+        });
       }
     } catch (e) {
       console.warn('AI move failed:', e);
@@ -712,4 +761,26 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   getBoard: () => get()._game.board,
+
+  dismissBotPassed: () => set({ botJustPassed: false }),
+
+  dismissLessonGameEnd: () => set({ lessonGameEndDismissed: true }),
+  reopenLessonGameEnd: () => set({ lessonGameEndDismissed: false }),
+
+  replayGame: () => {
+    const s = get();
+    get().newGame({
+      boardSize: s.boardSize,
+      targetRank: s.targetRank,
+      playerColor: s.playerColor,
+      useBackend: !!s.gameId,
+      isRanked: s.isRanked,
+      gameMode: s.gameMode,
+      handicap: s.handicap,
+      blackRank: s.blackRank ?? undefined,
+      whiteRank: s.whiteRank ?? undefined,
+      lessonContext: s.lessonContext,
+      playerAvatar: s.playerAvatar,
+    });
+  },
 }));

@@ -8,10 +8,15 @@ import { PlayerCard } from './components/PlayerCard';
 import { CaptureAnimation } from './components/CaptureAnimation';
 import { ReplayControls } from './components/ReplayControls';
 import { HomePage } from './components/HomePage';
+import { LearnView } from './components/LearnView';
+import { BotPassedModal } from './components/BotPassedModal';
+import { LessonGameEndModal } from './components/LessonGameEndModal';
 import { SettingsButton } from './components/SettingsButton';
 import { useGameStore } from './store/gameStore';
+import { useLearnStore } from './store/learnStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
 import { useReplayStore } from './store/replayStore';
+import { useSettingsStore } from './store/settingsStore';
 import { BOT_AVATARS } from './components/Avatar';
 import { Color, oppositeColor } from './engine/types';
 import './App.css';
@@ -63,6 +68,44 @@ function App() {
   const replayNext = useReplayStore((s) => s.nextMove);
   const replayPrev = useReplayStore((s) => s.prevMove);
 
+  const learnActive = useLearnStore((s) => s.active);
+  const startLearn = useLearnStore((s) => s.start);
+  const exitLearn = useLearnStore((s) => s.exit);
+  const markLessonComplete = useLearnStore((s) => s.markComplete);
+  const newGame = useGameStore((s) => s.newGame);
+  const setTheme = useSettingsStore((s) => s.setTheme);
+
+  const handleStartLearn = () => {
+    // Testing mode: drop the user back to the classic board so the Cosmic Board
+    // unlock at the end of lesson 4 actually feels like a transformation.
+    setTheme('classic');
+    setShowHome(false);
+    startLearn();
+  };
+
+  const handleExitLearn = () => {
+    exitLearn();
+    setShowHome(true);
+  };
+
+  const handleStartGameLesson = (config: { boardSize: number; opponentRank: string }, lessonId: string) => {
+    // Lesson 5 launches a real game vs the bot. Apply the unlocked Cosmic Board
+    // theme so the reward feels meaningful even if the user had picked classic.
+    markLessonComplete(lessonId);
+    setTheme('cosmic');
+    exitLearn();
+    setShowHome(false);
+    newGame({
+      boardSize: config.boardSize,
+      targetRank: config.opponentRank,
+      useBackend: true,
+      isRanked: false,
+      gameMode: 'ai',
+      playerColor: Color.Black,
+      lessonContext: true,
+    });
+  };
+
   const handleSelectGame = (saved: SavedGame) => {
     setShowLibrary(false);
     setShowStudy(false);
@@ -101,6 +144,17 @@ function App() {
   const isPlayerTurn = phase === 'playing' && currentColor === playerColor && !isBotVsBot;
   const isOpponentTurn = phase === 'playing' && currentColor === opponentColor && !isBotVsBot;
 
+  // Lesson mode — full-screen, replaces all other views. The settings gear is
+  // intentionally hidden here so the lesson UI stays focused; it returns once
+  // the user is in a real game.
+  if (learnActive) {
+    return (
+      <div className="app">
+        <LearnView onExit={handleExitLearn} onStartGameLesson={handleStartGameLesson} />
+      </div>
+    );
+  }
+
   // Show homepage
   if (showHome && !replayActive) {
     return (
@@ -109,6 +163,7 @@ function App() {
         <HomePage
           onNewGame={handleOpenNewGame}
           onLibrary={() => setShowLibrary(true)}
+          onLearn={handleStartLearn}
         />
         {showNewGame && (
           <NewGameDialog onClose={() => setShowNewGame(false)} />
@@ -244,6 +299,8 @@ function App() {
       {showLibrary && (
         <GameLibrary onSelectGame={handleSelectGame} onClose={() => setShowLibrary(false)} />
       )}
+      <BotPassedModal />
+      <LessonGameEndModal onMoveOn={() => setShowHome(true)} />
     </div>
   );
 }
