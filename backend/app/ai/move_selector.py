@@ -352,7 +352,35 @@ RANK_PROFILES_9 = {
     },
 }
 
+RANK_PROFILES_5 = {
+    "30k": {
+        # 5x5 first-game (lesson 5). Tuned ~25% weaker than the 9x9 30k
+        # fallback — the prior midpoint between fallback and "very weak"
+        # whiffed too often. This sits between them, leaning toward the
+        # fallback's strength: noticeable mistakes, mostly local play, but
+        # the bot will still find an obvious capture or atari most of the time.
+        "max_point_loss": 38.0,
+        "mistake_freq": 0.74,
+        "policy_weight": 0.07,
+        "randomness": 0.90,
+        "random_move_chance": 0.22,
+        "local_bias": 0.87,
+        "local_bias_in_opening": True,
+        "first_line_chance": 0.0,
+        "visits": 4,
+        "min_candidates": 10,
+        "opening_moves": 2,
+        # Tiny threshold: only pass if literally no move is meaningfully
+        # better than passing. Encourages playing out the endgame so the
+        # game doesn't fizzle while squares are still up for grabs.
+        "pass_threshold": 0.05,
+        "clarity_prior": 1.1,
+        "clarity_score_gap": 999.0,
+    },
+}
+
 RANK_PROFILES_BY_SIZE = {
+    5: RANK_PROFILES_5,
     9: RANK_PROFILES_9,
     13: RANK_PROFILES_13,
     19: RANK_PROFILES_19,

@@ -1,5 +1,60 @@
 # Development Journal
 
+## Session 9 — April 25-26, 2026
+
+Built the Learn-to-Play onboarding flow end-to-end. First five lessons land; the back half (eyes, life/death, count-the-territory, 9×9 transition) lives in `intro.md` for the next session.
+
+### Lesson engine architecture
+Config-driven: each lesson is a plain object in `frontend/src/learn/lessons.ts` with board setup, validator, copy, and optional knobs (`secondTurn`, `afterSuccess`, `interimSuccessMessage`, `defaultShowHint`, `kind: 'puzzle' | 'game'`, `gameConfig`). New `frontend/src/learn/lessons.ts` schema + `frontend/src/store/learnStore.ts` Zustand store track lesson state; `frontend/src/components/LearnView.tsx` renders the shell. The existing `GoBoard.tsx` learns a third source (in addition to live game + replay) — when `learnActive`, it reads grid/highlights/clicks from the lesson store. New `frontend/src/board/geometry.ts` is the single source of board geometry (padding scales with size so 5×5 stones don't clip the edge).
+
+### Lessons 1–5
+1. **Drop Your First Stone** — empty 5×5 with pulsing gold highlight at center. Tap → black stone places, white auto-places, then user gets a *second* turn (anywhere empty) to feel the back-and-forth cadence. Two distinct celebrations: first stone gets "You're playing Go!", second stone gets "Keep going!" with the turn-by-turn rule.
+2. **Trap One Stone** — single white in atari, fill the last liberty.
+3. **Big Capture** — two white stones sharing one liberty; capture both at once.
+4. **Save Your Team** — multi-step rescue with a chasing opponent. Black is in atari; user extends, then white auto-places to chase ("local-bias" anchoring), and user must extend again to truly escape. Validator checks the threatened group still exists + has ≥2 liberties post-rescue.
+5. **First Battle** — `kind: 'game'` lesson. Pre-game card with Mission ⚫⚪⭐ + "What stuff means" 📈🤖🏁 bullets. Click "Let's Go!" → exits learn mode, calls `gameStore.newGame({ boardSize: 5, targetRank: '30k', lessonContext: true })`. New `RANK_PROFILES_5["30k"]` profile + `SUPPORTED_SIZES = (5, 9, 13, 19)` in `state.py`. Komi=0 on 5×5 so Black's first-move advantage feels real.
+
+### Modal-based step UX (replaced auto-advance)
+Every lesson step completion now shows a `LessonStepModal` (green headline + explanation + Continue button) over the board. Removed all auto-advance timers. Continue during `animating` calls `skipAfterSuccess()` to fire the queued auto-place; Continue during `success` calls `next()`. This eliminated a class of race-condition bugs where stale timers fired after the user manually advanced (e.g. queued auto-advance fired after dismissing the reward overlay, kicking the user out of learn mode entirely).
+
+### Animations + visual feedback
+- **Success ring** — golden burst at the placed stone on correct moves (`createSuccessRingAnimation` in `stoneAnimations.ts`)
+- **Denied flash** — red ring pulses around the existing stone when the user tries to "move" a stone (clicks an occupied intersection). Direct RAF loop instead of going through `AnimationManager` to dodge a closure-staleness issue. Reinforces "stones can't be moved, only placed"
+- **Hover ghost** is now color-aware (white translucent for lesson 4 where the user plays White — never mind, we ended up swapping lesson 4 to user-as-Black for consistency, but the hoverColor parameter remains)
+- **Pulsing highlight** on lessons that opt in via `defaultShowHint` (lesson 1 only) — gold ring glows on the target intersection
+- **Confirmed real-browser-only**: discovered that the preview tool's hidden tab (`document.hidden=true`) throttles `requestAnimationFrame` to zero, so animations don't render in test screenshots even though they work for real users. Verified via pixel-sampling between frames — the *static* draws verify, the *animation* in-betweens require an actual browser tab
+
+### Reward + game-end modals
+- **Cosmic Board Unlocked** reward overlay fires once after all four puzzles complete. Twinkling cosmic stars background, golden star badge, gradient text. Theme is forced to classic for the duration of the lessons and switched to cosmic on the lesson 5 launch so the unlock feels like a transformation
+- **Bot-passed modal** explains "the bot thinks the game is over" with **Keep playing** / **Pass & end game** buttons. Triggered when the AI returns a pass mid-game and the game phase is still `playing`
+- **Lesson game-end modal** — kid-friendly score breakdown ("N spots surrounded + M captures") with a side-by-side scoreboard, gold-gradient "You won!" title, **Move on** / **Play again** buttons. Modal can be dismissed (× button or backdrop click) and collapsed to a compact "See results" panel in the right side panel
+
+### Backend tuning
+- **5×5 30k bot profile** new in `RANK_PROFILES_5`. Two rounds of dial-tuning landed on a midpoint between the 9×9 fallback and a "very weak" extreme: `mistake_freq: 0.74`, `local_bias: 0.87`, `visits: 4`, `pass_threshold: 0.05` (very tight — bot won't pass while real points remain)
+- **Pass-flow race fix** in `gameStore.pass()`. Previous code fired `api.pass()` as fire-and-forget then called `api.getGame()` in parallel, racing the backend; sometimes `getGame` saw the pre-pass board and missed dead stones in the score. Collapsed to a single chained `api.pass(gameId).then(...)` since the pass response already includes the scored board
+
+### UX polish landed this session
+- Reset learn progress + theme to classic on every "Learn to Play" tap (testing convenience until user accounts ship)
+- Whole lesson view fits the viewport via CSS grid + container queries; board scales to remaining space, no scrollbar
+- Lesson title prominent in the nav (3-col grid: Home button | centered title | progress dots)
+- Settings gear hidden during lessons (returns for real games)
+- Bottom feedback contrast bumped from `text-muted` to `text-secondary`
+- Lesson 4 user-color flipped to Black for consistency across all lessons
+
+### Status of feature plans after this session
+- 04 (Learn to Play): 🟡 In progress — first 5 of 10 lessons shipped; lessons 6–10 pending
+
+### Deferred to next session
+- Lesson 6: Capture race / who-gets-trapped puzzle
+- Lesson 7: Safe Eyes
+- Lesson 8: Alive or Gone? (mini puzzle streak)
+- Lesson 9: Count Your Land (territory scoring)
+- Lesson 10: Big Board Time (9×9 transition)
+- Reward / star system from `intro.md` — currently only the Cosmic Board unlock fires; per-lesson stars and XP not yet wired
+- Persisted progress (no user accounts yet — currently resets every session by design)
+
+---
+
 ## Session 8 — April 24-25, 2026
 
 Two major features landed plus a stack of polish.

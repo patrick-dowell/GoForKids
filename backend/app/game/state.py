@@ -99,7 +99,7 @@ def _handicap_positions(size: int, handicap: int) -> list[tuple[int, int]]:
     return table.get(handicap, [])
 
 
-SUPPORTED_SIZES = (9, 13, 19)
+SUPPORTED_SIZES = (5, 9, 13, 19)
 
 # Visit budget for the live score-graph estimate. Low enough to keep
 # per-move latency tolerable but deep enough that the estimate isn't

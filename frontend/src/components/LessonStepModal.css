@@ -1,0 +1,77 @@
+.lesson-step-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 180;
+  animation: lesson-step-fade 0.2s ease-out;
+}
+
+@keyframes lesson-step-fade {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.lesson-step-card {
+  width: min(440px, 92vw);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  animation: lesson-step-pop 0.32s cubic-bezier(0.4, 1.6, 0.6, 1);
+}
+
+@keyframes lesson-step-pop {
+  0% { opacity: 0; transform: scale(0.92) translateY(8px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.lesson-step-headline {
+  font-size: 24px;
+  font-weight: 700;
+  color: #67e8a2;
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+
+.lesson-step-explanation {
+  font-size: 16px;
+  color: var(--text-primary);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.lesson-step-finale {
+  font-size: 14px;
+  color: #ffd166;
+  font-weight: 500;
+  margin: 0;
+}
+
+.lesson-step-btn {
+  margin-top: 8px;
+  width: 100%;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #58a6ff, #3d8bd4);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(88, 166, 255, 0.3);
+  transition: transform 0.1s, box-shadow 0.15s;
+}
+
+.lesson-step-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(88, 166, 255, 0.45);
+}
