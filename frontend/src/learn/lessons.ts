@@ -1,4 +1,4 @@
-import { Color, type Point, pointToIndex } from '../engine/types';
+import { Color, type Point, pointToIndex, MoveResult } from '../engine/types';
 import type { Board } from '../engine/Board';
 
 /** Verdict returned by a lesson's validator when the user makes a (legal) move. */
@@ -30,6 +30,11 @@ export interface GameConfig {
   boardSize: number;
   /** Bot rank string used by the backend (matches gameStore's targetRank). */
   opponentRank: string;
+  /** Big headline shown above the Mission/UI bullets on the pre-game card.
+   *  Defaults to "First Battle Time!" for the first-battle lesson. */
+  preGameHeadline?: string;
+  /** Optional sentence shown under the headline for context. */
+  preGameSubline?: string;
 }
 
 export interface Lesson {
@@ -52,6 +57,10 @@ export interface Lesson {
     point: Point;
     capturedCount: number;
   }) => LessonVerdict;
+  /** Called when the user attempts an *illegal* move (suicide / occupied / ko).
+   *  Lets a lesson treat illegal moves as the lesson's success condition —
+   *  used by Safe Eyes to demonstrate that filling an eye is impossible. */
+  validateIllegal?: (args: { point: Point; result: MoveResult }) => LessonVerdict;
   /** Short celebration shown right after the user's correct move. */
   successMessage?: string;
   /** One sentence explaining *why* the move was the right one. Shown below the celebration. */
@@ -249,6 +258,115 @@ export const LESSONS: Lesson[] = [
     kind: 'game',
     title: 'First Battle',
     instruction: 'Time to play your first real game! 5x5 against a friendly bot.',
-    gameConfig: { boardSize: 5, opponentRank: '30k' },
+    gameConfig: {
+      boardSize: 5,
+      opponentRank: '30k',
+      preGameHeadline: 'First Battle Time!',
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // Lesson 6 — Who Gets Trapped? (capture race / semeai)
+  // Black at (1,2) and White at (3,2) are BOTH in atari sharing the same
+  // liberty at (2,2). Whoever plays (2,2) first captures the other. Black to
+  // move — the lesson teaches "play the capture, not the escape; speed wins
+  // the race."
+  //   . . W . .
+  //   . W B W .   <- Black (1,2) atari, only liberty (2,2)
+  //   . . . . .   <- (2,2) shared liberty
+  //   . B W B .   <- White (3,2) atari, only liberty (2,2)
+  //   . . B . .
+  // ---------------------------------------------------------------------------
+  {
+    id: 'who-gets-trapped',
+    title: 'Who Gets Trapped?',
+    instruction: 'Black goes first — capture the white stone before it captures you!',
+    boardSize: 5,
+    initialStones: [
+      // Black stones (you)
+      { row: 1, col: 2, color: Color.Black },
+      { row: 3, col: 1, color: Color.Black },
+      { row: 3, col: 3, color: Color.Black },
+      { row: 4, col: 2, color: Color.Black },
+      // White stones
+      { row: 0, col: 2, color: Color.White },
+      { row: 1, col: 1, color: Color.White },
+      { row: 1, col: 3, color: Color.White },
+      { row: 3, col: 2, color: Color.White },
+    ],
+    userPlays: Color.Black,
+    highlight: [{ row: 2, col: 2 }],
+    validate: ({ capturedCount }) => (capturedCount >= 1 ? 'success' : 'retry'),
+    successMessage: 'Capture race won!',
+    successExplanation: "When two groups are both about to be captured, whoever plays first wins. Players call this a capture race.",
+    retryMessage: "Almost! Look for the spot that captures White before it captures you.",
+  },
+
+  // ---------------------------------------------------------------------------
+  // Lesson 7 — Safe Eyes
+  // Demonstrates that two true eyes make a group uncapturable. White has a
+  // "rabbity-six" shape with two eyes at (1,1) and (1,3). Black plays. Any
+  // attempt to fill an eye is a suicide move and is rejected by the engine —
+  // we treat the suicide attempt as the lesson's success condition via
+  // `validateIllegal`. Other empty squares produce a "try the eyes" nudge.
+  //   . W W W .
+  //   W . W . W   <- empty cells at (1,1) and (1,3) are eyes
+  //   W W W W W
+  //   . . . . .
+  //   . . . . .
+  // ---------------------------------------------------------------------------
+  {
+    id: 'safe-eyes',
+    title: 'Safe Eyes',
+    instruction: "White has two empty spots inside. Try to capture this group — click in one of them!",
+    boardSize: 5,
+    initialStones: [
+      { row: 0, col: 1, color: Color.White },
+      { row: 0, col: 2, color: Color.White },
+      { row: 0, col: 3, color: Color.White },
+      { row: 1, col: 0, color: Color.White },
+      { row: 1, col: 2, color: Color.White },
+      { row: 1, col: 4, color: Color.White },
+      { row: 2, col: 0, color: Color.White },
+      { row: 2, col: 1, color: Color.White },
+      { row: 2, col: 2, color: Color.White },
+      { row: 2, col: 3, color: Color.White },
+      { row: 2, col: 4, color: Color.White },
+    ],
+    userPlays: Color.Black,
+    highlight: [{ row: 1, col: 1 }, { row: 1, col: 3 }],
+    defaultShowHint: true,
+    // Any LEGAL move is wrong (the eyes themselves are suicide and so are
+    // illegal — those are handled by validateIllegal below).
+    validate: () => 'retry',
+    validateIllegal: ({ point, result }) => {
+      if (result !== MoveResult.Suicide) return 'retry';
+      const eyes = [{ row: 1, col: 1 }, { row: 1, col: 3 }];
+      return eyes.some((e) => e.row === point.row && e.col === point.col) ? 'success' : 'retry';
+    },
+    successMessage: 'Two eyes — totally safe!',
+    successExplanation: "Each empty spot inside is an 'eye'. You can't fill one — your stone would have no breathing room and instantly disappear. Two eyes means White's group can NEVER be captured.",
+    retryMessage: "Try clicking inside one of White's empty spots — see what happens!",
+  },
+
+  // ---------------------------------------------------------------------------
+  // Lesson 10 — Big Board Time (live 9x9 game vs the friendliest bot)
+  // The "graduation" game. Same opponent (30k Seedling), same Black-vs-White
+  // setup, just a bigger board. We reuse the existing pre-game card with
+  // 9x9-flavored copy.
+  // (Lessons 8 and 9 — Alive or Gone? quiz and Count Your Land — are reserved
+  // and will be inserted before this one once their mechanics ship.)
+  // ---------------------------------------------------------------------------
+  {
+    id: 'big-board-time',
+    kind: 'game',
+    title: 'Big Board Time',
+    instruction: "You're ready for the bigger 9×9 board. Same rules — just more room to play!",
+    gameConfig: {
+      boardSize: 9,
+      opponentRank: '30k',
+      preGameHeadline: 'Big Board Time!',
+      preGameSubline: 'Same rules, bigger battlefield. Aim for the corners — they\'re easiest to live in.',
+    },
   },
 ];
