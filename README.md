@@ -2,11 +2,11 @@
 
 A Go (board game) teaching app built kid-first — but with enough depth for returning adult players. Play against a rank-calibrated AI that feels like a real opponent, not a crippled engine. Review your games with plain-language explanations powered by Claude.
 
-**Status:** v1 technical foundation + first 5 lessons of the kid-facing onboarding. Proves the AI rank ladder, board feel, study mode, small-board play on 5×5 / 9×9 / 13×13 / 19×19, and an interactive Learn-to-Play flow that teaches placement, capture, and survival before launching the player into a real game.
+**Status:** v1 technical foundation + the first wave of kid-facing onboarding (lessons 1–7 + 10). Proves the AI rank ladder, board feel, study mode, small-board play on 5×5 / 9×9 / 13×13 / 19×19, and an interactive Learn-to-Play flow that teaches placement, capture, survival, capture races, and two-eye life — then graduates the player onto a real 9×9 game.
 
 ## What's Working
 
-- **Learn-to-Play onboarding (lessons 1–5)** — interactive puzzles teach stone placement, capturing one stone, capturing connected groups, and rescuing a group under attack with a chasing opponent. Completion unlocks a "Cosmic Board" reward and transitions into a 5×5 game vs the friendliest bot. Modal-based step UX (no auto-advance), config-driven lesson engine in `frontend/src/learn/lessons.ts`. Lessons 6–10 (eyes, life/death, territory, 9×9 transition) pending
+- **Learn-to-Play onboarding (lessons 1–7 + 10)** — interactive puzzles teach stone placement, single-stone capture, big-group capture, multi-step rescue with a chasing opponent, capture races, and two-eye life. Plus two `kind: 'game'` lessons: first-battle on 5×5 (komi=0) and a 9×9 graduation game. Modal-based step UX (no auto-advance), per-step Continue, "Next lesson →" continuation after game lessons, Cosmic Board reward unlock between lessons 4 and 5. Config-driven lesson engine in `frontend/src/learn/lessons.ts`. Lessons 8 (multi-board quiz) and 9 (territory counting) pending design
 - **5×5, 9×9, 13×13, and 19×19 boards** with a cosmic dark theme (gold-tinted grid, gradient stones, star points). Per-size hoshi, coords, and handicap (max 5 on 9×9, 9 elsewhere). 5×5 used by the first-game flow with komi=0 so Black's first-move advantage feels real for new players
 - **Play vs KataGo AI** with rank-calibrated move selection (30k–6k validated; 3k / 1d shown as "coming soon"). The AI plays human-like moves at the target rank, not random or uniformly weakened. 5×5 has a first-game-tuned 30k profile; 9×9 / 13×13 have their own profiles for 30k / 15k / 6k; the rest fall back to 19×19 tunings
 - **Bot vs Bot mode** — pick two ranks and watch

@@ -17,6 +17,7 @@ import { useLearnStore } from './store/learnStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
 import { useReplayStore } from './store/replayStore';
 import { useSettingsStore } from './store/settingsStore';
+import { LESSONS } from './learn/lessons';
 import { BOT_AVATARS } from './components/Avatar';
 import { Color, oppositeColor } from './engine/types';
 import './App.css';
@@ -37,6 +38,9 @@ function App() {
   const [showNewGame, setShowNewGame] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showStudy, setShowStudy] = useState(false);
+  /** Tracks which lesson kicked off the currently-active game (for the
+   *  "Next lesson" continuation on the game-end modal). Cleared on Move on. */
+  const [activeGameLessonId, setActiveGameLessonId] = useState<string | null>(null);
 
   const phase = useGameStore((s) => s.phase);
   const targetRank = useGameStore((s) => s.targetRank);
@@ -71,6 +75,7 @@ function App() {
   const learnActive = useLearnStore((s) => s.active);
   const startLearn = useLearnStore((s) => s.start);
   const exitLearn = useLearnStore((s) => s.exit);
+  const resumeLearnAt = useLearnStore((s) => s.resumeAt);
   const markLessonComplete = useLearnStore((s) => s.markComplete);
   const newGame = useGameStore((s) => s.newGame);
   const setTheme = useSettingsStore((s) => s.setTheme);
@@ -95,6 +100,7 @@ function App() {
     setTheme('cosmic');
     exitLearn();
     setShowHome(false);
+    setActiveGameLessonId(lessonId);
     newGame({
       boardSize: config.boardSize,
       targetRank: config.opponentRank,
@@ -104,6 +110,26 @@ function App() {
       playerColor: Color.Black,
       lessonContext: true,
     });
+  };
+
+  // Compute the next lesson after the game-kind lesson the player is in,
+  // if any. Used to show "Next lesson →" on the lesson game-end modal.
+  const nextLessonAfterGame = (() => {
+    if (!activeGameLessonId) return null;
+    const idx = LESSONS.findIndex((l) => l.id === activeGameLessonId);
+    if (idx === -1 || idx + 1 >= LESSONS.length) return null;
+    return idx + 1;
+  })();
+
+  const handleNextLessonAfterGame = () => {
+    if (nextLessonAfterGame === null) return;
+    setActiveGameLessonId(null);
+    resumeLearnAt(nextLessonAfterGame);
+  };
+
+  const handleMoveOnFromLessonGame = () => {
+    setActiveGameLessonId(null);
+    setShowHome(true);
   };
 
   const handleSelectGame = (saved: SavedGame) => {
@@ -300,7 +326,10 @@ function App() {
         <GameLibrary onSelectGame={handleSelectGame} onClose={() => setShowLibrary(false)} />
       )}
       <BotPassedModal />
-      <LessonGameEndModal onMoveOn={() => setShowHome(true)} />
+      <LessonGameEndModal
+        onMoveOn={handleMoveOnFromLessonGame}
+        onNextLesson={nextLessonAfterGame !== null ? handleNextLessonAfterGame : undefined}
+      />
     </div>
   );
 }

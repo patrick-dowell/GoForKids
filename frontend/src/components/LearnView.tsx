@@ -90,7 +90,12 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
         </header>
         <main className="learn-main learn-main-game">
           <div className="learn-game-card">
-            <h2 className="learn-game-title">First Battle Time!</h2>
+            <h2 className="learn-game-title">
+              {lesson.gameConfig?.preGameHeadline ?? 'Game Time!'}
+            </h2>
+            {lesson.gameConfig?.preGameSubline && (
+              <p className="learn-game-subline">{lesson.gameConfig.preGameSubline}</p>
+            )}
 
             <div className="learn-game-section">
               <h3 className="learn-game-section-title">Mission</h3>

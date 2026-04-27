@@ -5,6 +5,9 @@ import './LessonGameEndModal.css';
 interface LessonGameEndModalProps {
   /** Called when the user picks "Move on" — App returns them to the home screen. */
   onMoveOn: () => void;
+  /** Called when the user picks "Next lesson" — App exits the game and resumes
+   *  the lesson view at the next lesson. Only present when there IS a next lesson. */
+  onNextLesson?: () => void;
 }
 
 /**
@@ -13,7 +16,7 @@ interface LessonGameEndModalProps {
  * just finishing their first game need a clear "you won/lost" call-out and
  * two obvious next steps.
  */
-export function LessonGameEndModal({ onMoveOn }: LessonGameEndModalProps) {
+export function LessonGameEndModal({ onMoveOn, onNextLesson }: LessonGameEndModalProps) {
   const lessonContext = useGameStore((s) => s.lessonContext);
   const phase = useGameStore((s) => s.phase);
   const result = useGameStore((s) => s.result);
@@ -96,9 +99,14 @@ export function LessonGameEndModal({ onMoveOn }: LessonGameEndModalProps) {
           <button className="lesson-end-btn lesson-end-btn-secondary" onClick={onMoveOn}>
             Move on
           </button>
-          <button className="lesson-end-btn lesson-end-btn-primary" onClick={replayGame}>
+          <button className="lesson-end-btn lesson-end-btn-secondary" onClick={replayGame}>
             Play again
           </button>
+          {onNextLesson && (
+            <button className="lesson-end-btn lesson-end-btn-primary" onClick={onNextLesson}>
+              Next lesson →
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -1,5 +1,38 @@
 # Development Journal
 
+## Session 10 — April 26, 2026
+
+Added the next chunk of Learn-to-Play lessons (6, 7, 10) and the curriculum-continuation flow so the player can keep going after a game-kind lesson finishes. Lessons 8 (multiple-choice quiz) and 9 (territory counting) still deferred — they need new lesson mechanics that warrant a design pass first.
+
+### New lessons
+- **Lesson 6 — Who Gets Trapped?** Real shared-liberty capture race on 5×5: black at (1,2) and white at (3,2) both in atari with the same liberty (2,2). Black to move; (2,2) saves *and* captures. Validator is the existing `capturedCount >= 1`. Teaches "the player to move first wins the race."
+- **Lesson 7 — Safe Eyes.** White rabbity-six shape with eyes at (1,1) and (1,3). Player tries to capture by clicking inside an eye and discovers it's suicide. New `validateIllegal?: (args) => LessonVerdict` hook on `Lesson` lets a lesson treat *illegal* moves as its success condition; in `learnStore.tryMove` we now run `validateIllegal` before the generic denied-flash treatment, and the success path doesn't try to commit the (illegal) stone — just bumps successSeq + transitions to `success` status.
+- **Lesson 10 — Big Board Time.** `kind: 'game'` lesson, 9×9 vs the same friendly 30k bot. Reuses the Mission / What stuff means card. Added `gameConfig.preGameHeadline` + `gameConfig.preGameSubline` to the schema so each game lesson can have custom copy ("Big Board Time!" + "Same rules, bigger battlefield. Aim for the corners — they're easiest to live in.") without forking the card component.
+
+Spec lessons 8 (Alive or Gone? — multi-board quiz) and 9 (Count Your Land — territory tally) skipped this session; they need a quiz lesson type and a count-by-clicking interaction respectively.
+
+### Curriculum continuation after game-kind lessons
+Previously, lesson 5 (the kind:'game' first-battle) effectively ended the curriculum: the user got dropped into the regular game UI and the only ways out were Move on (→ home) or Play again. With more lessons living past lesson 5, that was a wall. Now:
+
+- New `learnStore.resumeAt(index)` action — re-enters the lesson view at a specific lesson without clearing progress (in contrast to `start()` which always resets to lesson 1).
+- `LessonGameEndModal` accepts an optional `onNextLesson` prop and renders a third **Next lesson →** button (primary blue) when provided.
+- `App.tsx` tracks `activeGameLessonId` for whichever lesson kicked off the current game, computes `nextLessonAfterGame` (or null if last), and threads `handleNextLessonAfterGame` through to the modal only when there's actually a next lesson. So lesson 5's game-end modal shows three buttons; lesson 10's shows two.
+
+### Reward overlay scoping
+The Cosmic Board overlay's trigger used to be "next lesson is `kind: 'game'` AND all puzzles complete." With lessons 6 and 7 added, "all puzzles complete" would have meant lessons 1–7 done and the overlay would only fire before lesson 10 — wrong. Tightened the check to "next lesson id is specifically `first-battle` AND lessons 1–4 are complete," which restores the original intent (reward fires between lesson 4 and 5 only). Renamed `allPuzzlesComplete` → `firstBatchComplete` and `PUZZLE_LESSON_IDS` → `FIRST_BATCH_PUZZLE_IDS` for clarity.
+
+### Status of feature plans after this session
+- 04 (Learn to Play): 🟡 In progress — 7 of 10 lessons shipped; lessons 8 (quiz) and 9 (territory counting) still pending design
+
+### Deferred to next session
+- Lesson 8 mechanics: multiple-choice "tap to answer" lesson type. Spec wants 3 mini-boards on one screen with Safe / Gone buttons.
+- Lesson 9 mechanics: territory-counting interaction. Idea: render a finished position with territory glow, ask the user to count a side's spots by tapping each one, validate the count.
+- Per-lesson stars (1–3 based on first-try / fast-solve / no-hint) and XP system from `intro.md`. We currently track only completion booleans.
+- Persisted progress (still resets each "Learn to Play" tap by design until user accounts ship)
+- Lesson 10 currently uses standard 9×9 komi (7) — first-time-player should maybe play with komi=0 for a confidence boost, similar to lesson 5's setup. Defer until we see real playthroughs.
+
+---
+
 ## Session 9 — April 25-26, 2026
 
 Built the Learn-to-Play onboarding flow end-to-end. First five lessons land; the back half (eyes, life/death, count-the-territory, 9×9 transition) lives in `intro.md` for the next session.

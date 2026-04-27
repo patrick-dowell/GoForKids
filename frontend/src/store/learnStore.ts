@@ -52,6 +52,9 @@ interface LearnState {
   showReward: boolean;
 
   start: () => void;
+  /** Re-enter the lesson view at a specific lesson without clearing progress.
+   *  Used to continue the curriculum after a game-kind lesson finishes. */
+  resumeAt: (index: number) => void;
   exit: () => void;
   startLesson: (index: number) => void;
   tryMove: (point: Point) => void;
@@ -101,12 +104,19 @@ function buildLessonBoard(index: number): Board {
 }
 
 /**
- * The first batch of puzzle lessons — completing all of these unlocks the
- * Cosmic Board reward and transitions the player to their first real game.
+ * The first batch of puzzle lessons (1–4) — completing all of these unlocks
+ * the Cosmic Board reward right before the lesson 5 first-battle game.
+ * Later puzzles (lessons 6, 7, ...) are NOT in this list because their
+ * unlock moments are handled separately.
  */
-const PUZZLE_LESSON_IDS = LESSONS.filter((l) => l.kind !== 'game').map((l) => l.id);
-function allPuzzlesComplete(completed: Set<string>): boolean {
-  return PUZZLE_LESSON_IDS.every((id) => completed.has(id));
+const FIRST_BATCH_PUZZLE_IDS = [
+  'drop-first-stone',
+  'trap-one-stone',
+  'big-capture',
+  'save-your-team',
+];
+function firstBatchComplete(completed: Set<string>): boolean {
+  return FIRST_BATCH_PUZZLE_IDS.every((id) => completed.has(id));
 }
 
 export const useLearnStore = create<LearnState>((set, get) => ({
@@ -139,6 +149,14 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     saveCompleted(new Set());
     set({ active: true, completed: new Set(), showReward: false });
     get().startLesson(0);
+  },
+
+  resumeAt: (index: number) => {
+    // Re-enter the lesson view at a specific lesson WITHOUT clearing progress
+    // — used by the game-end modal's "Next lesson" button so the curriculum
+    // continues smoothly after a kind:'game' lesson finishes.
+    set({ active: true, showReward: false });
+    get().startLesson(index);
   },
 
   exit: () => {
@@ -206,6 +224,28 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     const { result, captures } = tentative.tryPlay(lesson.userPlays, point);
 
     if (result !== MoveResult.Ok) {
+      // Some lessons (e.g. Safe Eyes) treat an illegal move at a particular
+      // spot AS the success condition — the player learns by *trying* and
+      // discovering the rule. Run the lesson's optional illegal-move
+      // validator before falling back to the generic denied-flash treatment.
+      if (lesson.validateIllegal) {
+        const verdict = lesson.validateIllegal({ point, result });
+        if (verdict === 'success') {
+          // Surface success WITHOUT placing a stone (none was legal).
+          const isLastLesson = get().lessonIndex >= LESSONS.length - 1;
+          const completed = new Set(get().completed);
+          completed.add(lesson.id);
+          saveCompleted(completed);
+          set({
+            successSeq: get().successSeq + 1,
+            status: 'success',
+            feedback: isLastLesson ? "You've finished the intro!" : null,
+            showHint: false,
+            completed,
+          });
+          return;
+        }
+      }
       // Illegal move (occupied / suicide / ko). Flash a "denied" cue and show
       // a soft warning, but leave status untouched — this isn't a puzzle-fail
       // worth showing the Reset button for. The user can just click elsewhere.
@@ -389,10 +429,11 @@ export const useLearnStore = create<LearnState>((set, get) => ({
       set({ active: false });
       return;
     }
-    // Right before the first game lesson, fire the reward overlay if the user
-    // just finished the puzzle batch (and hasn't already seen it this session).
+    // Reward fires specifically before the first-battle lesson, when the
+    // player has finished the basics. Other game lessons (e.g. big-board-time)
+    // don't currently have a tied reward overlay.
     const nextLesson = LESSONS[idx];
-    if (nextLesson.kind === 'game' && allPuzzlesComplete(get().completed) && !get().showReward) {
+    if (nextLesson.id === 'first-battle' && firstBatchComplete(get().completed) && !get().showReward) {
       set({ showReward: true });
       return;
     }
