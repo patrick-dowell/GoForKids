@@ -329,8 +329,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     const handicap = Math.max(0, Math.min(maxHandicap, options?.handicap ?? 0));
     // 5x5 (the lesson 5 first-game flow): no komi, so Black's first-move
     // advantage feels real and the kid can win straight up.
-    // 9x9/13x13 use 7 (Japanese), 19x19 uses 7.5.
-    const defaultKomi = boardSize === 5 ? 0 : boardSize === 19 ? 7.5 : 7;
+    // 9x9/13x13 use 6.5, 19x19 uses 7.5.
+    const defaultKomi = boardSize === 5 ? 0 : boardSize === 19 ? 7.5 : 6.5;
     const komi = handicap > 0 ? 0.5 : (options?.komi ?? defaultKomi);
     const game = new Game(komi, boardSize);
     const playerColor = options?.playerColor ?? Color.Black;
