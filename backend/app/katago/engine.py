@@ -94,11 +94,17 @@ class KataGoEngine:
 
         logger.info(f"Starting KataGo: {' '.join(cmd)}")
 
+        # stderr=DEVNULL is critical: KataGo writes verbose search progress
+        # to stderr, and with stderr=PIPE we'd need an active reader, otherwise
+        # the OS pipe buffer (~64 KB) fills after ~10-20 queries and KataGo
+        # blocks on the next write — the analysis hangs and the bot appears
+        # to crash mid-game. We don't need stderr in production; if a future
+        # diagnostic need arises, redirect to a file or spawn a reader task.
         self.process = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             text=True,
             bufsize=1,
         )
@@ -106,8 +112,7 @@ class KataGoEngine:
         # Wait briefly for startup, check it didn't crash
         await asyncio.sleep(0.5)
         if self.process.poll() is not None:
-            stderr = self.process.stderr.read() if self.process.stderr else ""
-            raise RuntimeError(f"KataGo exited immediately: {stderr[:500]}")
+            raise RuntimeError(f"KataGo exited immediately (exit code {self.process.returncode})")
 
         self._reader_task = asyncio.create_task(self._read_loop())
         logger.info("KataGo started successfully")
