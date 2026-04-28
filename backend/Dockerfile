@@ -58,10 +58,10 @@ COPY . .
 ENV KATAGO_PATH=/opt/katago/squashfs-root/AppRun \
     KATAGO_MODEL=/opt/katago/models/b20.bin.gz \
     KATAGO_CONFIG=/opt/katago/configs/analysis_example.cfg \
-    KATAGO_THREADS=1 \
+    KATAGO_THREADS=2 \
     KATAGO_VISITS=100 \
-    KATAGO_SCORE_VISITS=10 \
-    KATAGO_OWNERSHIP_VISITS=50
+    KATAGO_SCORE_VISITS=30 \
+    KATAGO_OWNERSHIP_VISITS=200
 
 EXPOSE 8000
 
