@@ -9,6 +9,7 @@ from typing import Optional, Union
 
 import logging
 import os
+import pickle
 
 from app.game.engine import Board, Color, Point, MoveRecord
 from app.models.schemas import (
@@ -138,9 +139,40 @@ async def _compute_score_lead(game: "ActiveGame") -> Optional[float]:
 
 class GameManager:
     def __init__(self):
+        # Same-worker fast cache. Source of truth is the active_games SQLite
+        # table — Render's runtime spawns multiple worker processes per
+        # container, so any in-memory dict is per-worker only and a request
+        # can land on a worker that didn't create the game. Always re-load
+        # from the DB before mutating, always persist after.
         self.games: dict[str, ActiveGame] = {}
 
-    def create_game(self, game_id: str, req: CreateGameRequest) -> GameStateResponse:
+    async def _load(self, game_id: str) -> Optional[ActiveGame]:
+        """Load an active game from the disk-backed table. Falls back to the
+        in-memory cache only as a hint; the DB is authoritative across
+        workers."""
+        blob = await storage.load_active_game(game_id)
+        if blob is None:
+            # Either never existed or already finished and cleaned up.
+            return None
+        try:
+            game = pickle.loads(blob)
+        except Exception as e:
+            logger.error(f"Failed to unpickle game {game_id}: {e}")
+            return None
+        self.games[game_id] = game
+        return game
+
+    async def _save(self, game: ActiveGame):
+        """Persist the game state for cross-worker visibility."""
+        self.games[game.game_id] = game
+        try:
+            blob = pickle.dumps(game)
+        except Exception as e:
+            logger.error(f"Failed to pickle game {game.game_id}: {e}")
+            return
+        await storage.save_active_game(game.game_id, blob)
+
+    async def create_game(self, game_id: str, req: CreateGameRequest) -> GameStateResponse:
         player_color = Color.BLACK if req.player_color == StoneColor.black else Color.WHITE
         size = req.board_size if req.board_size in SUPPORTED_SIZES else 19
         max_h = MAX_HANDICAP_BY_SIZE.get(size, 0)
@@ -171,11 +203,11 @@ class GameManager:
             black_rank=req.black_rank,
             white_rank=req.white_rank,
         )
-        self.games[game_id] = game
+        await self._save(game)
         return self._to_response(game)
 
-    def get_state(self, game_id: str) -> Optional[GameStateResponse]:
-        game = self.games.get(game_id)
+    async def get_state(self, game_id: str) -> Optional[GameStateResponse]:
+        game = await self._load(game_id)
         if game is None:
             return None
         return self._to_response(game)
@@ -183,7 +215,7 @@ class GameManager:
     async def play_move(
         self, game_id: str, row: int, col: int
     ) -> Optional[Union[GameStateResponse, str]]:
-        game = self.games.get(game_id)
+        game = await self._load(game_id)
         if game is None:
             return None
         if game.phase != "playing":
@@ -209,10 +241,11 @@ class GameManager:
         # Refresh the live score estimate for the UI graph.
         game.score_lead = await _compute_score_lead(game)
 
+        await self._save(game)
         return self._to_response(game)
 
     async def pass_move(self, game_id: str) -> Optional[GameStateResponse]:
-        game = self.games.get(game_id)
+        game = await self._load(game_id)
         if game is None:
             return None
         if game.phase != "playing":
@@ -231,11 +264,14 @@ class GameManager:
 
         if game.consecutive_passes >= 2:
             await self._score_game_async(game)
-
+            # _score_game_async → _persist_finished_game already cleared the
+            # active_games row; don't resurrect it.
+        else:
+            await self._save(game)
         return self._to_response(game)
 
-    def resign(self, game_id: str) -> Optional[GameStateResponse]:
-        game = self.games.get(game_id)
+    async def resign(self, game_id: str) -> Optional[GameStateResponse]:
+        game = await self._load(game_id)
         if game is None:
             return None
         if game.phase != "playing":
@@ -247,13 +283,13 @@ class GameManager:
             "winner": "black" if winner == Color.BLACK else "white",
             "reason": "resignation",
         }
-        # Persist to SQLite
-        import asyncio
-        asyncio.ensure_future(self._persist_finished_game(game))
+        # Skip _save (would re-create the active row); _persist_finished_game
+        # writes to the long-term games table and clears active_games.
+        await self._persist_finished_game(game)
         return self._to_response(game)
 
-    def undo(self, game_id: str) -> Optional[Union[GameStateResponse, str]]:
-        game = self.games.get(game_id)
+    async def undo(self, game_id: str) -> Optional[Union[GameStateResponse, str]]:
+        game = await self._load(game_id)
         if game is None:
             return None
         if game.mode != GameMode.casual:
@@ -281,6 +317,7 @@ class GameManager:
                 game.consecutive_passes += 1
                 game.current_color = move.color.opposite()
 
+        await self._save(game)
         return self._to_response(game)
 
     async def auto_complete(
@@ -290,7 +327,7 @@ class GameManager:
         Auto-complete the game using full-strength KataGo.
         Both sides play best moves until two consecutive passes, then score.
         """
-        game = self.games.get(game_id)
+        game = await self._load(game_id)
         if game is None:
             return None
         if game.phase != "playing":
@@ -362,12 +399,15 @@ class GameManager:
         if game.phase == "playing":
             await self._score_game_async(game)
 
+        # auto_complete always lands the game in "finished" — don't _save
+        # (it would re-create the active_games row that _score_game_async
+        # already cleared via _persist_finished_game).
         return self._to_response(game)
 
     async def get_ai_move(
         self, game_id: str
     ) -> Optional[Union[AIMoveResponse, str]]:
-        game = self.games.get(game_id)
+        game = await self._load(game_id)
         if game is None:
             return None
         if game.phase != "playing":
@@ -423,6 +463,7 @@ class GameManager:
         # Refresh the live score estimate for the UI graph.
         game.score_lead = await _compute_score_lead(game)
 
+        await self._save(game)
         return AIMoveResponse(
             point=PointSchema(row=point.row, col=point.col),
             captures=[PointSchema(row=c.row, col=c.col) for c in captures],
@@ -578,6 +619,13 @@ class GameManager:
             logger.info(f"Game {game.game_id} saved to database ({len(game.move_history)} moves)")
         except Exception as e:
             logger.error(f"Failed to persist game {game.game_id}: {e}")
+
+        # Clear the active-games row now that the game is in long-term storage.
+        try:
+            await storage.delete_active_game(game.game_id)
+            self.games.pop(game.game_id, None)
+        except Exception as e:
+            logger.warning(f"Failed to remove active game {game.game_id}: {e}")
 
     def _to_response(self, game: ActiveGame) -> GameStateResponse:
         last_move = None

@@ -42,6 +42,50 @@ async def init_db():
                 FOREIGN KEY (player_id) REFERENCES players(id)
             )
         """)
+        # Active (in-progress) games. Stored as a pickled ActiveGame blob so
+        # that any process / worker can reconstitute the full game state. This
+        # is needed because Render's Pro tier appears to run multiple worker
+        # processes per container, and in-memory state alone caused requests
+        # to randomly 404 when load-balanced to a worker that hadn't created
+        # the game. The disk-backed table is shared across all workers.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS active_games (
+                id TEXT PRIMARY KEY,
+                state_blob BLOB NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        await db.commit()
+
+
+async def save_active_game(game_id: str, state_blob: bytes):
+    """Persist an active (in-progress) game's state."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO active_games (id, state_blob, updated_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(id) DO UPDATE SET
+                   state_blob = excluded.state_blob,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (game_id, state_blob),
+        )
+        await db.commit()
+
+
+async def load_active_game(game_id: str) -> Optional[bytes]:
+    """Load an active game's pickled state, or None if missing."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT state_blob FROM active_games WHERE id = ?", (game_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+
+async def delete_active_game(game_id: str):
+    """Remove an active game record (e.g. after the game finishes)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM active_games WHERE id = ?", (game_id,))
         await db.commit()
 
 

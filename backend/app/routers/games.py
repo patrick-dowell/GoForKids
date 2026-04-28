@@ -69,14 +69,14 @@ async def score_position(req: dict):
 async def create_game(req: CreateGameRequest):
     """Create a new game against the AI."""
     game_id = str(uuid.uuid4())[:8]
-    state = manager.create_game(game_id, req)
+    state = await manager.create_game(game_id, req)
     return state
 
 
 @router.get("/{game_id}", response_model=GameStateResponse)
 async def get_game(game_id: str):
     """Get the current state of a game."""
-    state = manager.get_state(game_id)
+    state = await manager.get_state(game_id)
     if state is None:
         raise HTTPException(status_code=404, detail="Game not found")
     return state
@@ -105,7 +105,7 @@ async def pass_move(game_id: str):
 @router.post("/{game_id}/resign", response_model=GameStateResponse)
 async def resign(game_id: str):
     """Resign the game."""
-    result = manager.resign(game_id)
+    result = await manager.resign(game_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Game not found")
     return result
@@ -114,7 +114,7 @@ async def resign(game_id: str):
 @router.post("/{game_id}/undo", response_model=GameStateResponse)
 async def undo(game_id: str):
     """Undo the last move (casual games only)."""
-    result = manager.undo(game_id)
+    result = await manager.undo(game_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Game not found")
     if isinstance(result, str):
