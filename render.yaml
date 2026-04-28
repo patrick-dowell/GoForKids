@@ -2,17 +2,15 @@
 # Docs: https://render.com/docs/blueprint-spec
 #
 # This deploys two services:
-#   1. goforkids-api    — FastAPI backend (CPU, always-on, persistent SQLite disk)
+#   1. goforkids-api    — FastAPI + KataGo (Eigen/CPU) via Dockerfile
 #   2. goforkids-web    — Vite static site for the React frontend
-#
-# KataGo is intentionally NOT installed in this first cut — the backend will
-# run in stub-AI mode (see app/katago/engine.py: returns None when binary
-# missing). Bots will play near-randomly until KataGo CPU build is wired in
-# a follow-up. Everything else (UI, replay, scoring, lessons) works fully.
 #
 # After connecting the repo, set these in the Render dashboard:
 #   - goforkids-api → CORS_ALLOWED_ORIGINS (the deployed web URL)
 #   - goforkids-web → VITE_API_BASE_URL    (the deployed API URL)
+#
+# Resource size (CPU/RAM) is managed via the dashboard slider, not here —
+# resize anytime without redeploying. Current floor for b20 is 2 GB RAM.
 #
 # ANTHROPIC_API_KEY is optional — only the (not-yet-wired) study-mode
 # narrator reads it. Skip it for now; add later when AI teacher ships.
@@ -20,23 +18,20 @@
 services:
   - type: web
     name: goforkids-api
-    runtime: python
-    plan: standard       # 2 GB RAM, $25/mo. Drop to "starter" ($7) if memory holds.
+    runtime: docker
     region: oregon
     rootDir: backend
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     autoDeploy: true
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.7
       - key: GOFORKIDS_DB
         value: /data/goforkids.db
       - key: CORS_ALLOWED_ORIGINS
         sync: false      # e.g. https://goforkids-web.onrender.com,https://goforkids.example.com
-      # ANTHROPIC_API_KEY intentionally omitted — set it in the dashboard
-      # when the study-mode narrator gets wired into the UI.
+      # KATAGO_PATH / KATAGO_MODEL / KATAGO_CONFIG / KATAGO_THREADS are baked
+      # into the Dockerfile ENV — no need to repeat here. Override via dashboard
+      # if you want to retune visits or threads without rebuilding.
     disk:
       name: goforkids-data
       mountPath: /data
