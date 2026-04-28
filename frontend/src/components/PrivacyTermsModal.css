@@ -1,0 +1,72 @@
+.privacy-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+
+.privacy-modal {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: rgba(20, 26, 40, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 2rem 2rem 1.5rem;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.55;
+}
+
+.privacy-modal h2 {
+  margin: 0 0 1.25rem;
+  font-size: 1.5rem;
+  background: linear-gradient(120deg, #f5f7ff, #d4af37);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.privacy-modal h3 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.privacy-modal p,
+.privacy-modal li {
+  margin: 0.5rem 0;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.95rem;
+}
+
+.privacy-modal ul {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+
+.privacy-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  font-size: 1.5rem;
+  color: rgba(255, 255, 255, 0.6);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.privacy-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}

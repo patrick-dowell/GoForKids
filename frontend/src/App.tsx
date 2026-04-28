@@ -12,6 +12,8 @@ import { LearnView } from './components/LearnView';
 import { BotPassedModal } from './components/BotPassedModal';
 import { LessonGameEndModal } from './components/LessonGameEndModal';
 import { SettingsButton } from './components/SettingsButton';
+import { FeedbackButton } from './components/FeedbackButton';
+import { PrivacyTermsModal } from './components/PrivacyTermsModal';
 import { useGameStore } from './store/gameStore';
 import { useLearnStore } from './store/learnStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
@@ -38,6 +40,7 @@ function App() {
   const [showNewGame, setShowNewGame] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showStudy, setShowStudy] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   /** Tracks which lesson kicked off the currently-active game (for the
    *  "Next lesson" continuation on the game-end modal). Cleared on Move on. */
   const [activeGameLessonId, setActiveGameLessonId] = useState<string | null>(null);
@@ -177,6 +180,8 @@ function App() {
     return (
       <div className="app">
         <LearnView onExit={handleExitLearn} onStartGameLesson={handleStartGameLesson} />
+        <FeedbackButton />
+        {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
     );
   }
@@ -190,6 +195,7 @@ function App() {
           onNewGame={handleOpenNewGame}
           onLibrary={() => setShowLibrary(true)}
           onLearn={handleStartLearn}
+          onShowPrivacy={() => setShowPrivacy(true)}
         />
         {showNewGame && (
           <NewGameDialog onClose={() => setShowNewGame(false)} />
@@ -197,6 +203,8 @@ function App() {
         {showLibrary && (
           <GameLibrary onSelectGame={handleSelectGame} onClose={() => setShowLibrary(false)} />
         )}
+        <FeedbackButton />
+        {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
     );
   }
@@ -330,6 +338,8 @@ function App() {
         onMoveOn={handleMoveOnFromLessonGame}
         onNextLesson={nextLessonAfterGame !== null ? handleNextLessonAfterGame : undefined}
       />
+      <FeedbackButton />
+      {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
     </div>
   );
 }

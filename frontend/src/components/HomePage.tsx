@@ -5,11 +5,12 @@ interface HomePageProps {
   onNewGame: () => void;
   onLibrary: () => void;
   onLearn: () => void;
+  onShowPrivacy?: () => void;
 }
 
 const BOTS = Object.entries(BOT_AVATARS); // Show all bots
 
-export function HomePage({ onNewGame, onLibrary, onLearn }: HomePageProps) {
+export function HomePage({ onNewGame, onLibrary, onLearn, onShowPrivacy }: HomePageProps) {
   return (
     <div className="home-page">
       {/* Cosmic background with floating stones */}
@@ -62,6 +63,12 @@ export function HomePage({ onNewGame, onLibrary, onLearn }: HomePageProps) {
             ))}
           </div>
         </div>
+
+        {onShowPrivacy && (
+          <button className="home-privacy-link" onClick={onShowPrivacy}>
+            Privacy & terms
+          </button>
+        )}
       </div>
     </div>
   );

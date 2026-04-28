@@ -1,0 +1,21 @@
+.feedback-button {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 100;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(20, 26, 40, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+
+.feedback-button:hover {
+  background: rgba(40, 50, 75, 0.85);
+  border-color: rgba(255, 255, 255, 0.25);
+}

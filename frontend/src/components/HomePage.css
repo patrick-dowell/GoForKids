@@ -244,3 +244,20 @@
   font-size: 10px;
   color: #555d68;
 }
+
+.home-privacy-link {
+  display: block;
+  margin: 1.5rem auto 0;
+  padding: 0.4rem 0.75rem;
+  background: transparent;
+  border: none;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.home-privacy-link:hover {
+  color: rgba(255, 255, 255, 0.7);
+}
