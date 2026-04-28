@@ -23,22 +23,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /opt/katago
 
+# The KataGo Eigen release ships as an AppImage which needs FUSE to
+# self-mount at runtime — Render containers don't have FUSE. We use
+# --appimage-extract (no FUSE needed) to unpack it into squashfs-root/
+# at build time so the runtime stage can invoke the inner binary
+# directly via the bundled AppRun launcher.
 RUN curl -fL "${KATAGO_RELEASE_URL}" -o katago.zip \
     && unzip katago.zip \
     && rm katago.zip \
-    && chmod +x katago
+    && chmod +x katago \
+    && ./katago --appimage-extract > /dev/null \
+    && rm katago
 
 # ---------- runtime ----------
 FROM python:${PYTHON_VERSION}
 
-# libgomp1 is the only system dep KataGo Eigen needs at runtime.
+# libgomp1 is the only system dep KataGo Eigen needs at runtime;
+# AppRun handles its own LD_LIBRARY_PATH for KataGo's bundled libs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libgomp1 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /opt/katago/katago  /usr/local/bin/katago
-COPY configs/analysis_example.cfg       /opt/katago/configs/analysis_example.cfg
-COPY models/b20.bin.gz                  /opt/katago/models/b20.bin.gz
+COPY --from=builder /opt/katago/squashfs-root /opt/katago/squashfs-root
+COPY configs/analysis_example.cfg             /opt/katago/configs/analysis_example.cfg
+COPY models/b20.bin.gz                        /opt/katago/models/b20.bin.gz
 
 WORKDIR /app
 
@@ -47,7 +55,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV KATAGO_PATH=/usr/local/bin/katago \
+ENV KATAGO_PATH=/opt/katago/squashfs-root/AppRun \
     KATAGO_MODEL=/opt/katago/models/b20.bin.gz \
     KATAGO_CONFIG=/opt/katago/configs/analysis_example.cfg \
     KATAGO_THREADS=2 \
