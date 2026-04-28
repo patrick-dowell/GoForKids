@@ -493,11 +493,21 @@ class GameManager:
                     # A stone is "dead" if the ownership says the intersection
                     # belongs to the opponent with high confidence
                     size = game.board.size
+                    # Diagnostic: collect ownership values for ALL stones so
+                    # we can see whether the threshold (0.3) is too tight or
+                    # whether the analysis returned weak ownership signals.
+                    stone_ownerships: list[tuple[int, int, str, float]] = []
                     for row in range(size):
                         for col in range(size):
                             idx = row * size + col
                             stone = game.board.get(Point(row, col))
                             own = analysis.ownership[idx]
+                            if stone != Color.EMPTY:
+                                stone_ownerships.append((
+                                    row, col,
+                                    "B" if stone == Color.BLACK else "W",
+                                    own,
+                                ))
 
                             if stone == Color.BLACK and own < -0.3:
                                 # Black stone in white-owned territory = dead
@@ -506,7 +516,17 @@ class GameManager:
                                 # White stone in black-owned territory = dead
                                 dead_stones.append(Point(row, col))
 
+                    own_summary = ", ".join(
+                        f"({r},{c}){col}:{own:+.2f}"
+                        for r, c, col, own in stone_ownerships
+                    )
+                    logger.info(
+                        f"OWNERSHIP analysis ({len(stone_ownerships)} stones, "
+                        f"threshold ±0.3): {own_summary}"
+                    )
                     logger.info(f"KataGo detected {len(dead_stones)} dead stones")
+                else:
+                    logger.warning("OWNERSHIP analysis: KataGo returned no ownership data")
             except Exception as e:
                 logger.warning(f"KataGo ownership analysis failed: {e}")
 

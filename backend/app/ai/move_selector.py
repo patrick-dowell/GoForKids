@@ -644,6 +644,22 @@ async def _select_with_katago(
             board_2d, player, max_visits=profile["visits"], size=board.size,
         )
 
+        # Diagnostic logging: dump KataGo's full candidate list during the
+        # opening so we can see exactly what the search returned. Helps
+        # diagnose spurious passes — we can tell whether pass dominated
+        # the visits, whether non-pass candidates were considered, etc.
+        if is_opening:
+            cand_summary = ", ".join(
+                f"({'PASS' if c.move[0] < 0 else f'{c.move[0]},{c.move[1]}'} "
+                f"v={c.visits} pri={c.prior:.3f} wr={c.winrate:.2f} sl={c.score_lead:.2f})"
+                for c in analysis.candidates[:8]
+            )
+            logger.info(
+                f"[{target_rank} {board.size}x{board.size}] OPENING analysis "
+                f"(stone_count={stone_count}, profile_visits={profile['visits']}): "
+                f"{len(analysis.candidates)} candidates: {cand_summary}"
+            )
+
         if not analysis.candidates:
             logger.warning(f"[{target_rank} {board.size}x{board.size}] PASS: no candidates returned")
             return None
