@@ -107,6 +107,7 @@ SUPPORTED_SIZES = (5, 9, 13, 19)
 # just the value-network prior. Independent of the bot's profile so the
 # graph stays consistent across all bot strengths.
 SCORE_ESTIMATE_VISITS = int(os.environ.get("KATAGO_SCORE_VISITS", "30"))
+OWNERSHIP_VISITS = int(os.environ.get("KATAGO_OWNERSHIP_VISITS", "200"))
 
 
 async def _compute_score_lead(game: "ActiveGame") -> Optional[float]:
@@ -442,7 +443,7 @@ class GameManager:
                 board_2d = game.board.to_2d()
                 # Analyze with ownership — use high visits for accuracy
                 analysis = await engine.analyze(
-                    board_2d, "B", max_visits=200,
+                    board_2d, "B", max_visits=OWNERSHIP_VISITS,
                     komi=game.komi, include_ownership=True,
                     size=game.board.size,
                 )
