@@ -16,11 +16,13 @@ type RankOption = {
   sizes: number[];
 };
 
-// Small boards only expose 30k / 15k / 6k (the calibrated tiers).
-// Other ranks are 19x19-only — they'd technically run via the 19x19 fallback,
-// but the rank labels would be misleading on smaller boards.
+// Small boards expose only the calibrated tiers (13x13: 30k / 15k / 6k;
+// 9x9: 30k / 15k / 6k / 1d). Other ranks are 19x19-only — they'd technically
+// run via the 19x19 fallback, but the rank labels would be misleading on
+// smaller boards.
 const ALL_SIZES = [9, 13, 19];
 const NINETEEN_ONLY = [19];
+const NINE_AND_NINETEEN = [9, 19];
 
 const RANK_OPTIONS: RankOption[] = [
   { value: '30k', label: '30 kyu — Seedling', validated: true,  sizes: ALL_SIZES },
@@ -30,7 +32,7 @@ const RANK_OPTIONS: RankOption[] = [
   { value: '9k',  label: '9 kyu — Boulder',   validated: true,  sizes: NINETEEN_ONLY },
   { value: '6k',  label: '6 kyu — Ember',     validated: true,  sizes: ALL_SIZES },
   { value: '3k',  label: '3 kyu — Storm',     validated: false, sizes: NINETEEN_ONLY },
-  { value: '1d',  label: '1 dan — Void',      validated: false, sizes: NINETEEN_ONLY },
+  { value: '1d',  label: '1 dan — Void',      validated: true,  sizes: NINE_AND_NINETEEN },
 ];
 
 function isRankAvailable(opt: RankOption, size: number): boolean {

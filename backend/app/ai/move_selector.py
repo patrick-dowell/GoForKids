@@ -323,6 +323,35 @@ RANK_PROFILES_9 = {
         "clarity_score_gap": 999.0, # never triggers
     },
     "15k": {
+        # v2 (2026-04-28): the previous "15k" profile (now relabeled 6k)
+        # felt like a real 6k in playtest. Root cause was the default
+        # clarity gate (prior >= 0.5 / score gap >= 5pt) firing on the
+        # concentrated policy distributions you get on 9x9 — KataGo's
+        # top move was forced through whenever it looked tactically
+        # clear, which on a 9x9 is most positions. Disable the gate so
+        # mistake injection actually applies, drop visits, and lean on
+        # local bias + random moves so the bot misreads sequences and
+        # plays reactively the way a real 15k does.
+        "max_point_loss": 22.0,
+        "mistake_freq": 0.55,
+        "policy_weight": 0.18,
+        "randomness": 0.75,
+        "random_move_chance": 0.12,
+        "local_bias": 0.45,
+        "local_bias_in_opening": True,
+        "first_line_chance": 0.0,
+        "visits": 8,
+        "min_candidates": 10,
+        "opening_moves": 3,
+        "pass_threshold": 0.10,
+        "clarity_prior": 1.1,        # never triggers (prior is in [0,1])
+        "clarity_score_gap": 999.0,  # never triggers
+    },
+    "6k": {
+        # 2026-04-28: was the "15k" profile until playtest showed it
+        # consistently played at 6k strength on 9x9 (clarity gate
+        # forcing best moves on concentrated 9x9 policy). Relabeled
+        # without parameter changes.
         "max_point_loss": 18.0,
         "mistake_freq": 0.45,
         "policy_weight": 0.25,
@@ -335,9 +364,11 @@ RANK_PROFILES_9 = {
         "opening_moves": 4,
         "pass_threshold": 0.10,
     },
-    "6k": {
-        # User playtest: 6k was passing while real endgame moves remained.
-        # Lower threshold catches them despite shallow-visit estimate noise.
+    "1d": {
+        # 2026-04-28: was the "6k" profile until playtest showed it
+        # played at roughly dan strength on 9x9. Relabeled without
+        # parameter changes. Original tuning note: lower pass_threshold
+        # catches real endgame moves despite shallow-visit estimate noise.
         "max_point_loss": 8.0,
         "mistake_freq": 0.22,
         "policy_weight": 0.50,
