@@ -446,7 +446,10 @@ export const useGameStore = create<GameState>((set, get) => ({
         botJustPassed: false,
       });
 
-      // Sync with backend and request AI response
+      // Sync with backend, then request AI response. The two calls MUST be
+      // sequenced — firing them in parallel races the backend's persistence
+      // layer (the AI handler can read the game from disk before /move has
+      // saved the user's stone, and end up analyzing an empty board).
       if (gameId && _game.phase === 'playing') {
         api.playMove(gameId, point.row, point.col)
           .then((serverState) => {
@@ -459,10 +462,10 @@ export const useGameStore = create<GameState>((set, get) => ({
                 ],
               }));
             }
+            // Small delay so the player sees their stone land before AI responds.
+            setTimeout(() => get().requestAIMove(), 400);
           })
           .catch(console.warn);
-        // Small delay so the player sees their stone land before AI responds
-        setTimeout(() => get().requestAIMove(), 400);
       }
     }
     return result;
@@ -514,11 +517,19 @@ export const useGameStore = create<GameState>((set, get) => ({
         autoSaveGame(get());
       }
     } else {
-      if (gameId) {
-        api.pass(gameId).catch(console.warn);
-      }
       set({ ...snapshot(_game), scoreHistory: passHistory });
-      if (gameId && _game.phase === 'playing') {
+      // Sequence the pass + AI response the same way as playMove — firing
+      // /pass and /ai-move in parallel races the backend's persistence,
+      // letting the AI analyze the pre-pass game state.
+      if (gameId) {
+        api.pass(gameId)
+          .then(() => {
+            if (_game.phase === 'playing') {
+              setTimeout(() => get().requestAIMove(), 400);
+            }
+          })
+          .catch(console.warn);
+      } else if (_game.phase === 'playing') {
         setTimeout(() => get().requestAIMove(), 400);
       }
     }
