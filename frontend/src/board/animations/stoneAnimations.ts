@@ -15,7 +15,7 @@ import { geometry as geom } from '../geometry';
  * Stone placement: satisfying snap with squash/stretch and shadow settle.
  * Intensity scales the squash amount and ripple — low for classic, full for cosmic.
  */
-export function createPlacementAnimation(point: Point, color: Color, theme: Theme, size: number = BOARD_SIZE): Animation {
+export function createPlacementAnimation(point: Point, color: Color, theme: Theme, size: number = BOARD_SIZE): Omit<Animation, 'startTime'> {
   const { stoneRadius, toScreen } = geom(size);
   const { x, y } = toScreen(point.row, point.col);
   const intensity = theme.animationIntensity;
@@ -114,7 +114,7 @@ export function createCaptureAnimation(
   color: Color,
   theme: Theme,
   size: number = BOARD_SIZE,
-): Animation {
+): Omit<Animation, 'startTime'> {
   const { stoneRadius, toScreen } = geom(size);
   const captor = toScreen(captorPoint.row, captorPoint.col);
   const count = captured.length;
@@ -262,7 +262,7 @@ export function createConnectionAnimation(
   color: Color,
   theme: Theme,
   size: number = BOARD_SIZE,
-): Animation {
+): Omit<Animation, 'startTime'> {
   const { stoneRadius, toScreen } = geom(size);
   const intensity = theme.animationIntensity;
   const ringColor = color === Color.Black ? theme.placementRippleBlack : theme.placementRippleWhite;
@@ -335,7 +335,7 @@ export function createConnectionAnimation(
 export function createSuccessRingAnimation(
   point: Point,
   size: number = BOARD_SIZE,
-): Animation {
+): Omit<Animation, 'startTime'> {
   const { stoneRadius, toScreen } = geom(size);
   const { x, y } = toScreen(point.row, point.col);
   const gold = '#ffd166';
@@ -399,7 +399,7 @@ export function createAtariAnimation(
   _color: Color,
   theme: Theme,
   size: number = BOARD_SIZE,
-): Animation {
+): Omit<Animation, 'startTime'> {
   const { stoneRadius, toScreen } = geom(size);
   return {
     id: `atari-${stones[0].row}-${stones[0].col}`,

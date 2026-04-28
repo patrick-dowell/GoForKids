@@ -290,6 +290,35 @@
   min-width: 140px;
 }
 
+/* ---------- Quiz answer buttons (kind:'quiz' lessons) ---------- */
+.learn-quiz-answers {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  max-width: 520px;
+}
+
+.learn-quiz-answer-btn {
+  flex: 1 1 120px;
+  padding: 14px 22px;
+  font-size: 18px;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.learn-quiz-answer-btn:hover {
+  background: var(--border);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
 /* ---------- Reward overlay (post-puzzle batch) ---------- */
 .learn-reward-overlay {
   position: absolute;

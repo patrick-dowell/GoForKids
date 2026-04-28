@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { GoBoard } from './board/GoBoard';
 import { GameControls } from './components/GameControls';
 import { NewGameDialog } from './components/NewGameDialog';

@@ -7,6 +7,7 @@ import {
   neighbors,
   isValidPoint,
   MoveResult,
+  type Stone,
 } from './types';
 
 /**
@@ -61,7 +62,7 @@ export class Board {
    * Try to play a stone. Returns MoveResult and captured stones.
    * Does NOT mutate if the move is illegal.
    */
-  tryPlay(color: Color, point: Point): { result: MoveResult; captures: Point[] } {
+  tryPlay(color: Stone, point: Point): { result: MoveResult; captures: Point[] } {
     if (!isValidPoint(point, this.size)) {
       return { result: MoveResult.Occupied, captures: [] };
     }

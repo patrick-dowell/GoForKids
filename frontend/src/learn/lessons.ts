@@ -14,8 +14,30 @@ export interface AfterSuccess {
   followUpMessage: string;
 }
 
-/** Marks lesson types: a hand-built puzzle vs a live game against the bot. */
-export type LessonKind = 'puzzle' | 'game';
+/** Lesson types:
+ *  - 'puzzle' : hand-built one-board puzzle with stone placement
+ *  - 'game'   : launches a real game vs the bot (kind:'game' lessons)
+ *  - 'quiz'   : sequential multiple-choice questions over a series of mini-boards
+ */
+export type LessonKind = 'puzzle' | 'game' | 'quiz';
+
+/** One question in a kind:'quiz' lesson. Each question has its own mini-board. */
+export interface QuizQuestion {
+  /** Top-of-board prompt for this question. */
+  prompt: string;
+  /** Mini-board the question is asked on. */
+  boardSize: number;
+  initialStones: Array<{ row: number; col: number; color: Color }>;
+  /** Optional intersections to glow (used by lesson 9 to mark territory). */
+  highlight?: Point[];
+  /** Two-to-four answer choices. Exactly one should be marked correct. */
+  answers: { label: string; correct: boolean }[];
+  /** Shown in the feedback modal when the player picks the correct answer. */
+  successMessage: string;
+  /** Shown in the feedback modal when the player picks a wrong answer.
+   *  Lesson still advances — quizzes are a streak, not a fail-state. */
+  failMessage?: string;
+}
 
 export interface SecondTurn {
   /** Top instruction for the second move. Defaults to whatever message is showing. */
@@ -82,6 +104,12 @@ export interface Lesson {
   secondTurn?: SecondTurn;
   /** Game lessons only: bot config. */
   gameConfig?: GameConfig;
+  /** Quiz lessons only: ordered list of questions. */
+  questions?: QuizQuestion[];
+  /** Quiz lessons only: optional summary line shown in the final completion
+   *  modal (e.g. "Black wins by 5 points!"). Defaults to the per-question
+   *  count if omitted. */
+  quizSummary?: string;
 }
 
 export const LESSONS: Lesson[] = [
@@ -347,6 +375,166 @@ export const LESSONS: Lesson[] = [
     successMessage: 'Two eyes — totally safe!',
     successExplanation: "Each empty spot inside is an 'eye'. You can't fill one — your stone would have no breathing room and instantly disappear. Two eyes means White's group can NEVER be captured.",
     retryMessage: "Try clicking inside one of White's empty spots — see what happens!",
+  },
+
+  // ---------------------------------------------------------------------------
+  // Lesson 8 — Alive or Gone? (3-question life/death quiz)
+  // Three small white shapes. Player taps Safe / Gone for each. Two eyes =
+  // safe, anything less = gone. Spec: "Quick streak-style lesson."
+  // ---------------------------------------------------------------------------
+  {
+    id: 'alive-or-gone',
+    kind: 'quiz',
+    title: 'Alive or Gone?',
+    instruction: 'Look at the white group. Two eyes means safe. Anything less means gone!',
+    successMessage: 'Eye-spotter!',
+    successExplanation: "Two eyes = the group lives forever. One eye or none = the opponent can capture it. That's the heart of life and death in Go.",
+    questions: [
+      // Q1 — two-eye rabbity-six (Safe).
+      {
+        prompt: 'Is this white group SAFE or GONE?',
+        boardSize: 5,
+        initialStones: [
+          { row: 0, col: 1, color: Color.White },
+          { row: 0, col: 2, color: Color.White },
+          { row: 0, col: 3, color: Color.White },
+          { row: 1, col: 0, color: Color.White },
+          { row: 1, col: 2, color: Color.White },
+          { row: 1, col: 4, color: Color.White },
+          { row: 2, col: 0, color: Color.White },
+          { row: 2, col: 1, color: Color.White },
+          { row: 2, col: 2, color: Color.White },
+          { row: 2, col: 3, color: Color.White },
+          { row: 2, col: 4, color: Color.White },
+        ],
+        answers: [
+          { label: 'Safe', correct: true },
+          { label: 'Gone', correct: false },
+        ],
+        successMessage: 'Yes — two eyes means safe forever!',
+        failMessage: 'Look again — there are TWO empty spots fully inside the group. That makes it safe.',
+      },
+      // Q2 — single-eye small ring (Gone).
+      {
+        prompt: 'Is this white group SAFE or GONE?',
+        boardSize: 5,
+        initialStones: [
+          { row: 1, col: 1, color: Color.White },
+          { row: 1, col: 2, color: Color.White },
+          { row: 1, col: 3, color: Color.White },
+          { row: 2, col: 1, color: Color.White },
+          { row: 2, col: 3, color: Color.White },
+          { row: 3, col: 1, color: Color.White },
+          { row: 3, col: 2, color: Color.White },
+          { row: 3, col: 3, color: Color.White },
+        ],
+        answers: [
+          { label: 'Safe', correct: false },
+          { label: 'Gone', correct: true },
+        ],
+        successMessage: "Right! Only ONE eye — opponent can surround and capture.",
+        failMessage: "Look again — there's only ONE empty spot inside. One eye isn't enough.",
+      },
+      // Q3 — small T-shape with no eye potential (Gone).
+      {
+        prompt: 'Is this white group SAFE or GONE?',
+        boardSize: 5,
+        initialStones: [
+          { row: 1, col: 2, color: Color.White },
+          { row: 2, col: 1, color: Color.White },
+          { row: 2, col: 2, color: Color.White },
+          { row: 3, col: 2, color: Color.White },
+        ],
+        answers: [
+          { label: 'Safe', correct: false },
+          { label: 'Gone', correct: true },
+        ],
+        successMessage: 'Yep — no eyes at all. This shape is doomed.',
+        failMessage: "Nope — there are no enclosed empty spots. Without eyes, the group can't survive.",
+      },
+    ],
+    retryMessage: 'Try a different answer!',
+  },
+
+  // ---------------------------------------------------------------------------
+  // Lesson 9 — Count Your Land (2-question territory quiz)
+  // A finished 5x5 position with a clean horizontal split. Black walls row 2,
+  // White walls row 3. Each side's territory is highlighted in turn so the
+  // player can count by sight.
+  //   . . . . .   <- 5 spots: black territory (row 0)
+  //   . . . . .   <- 5 spots: black territory (row 1)
+  //   B B B B B
+  //   W W W W W
+  //   . . . . .   <- 5 spots: white territory (row 4)
+  // Black surrounds 10 empty points, White surrounds 5. Black wins by 5.
+  // ---------------------------------------------------------------------------
+  {
+    id: 'count-your-land',
+    kind: 'quiz',
+    title: 'Count Your Land',
+    instruction: 'At the end, your surrounded empty spots count as points. Count them up!',
+    successMessage: 'Black wins by 5 points!',
+    successExplanation: 'Black surrounded 10 empty spots; White surrounded 5. The bigger your area, the more points you score.',
+    questions: [
+      // Q1 — count black's territory (10 spots).
+      {
+        prompt: "How many spots does Black surround?",
+        boardSize: 5,
+        initialStones: [
+          { row: 2, col: 0, color: Color.Black },
+          { row: 2, col: 1, color: Color.Black },
+          { row: 2, col: 2, color: Color.Black },
+          { row: 2, col: 3, color: Color.Black },
+          { row: 2, col: 4, color: Color.Black },
+          { row: 3, col: 0, color: Color.White },
+          { row: 3, col: 1, color: Color.White },
+          { row: 3, col: 2, color: Color.White },
+          { row: 3, col: 3, color: Color.White },
+          { row: 3, col: 4, color: Color.White },
+        ],
+        // All ten empty spots above the black wall.
+        highlight: [
+          { row: 0, col: 0 }, { row: 0, col: 1 }, { row: 0, col: 2 }, { row: 0, col: 3 }, { row: 0, col: 4 },
+          { row: 1, col: 0 }, { row: 1, col: 1 }, { row: 1, col: 2 }, { row: 1, col: 3 }, { row: 1, col: 4 },
+        ],
+        answers: [
+          { label: '5', correct: false },
+          { label: '10', correct: true },
+          { label: '15', correct: false },
+        ],
+        successMessage: 'Black has 10 spots!',
+        failMessage: 'Count again — the glowing spots above the black wall are all Black\u2019s. There are 10.',
+      },
+      // Q2 — count white's territory (5 spots).
+      {
+        prompt: "How many spots does White surround?",
+        boardSize: 5,
+        initialStones: [
+          { row: 2, col: 0, color: Color.Black },
+          { row: 2, col: 1, color: Color.Black },
+          { row: 2, col: 2, color: Color.Black },
+          { row: 2, col: 3, color: Color.Black },
+          { row: 2, col: 4, color: Color.Black },
+          { row: 3, col: 0, color: Color.White },
+          { row: 3, col: 1, color: Color.White },
+          { row: 3, col: 2, color: Color.White },
+          { row: 3, col: 3, color: Color.White },
+          { row: 3, col: 4, color: Color.White },
+        ],
+        highlight: [
+          { row: 4, col: 0 }, { row: 4, col: 1 }, { row: 4, col: 2 }, { row: 4, col: 3 }, { row: 4, col: 4 },
+        ],
+        answers: [
+          { label: '3', correct: false },
+          { label: '5', correct: true },
+          { label: '7', correct: false },
+        ],
+        successMessage: 'White has 5 spots!',
+        failMessage: 'Count again — the glowing spots below the white wall are White\u2019s. There are 5.',
+      },
+    ],
+    quizSummary: '10 (Black) − 5 (White) = Black wins by 5!',
+    retryMessage: 'Try a different answer!',
   },
 
   // ---------------------------------------------------------------------------

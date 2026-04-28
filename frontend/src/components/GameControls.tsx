@@ -31,7 +31,6 @@ export function GameControls() {
 
   const isBotVsBot = gameMode === 'botvsbot';
   const isAIGame = !!gameId && !isBotVsBot;
-  const isPlayerTurn = !isAIGame || currentColor === playerColor;
   const playerLabel = playerColor === Color.Black ? 'Black' : 'White';
   const aiLabel = playerColor === Color.Black ? 'White' : 'Black';
 

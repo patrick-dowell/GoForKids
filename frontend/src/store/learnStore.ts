@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Board } from '../engine/Board';
 import { Color, MoveResult, type Point } from '../engine/types';
-import { LESSONS } from '../learn/lessons';
+import { LESSONS, type LessonVerdict } from '../learn/lessons';
 import { playPlaceSound, playCaptureSound, resumeAudio } from '../audio/SoundManager';
 
 const STORAGE_KEY = 'goforkids-learn-progress';
@@ -50,6 +50,15 @@ interface LearnState {
   completed: Set<string>;
   /** True when the post-puzzle reward overlay should cover the lesson view. */
   showReward: boolean;
+  /** Quiz state — only meaningful when LESSONS[lessonIndex].kind === 'quiz'. */
+  quizIndex: number;
+  quizCorrect: number;
+  /** Set the moment the player picks an answer; cleared when they Continue. */
+  quizFeedback: {
+    correct: boolean;
+    message: string;
+    isLastQuestion: boolean;
+  } | null;
 
   start: () => void;
   /** Re-enter the lesson view at a specific lesson without clearing progress.
@@ -65,6 +74,12 @@ interface LearnState {
   /** Mark a lesson complete from outside the lesson loop (e.g. App.tsx when the
    *  game-kind lesson kicks off the real game). Persists + updates the dot. */
   markComplete: (id: string) => void;
+  /** Quiz: record the player's answer to the current question and surface the
+   *  feedback modal. Lesson advances on a separate `advanceQuiz` call. */
+  answerQuiz: (answerIndex: number) => void;
+  /** Quiz: dismiss the feedback modal and either move to the next question or
+   *  complete the lesson if it was the last one. */
+  advanceQuiz: () => void;
   /** During an `afterSuccess` wait, fire the auto-placement immediately so
    *  Continue feels responsive instead of forcing the user to wait out the timer. */
   skipAfterSuccess: () => void;
@@ -139,6 +154,9 @@ export const useLearnStore = create<LearnState>((set, get) => ({
   awaitingSecondMove: false,
   completed: loadCompleted(),
   showReward: false,
+  quizIndex: 0,
+  quizCorrect: 0,
+  quizFeedback: null,
   _afterSuccessTimer: null,
   _afterSuccessRun: null,
 
@@ -185,6 +203,35 @@ export const useLearnStore = create<LearnState>((set, get) => ({
         lastCaptures: [],
         lastMoveColor: Color.Empty,
         awaitingSecondMove: false,
+        _afterSuccessTimer: null,
+        _afterSuccessRun: null,
+      });
+      return;
+    }
+
+    // Quiz lessons build the board from the first question's stones.
+    if (lesson.kind === 'quiz' && lesson.questions && lesson.questions.length > 0) {
+      const q = lesson.questions[0];
+      const board = new Board(q.boardSize);
+      for (const s of q.initialStones) {
+        board.grid[s.row * q.boardSize + s.col] = s.color;
+      }
+      set({
+        lessonIndex: index,
+        status: 'awaiting',
+        message: q.prompt,
+        feedback: null,
+        showHint: false,
+        board,
+        boardSize: board.size,
+        grid: [...board.grid],
+        lastMove: null,
+        lastCaptures: [],
+        lastMoveColor: Color.Empty,
+        awaitingSecondMove: false,
+        quizIndex: 0,
+        quizCorrect: 0,
+        quizFeedback: null,
         _afterSuccessTimer: null,
         _afterSuccessRun: null,
       });
@@ -364,7 +411,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
         const cur = get();
         if (!cur.active || cur.lessonIndex !== lessonIdxAtStart || cur.status !== 'animating') return;
         const nextBoard = cur.board!.clone();
-        nextBoard.tryPlay(after.color, after.point);
+        nextBoard.tryPlay(after.color as Color.Black | Color.White, after.point);
         playPlaceSound(after.point.row, after.point.col);
 
         if (lesson.secondTurn) {
@@ -464,5 +511,72 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     const { _afterSuccessTimer, _afterSuccessRun } = get();
     if (_afterSuccessTimer !== null) clearTimeout(_afterSuccessTimer);
     if (_afterSuccessRun) _afterSuccessRun();
+  },
+
+  answerQuiz: (answerIndex: number) => {
+    resumeAudio();
+    const { quizIndex, quizCorrect, status } = get();
+    const lesson = LESSONS[get().lessonIndex];
+    if (!lesson || lesson.kind !== 'quiz' || !lesson.questions) return;
+    if (status !== 'awaiting') return;
+    const question = lesson.questions[quizIndex];
+    if (!question) return;
+    const answer = question.answers[answerIndex];
+    if (!answer) return;
+    const isCorrect = !!answer.correct;
+    const isLastQuestion = quizIndex >= lesson.questions.length - 1;
+    set({
+      quizCorrect: isCorrect ? quizCorrect + 1 : quizCorrect,
+      quizFeedback: {
+        correct: isCorrect,
+        message: isCorrect
+          ? question.successMessage
+          : (question.failMessage ?? 'Not quite — try the next one!'),
+        isLastQuestion,
+      },
+    });
+  },
+
+  advanceQuiz: () => {
+    const { quizIndex, quizFeedback } = get();
+    const lesson = LESSONS[get().lessonIndex];
+    if (!lesson || lesson.kind !== 'quiz' || !lesson.questions) return;
+    if (!quizFeedback) return;
+
+    // Last question — mark the lesson complete and surface the final
+    // success modal via the existing 'success' status.
+    if (quizFeedback.isLastQuestion) {
+      const completed = new Set(get().completed);
+      completed.add(lesson.id);
+      saveCompleted(completed);
+      set({
+        status: 'success',
+        feedback: null,
+        quizFeedback: null,
+        successSeq: get().successSeq + 1,
+        completed,
+      });
+      return;
+    }
+
+    // Otherwise, advance to the next question and rebuild the board.
+    const nextIdx = quizIndex + 1;
+    const q = lesson.questions[nextIdx];
+    const board = new Board(q.boardSize);
+    for (const s of q.initialStones) {
+      board.grid[s.row * q.boardSize + s.col] = s.color;
+    }
+    set({
+      quizIndex: nextIdx,
+      quizFeedback: null,
+      status: 'awaiting',
+      message: q.prompt,
+      board,
+      boardSize: board.size,
+      grid: [...board.grid],
+      lastMove: null,
+      lastCaptures: [],
+      lastMoveColor: Color.Empty,
+    });
   },
 }));

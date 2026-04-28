@@ -1,4 +1,4 @@
-import { Avatar, BOT_AVATARS, PLAYER_AVATARS } from './Avatar';
+import { Avatar, BOT_AVATARS } from './Avatar';
 import './HomePage.css';
 
 interface HomePageProps {

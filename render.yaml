@@ -1,0 +1,62 @@
+# Render blueprint for GoForKids beta hosting.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# This deploys two services:
+#   1. goforkids-api    — FastAPI backend (CPU, always-on, persistent SQLite disk)
+#   2. goforkids-web    — Vite static site for the React frontend
+#
+# KataGo is intentionally NOT installed in this first cut — the backend will
+# run in stub-AI mode (see app/katago/engine.py: returns None when binary
+# missing). Bots will play near-randomly until KataGo CPU build is wired in
+# a follow-up. Everything else (UI, replay, scoring, lessons) works fully.
+#
+# After connecting the repo, set these in the Render dashboard:
+#   - goforkids-api → ANTHROPIC_API_KEY  (sync: false → manual entry)
+#   - goforkids-web → VITE_API_BASE_URL  (set to the deployed API URL)
+
+services:
+  - type: web
+    name: goforkids-api
+    runtime: python
+    plan: standard       # 2 GB RAM, $25/mo. Drop to "starter" ($7) if memory holds.
+    region: oregon
+    rootDir: backend
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: GOFORKIDS_DB
+        value: /data/goforkids.db
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false      # e.g. https://goforkids-web.onrender.com,https://goforkids.example.com
+      - key: ANTHROPIC_API_KEY
+        sync: false      # Set manually in dashboard so the secret never lands in git.
+    disk:
+      name: goforkids-data
+      mountPath: /data
+      sizeGB: 1
+
+  - type: web
+    name: goforkids-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    autoDeploy: true
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false      # Set to the goforkids-api URL after first deploy.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff

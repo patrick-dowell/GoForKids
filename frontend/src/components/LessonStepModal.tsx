@@ -17,13 +17,63 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
   const lessonIndex = useLearnStore((s) => s.lessonIndex);
   const status = useLearnStore((s) => s.status);
   const feedback = useLearnStore((s) => s.feedback);
+  const quizFeedback = useLearnStore((s) => s.quizFeedback);
+  const quizCorrect = useLearnStore((s) => s.quizCorrect);
   const next = useLearnStore((s) => s.next);
   const skipAfterSuccess = useLearnStore((s) => s.skipAfterSuccess);
+  const advanceQuiz = useLearnStore((s) => s.advanceQuiz);
 
   const lesson = LESSONS[lessonIndex];
   const isLast = lessonIndex >= LESSONS.length - 1;
+  if (!lesson || lesson.kind === 'game') return null;
+
+  // Quiz: per-question feedback modal (correct/wrong + brief message).
+  if (quizFeedback) {
+    return (
+      <div className="lesson-step-overlay" role="dialog" aria-modal="true">
+        <div className={'lesson-step-card lesson-step-card-quiz' + (quizFeedback.correct ? ' lesson-step-card-correct' : ' lesson-step-card-wrong')}>
+          <div className="lesson-step-quiz-icon" aria-hidden>
+            {quizFeedback.correct ? '✓' : '✗'}
+          </div>
+          <h2 className="lesson-step-headline">
+            {quizFeedback.correct ? 'Correct!' : 'Not quite'}
+          </h2>
+          <p className="lesson-step-explanation">{quizFeedback.message}</p>
+          <button className="lesson-step-btn" onClick={advanceQuiz}>
+            {quizFeedback.isLastQuestion ? 'See results →' : 'Next question →'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const open = status === 'success' || status === 'animating';
-  if (!open || !lesson || lesson.kind === 'game') return null;
+  if (!open) return null;
+
+  // Quiz lessons reach 'success' status after the LAST question's feedback is
+  // dismissed — show a results-flavored summary modal.
+  if (lesson.kind === 'quiz' && status === 'success') {
+    const total = lesson.questions?.length ?? 0;
+    return (
+      <div className="lesson-step-overlay" role="dialog" aria-modal="true">
+        <div className="lesson-step-card">
+          <h2 className="lesson-step-headline">{lesson.successMessage}</h2>
+          {lesson.successExplanation && (
+            <p className="lesson-step-explanation">{lesson.successExplanation}</p>
+          )}
+          <p className="lesson-step-quiz-score">
+            You got <strong>{quizCorrect}</strong> of <strong>{total}</strong> right!
+          </p>
+          {lesson.quizSummary && (
+            <p className="lesson-step-finale">{lesson.quizSummary}</p>
+          )}
+          <button className="lesson-step-btn" onClick={isLast ? onFinish : next}>
+            {isLast ? 'Finish' : 'Continue →'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Animating phase = first user move just landed but the auto-placement
   // (white's turn / bot's chase) hasn't fired yet. Show interim text and

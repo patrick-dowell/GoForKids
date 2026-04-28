@@ -1,6 +1,4 @@
 import { useState, useEffect } from 'react';
-import { Color, BOARD_SIZE, type Point } from '../engine/types';
-import { useGameStore } from '../store/gameStore';
 
 interface MoveAnalysisData {
   move_number: number;
@@ -33,14 +31,13 @@ export function StudyMode({ gameId, onClose }: StudyModeProps) {
   const [error, setError] = useState<string | null>(null);
   const [currentMoveIdx, setCurrentMoveIdx] = useState(0);
 
-  const game = useGameStore((s) => s._game);
-
   useEffect(() => {
     async function fetchAnalysis() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`http://localhost:8000/api/study/${gameId}/analyze`, {
+        const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+        const res = await fetch(`${apiBase}/api/study/${gameId}/analyze`, {
           method: 'POST',
         });
         if (!res.ok) {

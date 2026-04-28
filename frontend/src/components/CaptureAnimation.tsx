@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Color, BOARD_SIZE, type Point } from '../engine/types';
+import { Color, BOARD_SIZE } from '../engine/types';
 import { useGameStore } from '../store/gameStore';
 import './CaptureAnimation.css';
 
@@ -29,7 +29,6 @@ let stoneIdCounter = 0;
 
 export function CaptureAnimation() {
   const [flyingStones, setFlyingStones] = useState<FlyingStone[]>([]);
-  const gameLayoutRef = useRef<HTMLElement | null>(null);
   const prevMoveCount = useRef(0);
 
   const lastCaptures = useGameStore((s) => s.lastCaptures);

@@ -7,6 +7,7 @@ import {
   MoveResult,
   type MoveRecord,
   type GameResult,
+  type Stone,
 } from './types';
 
 export type GamePhase = 'playing' | 'scoring' | 'finished';
@@ -19,7 +20,7 @@ const DEFAULT_KOMI = 7.5; // Standard komi for 19x19; callers should adjust for 
  */
 export class Game {
   board: Board;
-  currentColor: Color;
+  currentColor: Stone;
   moveHistory: MoveRecord[];
   phase: GamePhase;
   komi: number;

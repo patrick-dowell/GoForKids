@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Game, type GamePhase } from '../engine/Game';
 import { Board } from '../engine/Board';
-import { Color, type Point, type MoveRecord, type GameResult, MoveResult, BOARD_SIZE } from '../engine/types';
+import { Color, type Point, type GameResult, MoveResult, BOARD_SIZE } from '../engine/types';
 import { api } from '../api/client';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
@@ -32,8 +32,8 @@ function autoSaveGame(state: GameState, sgfOverride?: string) {
     isRanked: state.isRanked,
     gameId: state.gameId,
     gameType: isBotVsBot ? 'bot-vs-bot' : 'human-vs-bot',
-    blackRank: isBotVsBot ? state.blackRank : undefined,
-    whiteRank: isBotVsBot ? state.whiteRank : undefined,
+    blackRank: isBotVsBot ? (state.blackRank ?? undefined) : undefined,
+    whiteRank: isBotVsBot ? (state.whiteRank ?? undefined) : undefined,
   };
 
   useLibraryStore.getState().saveGame(saved);
@@ -364,8 +364,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           komi,
           player_color: playerColor === Color.Black ? 'black' : 'white',
           handicap,
-          black_rank: blackRank,
-          white_rank: whiteRank,
+          black_rank: blackRank ?? undefined,
+          white_rank: whiteRank ?? undefined,
           board_size: boardSize,
         });
         gameId = res.game_id;

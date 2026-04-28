@@ -305,6 +305,7 @@ export function GoBoard() {
   const learnStatus = useLearnStore((s) => s.status);
   const learnLessonIndex = useLearnStore((s) => s.lessonIndex);
   const learnShowHint = useLearnStore((s) => s.showHint);
+  const learnQuizIndex = useLearnStore((s) => s.quizIndex);
   const learnTryMove = useLearnStore((s) => s.tryMove);
 
   const liveGrid = useGameStore((s) => s.grid);
@@ -337,14 +338,25 @@ export function GoBoard() {
       : phase;
 
   const gameMode = useGameStore((s) => s.gameMode);
+  const learnLessonKind = LESSONS[learnLessonIndex]?.kind;
+  // Quiz lessons answer via on-screen buttons, not by clicking the board.
   const canClick = learnActive
-    ? learnStatus === 'awaiting' || learnStatus === 'retry'
+    ? learnLessonKind !== 'quiz' && (learnStatus === 'awaiting' || learnStatus === 'retry')
     : !replayActive && phase === 'playing' && !aiThinking && gameMode !== 'botvsbot';
 
-  // Lesson highlights — only when the learn store says to show them.
-  const highlights: Point[] = learnActive && learnShowHint
-    ? LESSONS[learnLessonIndex]?.highlight ?? []
-    : [];
+  // Lesson highlights:
+  //  - puzzle/game lessons: only when showHint is set
+  //  - quiz lessons: pull from the active question (always shown — the glow
+  //    is informational, e.g. marking the territory the player is counting)
+  const highlights: Point[] = (() => {
+    if (!learnActive) return [];
+    const lesson = LESSONS[learnLessonIndex];
+    if (!lesson) return [];
+    if (lesson.kind === 'quiz' && lesson.questions) {
+      return lesson.questions[learnQuizIndex]?.highlight ?? [];
+    }
+    return learnShowHint ? lesson.highlight ?? [] : [];
+  })();
 
   // Set canvas size once on mount
   useEffect(() => {

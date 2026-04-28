@@ -10,6 +10,11 @@ export enum Color {
   White = 2,
 }
 
+/** A stone color — either Black or White, never Empty. */
+export type Stone = Color.Black | Color.White;
+
+export function oppositeColor(c: Stone): Stone;
+export function oppositeColor(c: Color): Color;
 export function oppositeColor(c: Color): Color {
   if (c === Color.Black) return Color.White;
   if (c === Color.White) return Color.Black;

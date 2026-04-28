@@ -27,6 +27,10 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
 
   const lesson = LESSONS[lessonIndex];
   const isGameLesson = lesson.kind === 'game';
+  const isQuizLesson = lesson.kind === 'quiz';
+  const quizIndex = useLearnStore((s) => s.quizIndex);
+  const answerQuiz = useLearnStore((s) => s.answerQuiz);
+  const activeQuestion = isQuizLesson && lesson.questions ? lesson.questions[quizIndex] : null;
 
   const handleExit = () => {
     exit();
@@ -166,36 +170,60 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
         </div>
 
         <div className="learn-footer">
-          {/* In-page feedback below the board only covers the awaiting/retry
-              cases. The success + animating celebration moved into a modal so
-              it's high-contrast and gates progression on an explicit Continue. */}
-          {status === 'retry' ? (
-            <div className="learn-feedback learn-feedback-retry">{feedback}</div>
-          ) : feedback ? (
-            <div className="learn-feedback learn-feedback-retry" key={`warn-${feedback}`}>
-              {feedback}
-            </div>
-          ) : (status === 'awaiting' && (
-            <div className="learn-feedback">
-              <span className="learn-feedback-placeholder">
-                <span className="stone-icon black" />
-                Your turn — you play Black.
-              </span>
-            </div>
-          ))}
+          {isQuizLesson && activeQuestion && status === 'awaiting' ? (
+            // Quiz lessons answer through buttons, not by clicking the board.
+            <>
+              <div className="learn-feedback">
+                <span className="learn-feedback-placeholder">
+                  Question {quizIndex + 1} of {lesson.questions!.length}
+                </span>
+              </div>
+              <div className="learn-quiz-answers">
+                {activeQuestion.answers.map((a, i) => (
+                  <button
+                    key={`${quizIndex}-${i}`}
+                    className="learn-quiz-answer-btn"
+                    onClick={() => answerQuiz(i)}
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* In-page feedback below the board only covers the awaiting/retry
+                  cases. The success + animating celebration moved into a modal so
+                  it's high-contrast and gates progression on an explicit Continue. */}
+              {status === 'retry' ? (
+                <div className="learn-feedback learn-feedback-retry">{feedback}</div>
+              ) : feedback ? (
+                <div className="learn-feedback learn-feedback-retry" key={`warn-${feedback}`}>
+                  {feedback}
+                </div>
+              ) : (status === 'awaiting' && (
+                <div className="learn-feedback">
+                  <span className="learn-feedback-placeholder">
+                    <span className="stone-icon black" />
+                    Your turn — you play Black.
+                  </span>
+                </div>
+              ))}
 
-          <div className="learn-actions">
-            {status === 'awaiting' && !lesson.defaultShowHint && (
-              <button className="btn btn-secondary" onClick={toggleHint}>
-                {showHint ? 'Hide hint' : 'Show hint'}
-              </button>
-            )}
-            {status === 'retry' && (
-              <button className="btn btn-secondary" onClick={retry}>
-                Reset puzzle
-              </button>
-            )}
-          </div>
+              <div className="learn-actions">
+                {status === 'awaiting' && !lesson.defaultShowHint && (
+                  <button className="btn btn-secondary" onClick={toggleHint}>
+                    {showHint ? 'Hide hint' : 'Show hint'}
+                  </button>
+                )}
+                {status === 'retry' && (
+                  <button className="btn btn-secondary" onClick={retry}>
+                    Reset puzzle
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </main>
 

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Board } from '../Board';
-import { Color, MoveResult, Point } from '../types';
+import { Color, MoveResult, type Stone } from '../types';
 
-function playSequence(board: Board, moves: [Color, number, number][]): void {
+function playSequence(board: Board, moves: [Stone, number, number][]): void {
   for (const [color, row, col] of moves) {
     const { result } = board.tryPlay(color, { row, col });
     expect(result).toBe(MoveResult.Ok);
