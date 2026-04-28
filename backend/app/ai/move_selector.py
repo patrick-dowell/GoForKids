@@ -698,8 +698,14 @@ async def _select_with_katago(
         pass_threshold = profile.get("pass_threshold", 0.3)
         pass_cand = next((c for c in analysis.candidates if c.move[0] < 0), None)
         # Require pass to have at least ~10% of the top move's visits before
-        # trusting its score estimate (and a hard floor of 2 visits).
-        min_pass_visits = max(2, best.visits // 10)
+        # trusting its score estimate (and a hard floor of 4 visits — below
+        # that, score_lead is just the value-network prior with no search
+        # refinement, and the gap check is below the noise floor). This
+        # specifically protects very-low-visit profiles (e.g. 30k uses 4
+        # total visits) from spurious mid-fuseki passes when the KataGo
+        # backend has slightly different prior distributions, which we saw
+        # on the deployed Linux Eigen build vs. local Mac Metal.
+        min_pass_visits = max(4, best.visits // 10)
         if (
             pass_cand is not None
             and pass_cand.visits >= min_pass_visits
