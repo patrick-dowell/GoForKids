@@ -151,6 +151,7 @@ interface GameState {
   atariGroups: { color: Color; stones: Point[]; liberty: Point }[];
   blackCaptures: number;
   whiteCaptures: number;
+  komi: number;
   playerColor: Color;
   targetRank: string;
   isRanked: boolean;
@@ -228,6 +229,7 @@ function snapshot(game: Game, extras?: Partial<GameState>): Partial<GameState> {
     atariGroups: game.board.getAtariGroups(),
     blackCaptures: game.board.captures[Color.Black],
     whiteCaptures: game.board.captures[Color.White],
+    komi: game.komi,
     territory,
   };
 }
@@ -291,6 +293,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   atariGroups: [],
   blackCaptures: 0,
   whiteCaptures: 0,
+  komi: 7.5,
   playerColor: Color.Black,
   targetRank: '15k',
   isRanked: false,

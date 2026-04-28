@@ -55,6 +55,7 @@ function App() {
   const botName = useGameStore((s) => s.botName);
   const blackCaptures = useGameStore((s) => s.blackCaptures);
   const whiteCaptures = useGameStore((s) => s.whiteCaptures);
+  const komi = useGameStore((s) => s.komi);
   const aiThinking = useGameStore((s) => s.aiThinking);
   const gameMode = useGameStore((s) => s.gameMode);
   const blackRank = useGameStore((s) => s.blackRank);
@@ -241,6 +242,7 @@ function App() {
                 avatarType={whiteBotInfo!.type}
                 stoneColor={Color.White}
                 captures={whiteCaptures}
+                komi={komi}
                 isActive={phase === 'playing' && currentColor === Color.White}
                 isThinking={aiThinking && currentColor === Color.White}
                 isTop
@@ -263,6 +265,7 @@ function App() {
                 avatarType={botAvatar}
                 stoneColor={opponentColor}
                 captures={opponentColor === Color.Black ? blackCaptures : whiteCaptures}
+                komi={opponentColor === Color.White ? komi : 0}
                 isActive={isOpponentTurn}
                 isThinking={aiThinking}
                 isTop
@@ -273,6 +276,7 @@ function App() {
                 avatarType={playerAvatar}
                 stoneColor={playerColor}
                 captures={playerColor === Color.Black ? blackCaptures : whiteCaptures}
+                komi={playerColor === Color.White ? komi : 0}
                 isActive={isPlayerTurn && !aiThinking}
               />
             </>

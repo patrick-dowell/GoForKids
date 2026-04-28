@@ -103,9 +103,41 @@ body {
   transition: border-color 0.3s, box-shadow 0.3s;
 }
 
+.player-card-white {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+/* White-ish tray backgrounds inside the white card so the black
+   prisoner/komi stones get strong contrast. Switch label text to dark
+   to read against the lighter trays. */
+.player-card-white .prisoner-tray {
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.player-card-white .komi-tray {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(88, 166, 255, 0.5);
+}
+
+.player-card-white .prisoner-label,
+.player-card-white .prisoner-empty,
+.player-card-white .prisoner-overflow {
+  color: rgba(20, 20, 30, 0.85);
+}
+
+.player-card-white .prisoner-count {
+  background: rgba(20, 20, 30, 0.78);
+  color: #fff;
+}
+
 .player-card-active {
   border-color: rgba(88, 166, 255, 0.4);
   box-shadow: 0 0 12px rgba(88, 166, 255, 0.15);
+}
+
+.player-card-white.player-card-active {
+  border-color: rgba(88, 166, 255, 0.5);
 }
 
 .player-card-top {
@@ -152,6 +184,18 @@ body {
   border-radius: 8px;
   padding: 8px;
   min-height: 60px;
+}
+
+.komi-tray {
+  background: rgba(88, 166, 255, 0.06);
+  border: 1px dashed rgba(88, 166, 255, 0.25);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.prisoner-stone-half {
+  clip-path: inset(0 50% 0 0);
+  animation: none;
 }
 
 .prisoner-label {
