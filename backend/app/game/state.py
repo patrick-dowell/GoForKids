@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Union
 
 import logging
+import os
 
 from app.game.engine import Board, Color, Point, MoveRecord
 from app.models.schemas import (
@@ -105,7 +106,7 @@ SUPPORTED_SIZES = (5, 9, 13, 19)
 # per-move latency tolerable but deep enough that the estimate isn't
 # just the value-network prior. Independent of the bot's profile so the
 # graph stays consistent across all bot strengths.
-SCORE_ESTIMATE_VISITS = 30
+SCORE_ESTIMATE_VISITS = int(os.environ.get("KATAGO_SCORE_VISITS", "30"))
 
 
 async def _compute_score_lead(game: "ActiveGame") -> Optional[float]:
