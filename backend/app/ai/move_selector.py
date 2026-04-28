@@ -681,19 +681,35 @@ async def _select_with_katago(
         #  (b) KataGo lists pass as a candidate AND that candidate received
         #      enough visits to trust its score, AND no other move is
         #      meaningfully better than passing (< pass_threshold points).
-        # The visits gate matters: at low visits a barely-searched pass
-        # candidate has score_lead ≈ value-network prior (no search refinement),
-        # which can be wildly off and trigger spurious passes mid-fuseki.
-        # The 0.3 default is tuned for 19x19 with deep visits. On smaller
-        # boards (shallower visits), pass_threshold drops to keep real
-        # endgame moves above the bar.
+        # Both paths are skipped during the opening — there's no real position
+        # yet, and passing on move 1 is never sensible regardless of what
+        # KataGo's prior says. We saw this happen with the 30k 9x9 profile
+        # (4 visits) on the deployed Linux Eigen build, which apparently
+        # surfaces pass as #1 more readily than Mac Metal at the same visit
+        # count.
+        # The visits gate (path b) matters: at low visits a barely-searched
+        # pass candidate has score_lead ≈ value-network prior (no search
+        # refinement), which can be wildly off and trigger spurious passes
+        # mid-fuseki. The 0.3 default is tuned for 19x19 with deep visits.
+        # On smaller boards (shallower visits), pass_threshold drops to keep
+        # real endgame moves above the bar.
         best = analysis.candidates[0]
-        if best.move[0] < 0:
+        if best.move[0] < 0 and not is_opening:
             logger.warning(
                 f"[{target_rank} {board.size}x{board.size}] PASS: KataGo top move is pass "
                 f"(visits={best.visits}, score={best.score_lead:.2f})"
             )
             return None
+        if best.move[0] < 0 and is_opening:
+            # KataGo's #1 was pass during the opening — drop pass and pick
+            # the best non-pass candidate to play out instead.
+            non_pass_best = next((c for c in analysis.candidates if c.move[0] >= 0), None)
+            if non_pass_best is None:
+                logger.warning(
+                    f"[{target_rank} {board.size}x{board.size}] PASS: opening but no non-pass candidates"
+                )
+                return None
+            best = non_pass_best
 
         pass_threshold = profile.get("pass_threshold", 0.3)
         pass_cand = next((c for c in analysis.candidates if c.move[0] < 0), None)
@@ -707,7 +723,8 @@ async def _select_with_katago(
         # on the deployed Linux Eigen build vs. local Mac Metal.
         min_pass_visits = max(4, best.visits // 10)
         if (
-            pass_cand is not None
+            not is_opening
+            and pass_cand is not None
             and pass_cand.visits >= min_pass_visits
             and best.score_lead - pass_cand.score_lead < pass_threshold
         ):
