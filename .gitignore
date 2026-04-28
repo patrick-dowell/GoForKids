@@ -8,6 +8,9 @@ frontend/dist/
 # Database
 *.db
 
+# Local Docker volume mount for the API container's /data path
+backend/data/
+
 # Python
 __pycache__/
 *.pyc

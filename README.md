@@ -83,6 +83,25 @@ cd frontend && npx vitest run
 cd data && python test_bot_vs_real.py --games 20
 ```
 
+### Local mirror of the Render deployment
+
+To debug bugs that only show up on Render (Linux Eigen KataGo backend
+behaves differently than Mac Metal at low visit counts), run the
+production Docker image locally:
+
+```bash
+make up                # build + start the API container (slow first time;
+                       # uses linux/amd64 emulation on Apple Silicon)
+make native-frontend   # in another terminal — Vite hits localhost:8000
+make logs              # tail API logs
+make test-katago       # smoke-test KataGo via /health and a sample game
+make down              # stop
+```
+
+The container mounts `backend/data/` as `/data` so SQLite persists across
+restarts. Override KataGo perf knobs via env (e.g.
+`KATAGO_VISITS=200 make up`) to A/B test settings without rebuilding.
+
 ## Architecture
 
 ```

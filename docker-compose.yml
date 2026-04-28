@@ -1,0 +1,42 @@
+# Local mirror of the Render deployment.
+#
+# Builds and runs the actual Render image on your machine so you can
+# reproduce Linux Eigen KataGo behavior without pushing to production.
+#
+# Usage:
+#   docker compose up --build      # first run (slow — emulates x86)
+#   docker compose up              # subsequent runs (cached layers)
+#   docker compose logs -f api     # tail logs
+#   docker compose down            # stop
+#
+# Then run the frontend natively in another terminal:
+#   cd frontend && npm run dev
+# (frontend/.env.local already points at http://localhost:8000)
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    # Force linux/amd64 to match Render's x86 runtime. On Apple Silicon
+    # this runs under QEMU emulation — slower than native, but gives
+    # the exact Linux Eigen numerical behavior we see on Render.
+    platform: linux/amd64
+    ports:
+      - "8000:8000"
+    environment:
+      # Allow the local Vite dev server to call the API.
+      CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:3000"
+      # Persistent SQLite path (mounted volume below).
+      GOFORKIDS_DB: /data/goforkids.db
+      # KataGo perf knobs — same defaults as Render Pro (2 vCPU). Override
+      # via shell to test other configurations:
+      #   KATAGO_THREADS=1 docker compose up
+      KATAGO_THREADS: "${KATAGO_THREADS:-2}"
+      KATAGO_VISITS: "${KATAGO_VISITS:-100}"
+      KATAGO_SCORE_VISITS: "${KATAGO_SCORE_VISITS:-10}"
+      KATAGO_OWNERSHIP_VISITS: "${KATAGO_OWNERSHIP_VISITS:-100}"
+    volumes:
+      # Keep SQLite state across container restarts. Maps to ./backend/data
+      # locally — gitignored.
+      - ./backend/data:/data
