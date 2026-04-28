@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/katago/katago  /usr/local/bin/katago
-COPY --from=builder /opt/katago/configs /opt/katago/configs
+COPY configs/analysis_example.cfg       /opt/katago/configs/analysis_example.cfg
 COPY models/b20.bin.gz                  /opt/katago/models/b20.bin.gz
 
 WORKDIR /app
