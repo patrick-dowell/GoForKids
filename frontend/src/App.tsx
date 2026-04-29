@@ -14,6 +14,7 @@ import { LessonGameEndModal } from './components/LessonGameEndModal';
 import { SettingsButton } from './components/SettingsButton';
 import { FeedbackButton } from './components/FeedbackButton';
 import { PrivacyTermsModal } from './components/PrivacyTermsModal';
+import { ScoringInProgressModal } from './components/ScoringInProgressModal';
 import { useGameStore } from './store/gameStore';
 import { useLearnStore } from './store/learnStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
@@ -62,6 +63,7 @@ function App() {
   const whiteRank = useGameStore((s) => s.whiteRank);
   const botVsBotPaused = useGameStore((s) => s.botVsBotPaused);
   const botVsBotSpeed = useGameStore((s) => s.botVsBotSpeed);
+  const scoringInProgress = useGameStore((s) => s.scoringInProgress);
   const togglePause = useGameStore((s) => s.toggleBotVsBotPause);
   const setSpeed = useGameStore((s) => s.setBotVsBotSpeed);
 
@@ -344,6 +346,7 @@ function App() {
       />
       <FeedbackButton />
       {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
+      {scoringInProgress && <ScoringInProgressModal />}
     </div>
   );
 }

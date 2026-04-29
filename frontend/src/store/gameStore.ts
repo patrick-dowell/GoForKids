@@ -179,6 +179,10 @@ interface GameState {
    *  side panel). Player can re-open it from the panel. */
   lessonGameEndDismissed: boolean;
   deadStones: { row: number; col: number; color: Color }[];  // Stones marked dead at scoring
+  /** True while the backend is computing the final score with dead-stone
+   *  detection (~5-10 s). UI shows a "Calculating final score…" modal and
+   *  hides the placeholder score until the real values arrive. */
+  scoringInProgress: boolean;
   scoreHistory: ScorePoint[];  // Live score per move (for the score graph)
   /** Stones merged by the most recent move (or empty). Renderer reads this
    *  to fire a connection pulse, then it gets cleared on the next move. */
@@ -314,6 +318,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   botJustPassed: false,
   lessonGameEndDismissed: false,
   deadStones: [],
+  scoringInProgress: false,
   scoreHistory: [{ move: 0, lead: 0 }],
   lastMerged: { color: Color.Empty, stones: [] },
   _game: new Game(),
@@ -398,6 +403,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       botJustPassed: false,
       lessonGameEndDismissed: false,
       deadStones: [],
+      scoringInProgress: false,
       scoreHistory: [{ move: 0, lead: currentLead(game) }],
       lastMerged: { color: Color.Empty, stones: [] },
     });
@@ -496,7 +502,16 @@ export const useGameStore = create<GameState>((set, get) => ({
       // sync on top fills in dead-stone overlay + final score values when
       // it returns; if it fails or lags, the player still sees that the
       // game has ended instead of a stuck Pass button.
-      set({ deadStones: [], ...snapshot(_game), scoreHistory: passHistory });
+      // scoringInProgress masks the placeholder local-territory score
+      // (which jumps wildly because dead stones aren't yet identified)
+      // behind a "Calculating final score…" modal until the backend
+      // ownership analysis returns.
+      set({
+        deadStones: [],
+        scoringInProgress: !!gameId,
+        ...snapshot(_game),
+        scoreHistory: passHistory,
+      });
       if (gameId) {
         // Use the api.pass RESPONSE directly (it already contains the scored
         // board with dead stones removed + the final result). The previous
@@ -506,11 +521,19 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (serverState.result) {
             const dead = syncServerScoring(_game, serverState);
             const finalHistory = appendFinalScore(passHistory, _game.moveHistory.length + 1, serverState.result);
-            set({ deadStones: dead, ...snapshot(_game), scoreHistory: finalHistory });
+            set({
+              deadStones: dead,
+              scoringInProgress: false,
+              ...snapshot(_game),
+              scoreHistory: finalHistory,
+            });
             autoSaveGame(get());
+          } else {
+            set({ scoringInProgress: false });
           }
         }).catch((e) => {
           console.warn('Failed to sync scoring:', e);
+          set({ scoringInProgress: false });
           autoSaveGame(get());
         });
       } else {
