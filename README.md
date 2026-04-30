@@ -2,7 +2,7 @@
 
 A Go (board game) teaching app built kid-first — but with enough depth for returning adult players. Play against a rank-calibrated AI that feels like a real opponent, not a crippled engine. Review your games with plain-language explanations powered by Claude.
 
-**Status:** v1 technical foundation + the first wave of kid-facing onboarding (lessons 1–7 + 10). Proves the AI rank ladder, board feel, study mode, small-board play on 5×5 / 9×9 / 13×13 / 19×19, and an interactive Learn-to-Play flow that teaches placement, capture, survival, capture races, and two-eye life — then graduates the player onto a real 9×9 game.
+**Status:** v1 technical foundation + the first wave of kid-facing onboarding (lessons 1–7 + 10), now in closed beta on Render. Proves the AI rank ladder, board feel, study mode, small-board play on 5×5 / 9×9 / 13×13 / 19×19, and an interactive Learn-to-Play flow that teaches placement, capture, survival, capture races, and two-eye life — then graduates the player onto a real 9×9 game.
 
 ## What's Working
 
@@ -21,6 +21,7 @@ A Go (board game) teaching app built kid-first — but with enough depth for ret
 - **Dead stone detection** — KataGo ownership analysis removes dead stones before scoring
 - **Glicko-2 rating system** — tracks player improvement across ranked games
 - **SGF export/import** — standard Go game record format, any size
+- **Beta hosting on Render** — Vite static site + Dockerized FastAPI/KataGo backend, defined in `render.yaml`. Frontend gated by a shared password (`VITE_BETA_PASSWORD`); floating feedback button (`VITE_FEEDBACK_URL`) opens prefilled mailto / GitHub issue with session context; minimal privacy-and-terms modal. Active games persist to SQLite on a disk-mounted volume so multi-worker requests stay coherent. Local mirror of the deployed image via `make up` (Docker, `--platform linux/amd64`)
 
 ## Stack
 

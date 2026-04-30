@@ -1,5 +1,130 @@
 # Development Journal
 
+## Session 11 — April 28-29, 2026
+
+Shipped the beta hosting end-to-end. App is live on Render at
+`https://goforkids-web.onrender.com` with the API at `goforkids-api.onrender.com`,
+gated by a shared password. Most of the session was a debug-driven walk
+through the gap between "works locally" and "works in a Linux container
+behind a CDN with a disk-mounted DB and multiple workers."
+
+### Hosting blueprint
+- `render.yaml` defines two services: a Vite static site + a FastAPI Web
+  Service running our Dockerfile. Frontend has SPA-rewrite + security
+  headers; backend mounts a 1 GB persistent disk at `/data` for SQLite.
+- Backend Dockerfile (`backend/Dockerfile`) two-stage: builder downloads
+  the KataGo v1.16.0 Eigen Linux x64 release, runtime stage is python:slim
+  with libgomp1, the extracted KataGo binary, the b20 model + analysis
+  config (both committed at `backend/{models,configs}/`), and the app code.
+- Frontend reads `VITE_API_BASE_URL`; backend reads `CORS_ALLOWED_ORIGINS`,
+  `GOFORKIDS_DB`, `KATAGO_*`. All env-driven so local dev is unchanged.
+- Resource size lives in the Render dashboard slider, not the blueprint.
+  Currently on Pro tier (2 dedicated vCPU + 4 GB).
+
+### Beta-readiness frontend additions
+- `AccessGate` wraps `<App/>`, gates on `VITE_BETA_PASSWORD` with
+  localStorage persistence. Unset = no gate (local dev).
+- `FeedbackButton` (fixed bottom-left) opens `VITE_FEEDBACK_URL` with a
+  `{context}` placeholder filled at click time (current gameId, rank,
+  page URL). Unset = button hidden. Works as `mailto:` or GitHub-issue URL.
+- `PrivacyTermsModal` triggered from a footer link on the homepage.
+  Minimal one-pager.
+
+### Five bugs surfaced and fixed during deploy
+Each one taught us something about the local-vs-deployed gap.
+
+**1. Build was failing on accumulated TS errors.** Vite dev mode skips
+typecheck so they piled up unseen. Added a `Stone = Color.Black | Color.White`
+type alias to fix the most-common offender (`Board.tryPlay`'s captures map
+indexed by `Color`). Fixed unused-import warnings across the touched files
+during the recent learn-lesson work.
+
+**2. KataGo binary "fuse: device not found, try 'modprobe fuse' first".**
+The KataGo Eigen Linux x64 release is shipped as an AppImage that needs
+FUSE to self-mount, and Render's container runtime doesn't expose FUSE.
+Fix: run `./katago --appimage-extract` (which doesn't need FUSE itself)
+in the builder stage and invoke `squashfs-root/AppRun` in runtime.
+
+**3. KataGo deadlocked after ~10-20 moves.** Subprocess.Popen used
+`stderr=PIPE` with no consumer task. KataGo writes verbose search
+progress to stderr, the 64 KB OS pipe buffer fills after a handful of
+queries, KataGo blocks on the next stderr write and stops processing
+stdin queries. Looks exactly like a process crash but is just a pipe
+deadlock. Fix: `stderr=DEVNULL`. Local Mac Metal is quieter on stderr
+and games are shorter, so it never surfaced there.
+
+**4. Game state randomly returned 404 on a freshly-created gameId.**
+Same game would `FOUND, FOUND, NOT_FOUND, FOUND, FOUND` across 5
+sequential GETs in 600 ms. Root cause: Render's container runtime
+spawns multiple worker processes per container even on a "1 instance"
+plan with a disk attached, and each worker had its own in-memory
+`GameManager.games` dict. Fix: persist active games to a new
+`active_games` SQLite table on the disk-mounted volume. `GameManager`
+now `_load`s + `_save`s every operation through pickle blobs in the
+table — the in-memory dict became a hint, not source of truth.
+
+**5. "Bot passes on turn 1."** First chased it as a KataGo Eigen vs
+Metal numerical-difference theory and a low-visit-budget theory. After
+two speculative pushes, took a step back and added diagnostic logging
+that dumped KataGo's full candidate list during the opening. The next
+log line told the story instantly: `OPENING analysis (stone_count=0,
+profile_visits=4): 1 candidates: (4,4 v=3 pri=0.808 ...)`. The board
+was *empty* when the AI was asked to move — KataGo correctly returned
+a real move, but our gameStore was firing `api.playMove()` and
+`requestAIMove()` in parallel via `setTimeout`. The active-games
+persistence layer (#4 above) exposed a race that in-memory state had
+been masking: `/ai-move` could read the game from DB before `/move`
+committed. Fix: chain `requestAIMove()` inside the `api.playMove().then()`
+and `api.pass().then()` callbacks. The 400 ms breathing-room delay is
+preserved inside the chain.
+
+### Other improvements landed
+- **"Calculating final score" modal.** KataGo ownership analysis takes
+  ~10 s on 2 CPU. Before the modal, the UI flashed a wrong score (raw
+  territory count without dead stones removed) for 10 s before snapping
+  to the real result. New `ScoringInProgressModal` driven by a
+  `scoringInProgress` flag in gameStore — set on user's second pass,
+  cleared when the api.pass response arrives.
+- **Pass-detection guard hardening (mostly unused, kept for safety).**
+  Bumped `min_pass_visits` floor from 2 → 4 in the gap-based detection
+  for low-visit profiles. The actual root cause of perceived passes
+  turned out to be the race condition above, not pass detection.
+- **Render perf tuning.** `KATAGO_THREADS=2`, `KATAGO_SCORE_VISITS=10`,
+  `KATAGO_OWNERSHIP_VISITS=100` baked into the Dockerfile ENV, all
+  overridable via dashboard.
+
+### Local Docker mirror for future debugging
+`docker-compose.yml` + `Makefile` at repo root build the deployed image
+locally with `--platform linux/amd64`. Apple Silicon hosts get the same
+Linux Eigen binary under QEMU emulation — slow, but numerically identical
+to Render. Run `make up` + `make native-frontend` to mirror the deploy
+locally and iterate without push cycles. Catches the class of bugs that
+only show up on the deployed Linux Eigen / multi-worker / DB-backed
+stack.
+
+### Lesson worth keeping
+Stop pushing speculative fixes. Two of this session's bugs (KataGo
+deadlock, turn-1 pass) ate multiple deploy cycles before I added
+diagnostic logging that revealed the actual cause in one round-trip.
+"Add observation, then fix" beats "guess, push, observe, guess again"
+every time the deploy is more than ~30 sec.
+
+### Status of feature plans after this session
+- 09 (Publishing online): 🟢 Beta — app is live, gated, instrumented;
+  custom domain + KataGo CPU calibration + Sentry/analytics deferred
+
+### Deferred to next session
+- Custom domain registration
+- Sentry error reporting + Plausible analytics
+- Rate limits on KataGo + Claude calls per session/day
+- Verify KataGo bot calibration still feels right on the deployed
+  Linux Eigen build (specifically 6k and stronger; weaker ranks
+  validated through play this session)
+- KataGo "warm pool" GPU pod for review/study mode (separate from the
+  always-on bot service)
+
+---
+
 ## Session 10 — April 26, 2026
 
 Added the next chunk of Learn-to-Play lessons (6, 7, 10) and the curriculum-continuation flow so the player can keep going after a game-kind lesson finishes. Lessons 8 (multiple-choice quiz) and 9 (territory counting) still deferred — they need new lesson mechanics that warrant a design pass first.

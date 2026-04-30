@@ -1,6 +1,11 @@
 # 09 — Publishing online (beta hosting)
 
-**Status:** 📝 Planned
+**Status:** 🟢 Beta — app is live on Render at `goforkids-web.onrender.com`,
+gated by `VITE_BETA_PASSWORD`, KataGo bots playing on the deployed Linux
+Eigen build, dead-stone scoring working with a "Calculating final score"
+modal during the ~10 s ownership analysis. Custom domain, GPU review
+pod, Sentry/analytics, and rate limits all deferred to follow-ups
+(see "Still pending" below).
 **Priority:** High
 
 ## What
@@ -62,7 +67,35 @@ Get the app on the public internet at a real URL so beta testers (kids, parents,
 
 ## Resolved
 - **Budget ceiling:** under $100/mo for beta.
-- **Backend split:** CPU VPS for bots, on-demand GPU for reviews.
+- **Backend split:** CPU for bots (always-on), on-demand GPU for reviews
+  (deferred until study mode wires to the UI).
+- **Host:** Render for both services. `render.yaml` blueprint defines the
+  static site + Docker-based API. Static site free; API on Pro tier
+  (2 vCPU + 4 GB, $85/mo).
+- **Frontend gate:** shared password via `VITE_BETA_PASSWORD`,
+  localStorage-persisted. `AccessGate` wraps the app; unset = no gate.
+- **Feedback channel:** floating button opens `VITE_FEEDBACK_URL`
+  (mailto: or GitHub issue) with prefilled session context.
+- **Privacy/terms:** minimal one-page modal triggered from homepage footer.
+- **KataGo on Linux CPU:** Eigen build extracted from AppImage at Docker
+  build time; same b20c256 model as local so calibration carries over.
+- **State persistence:** active games written to SQLite on the disk-mounted
+  volume (multi-worker race fix; also survives redeploys).
+- **Local repro of deployed behavior:** `docker-compose.yml` + `Makefile`
+  build the production image with `--platform linux/amd64`. Mac hosts
+  reproduce the deployed Linux Eigen behavior under QEMU emulation.
+
+## Still pending (next session candidates)
+- **Custom domain.** Need to register one and point DNS at Render.
+- **Sentry + Plausible.** Frontend error reporting + privacy-friendly
+  analytics. Requires creating accounts on each.
+- **Rate limits.** KataGo + (eventual) Claude calls per session/day.
+  Not strictly beta-blocking at the current scale, but cost guardrail.
+- **Bot calibration sanity-check** on the deployed Linux Eigen build
+  for 6k and 3k specifically. Weaker ranks validated through play
+  this session.
+- **GPU review pod** for AI teacher / study mode. Wait until study mode
+  wires to the UI before spinning this up — currently dormant in code.
 
 ## Dependencies
 - None — this is a blocker for 07 and a prerequisite for meaningful beta on all other features.
