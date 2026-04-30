@@ -650,17 +650,17 @@ export const useGameStore = create<GameState>((set, get) => ({
       const aiPassHistory = [...prevAi, { move: _game.moveHistory.length, lead: lastAiLead }];
       if (_game.phase === 'finished') {
         playGameEndSound();
-        try {
-          const serverState = await api.getGame(gameId);
-          if (serverState.result) {
-            const dead = syncServerScoring(_game, serverState);
-            const finalHistory = appendFinalScore(aiPassHistory, _game.moveHistory.length + 1, serverState.result);
-            set({ aiThinking: false, deadStones: dead, ...snapshot(_game), scoreHistory: finalHistory });
-            autoSaveGame(get());
-            return;
-          }
-        } catch (e) {
-          console.warn('Failed to sync scoring from backend:', e);
+        // Prefer the inline final_state from the AI-pass response. The active
+        // game is deleted by _persist_finished_game right after scoring, so
+        // a follow-up getGame would 404 — that's why dead stones used to go
+        // uncounted on bot-passes-second.
+        const serverState = aiMove.final_state ?? null;
+        if (serverState && serverState.result) {
+          const dead = syncServerScoring(_game, serverState);
+          const finalHistory = appendFinalScore(aiPassHistory, _game.moveHistory.length + 1, serverState.result);
+          set({ aiThinking: false, deadStones: dead, ...snapshot(_game), scoreHistory: finalHistory });
+          autoSaveGame(get());
+          return;
         }
         set({ aiThinking: false, deadStones: [], ...snapshot(_game), scoreHistory: aiPassHistory });
         autoSaveGame(get());

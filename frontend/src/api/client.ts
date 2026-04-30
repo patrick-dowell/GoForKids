@@ -43,6 +43,10 @@ interface AIMoveDTO {
   captures: PointDTO[];
   debug?: Record<string, unknown>;
   score_lead?: number | null;
+  /** Set when the AI's pass ended the game. Carries the scored final state
+   *  inline so the frontend doesn't need a follow-up GET (which would 404,
+   *  since the active game is deleted post-scoring). */
+  final_state?: GameStateDTO | null;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {

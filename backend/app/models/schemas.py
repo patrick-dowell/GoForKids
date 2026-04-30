@@ -57,6 +57,11 @@ class AIMoveResponse(BaseModel):
     captures: list[PointSchema]
     debug: Optional[dict] = None  # For development: KataGo analysis info
     score_lead: Optional[float] = None  # See GameStateResponse.score_lead.
+    # When the AI's pass ends the game, the scored final state — board with
+    # dead stones removed, full result dict. The active game is deleted
+    # post-scoring, so a follow-up GET would 404; piping the state through
+    # here is what lets the frontend apply the dead-stone overlay.
+    final_state: Optional[GameStateResponse] = None
 
 
 class StudyAnalysisRequest(BaseModel):

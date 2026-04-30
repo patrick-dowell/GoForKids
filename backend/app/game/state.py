@@ -434,19 +434,26 @@ class GameManager:
 
         if point is None:
             # AI passes — board unchanged, the prior score_lead is still valid.
-            await self.pass_move(game_id)
+            pass_response = await self.pass_move(game_id)
+            # If this pass ended the game, the active row was deleted by
+            # _persist_finished_game; pipe the scored response through so
+            # the frontend can apply the dead-stone overlay without a 404.
+            final_state = pass_response if pass_response and pass_response.phase == "finished" else None
             return AIMoveResponse(
                 point=PointSchema(row=-1, col=-1), captures=[],
-                score_lead=game.score_lead,
+                score_lead=pass_response.score_lead if pass_response else game.score_lead,
+                final_state=final_state,
             )
 
         result, captures = game.board.try_play(game.current_color, point)
         if result != "ok":
             # Fallback: pass if the selected move is illegal
-            await self.pass_move(game_id)
+            pass_response = await self.pass_move(game_id)
+            final_state = pass_response if pass_response and pass_response.phase == "finished" else None
             return AIMoveResponse(
                 point=PointSchema(row=-1, col=-1), captures=[],
-                score_lead=game.score_lead,
+                score_lead=pass_response.score_lead if pass_response else game.score_lead,
+                final_state=final_state,
             )
 
         game.move_history.append(
