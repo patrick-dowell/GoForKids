@@ -43,6 +43,11 @@ data/6k/
 
 data/*.7z
 
+# Calibration harness run artifacts (per-match summary.json + games.csv +
+# SGF dumps). The harness writes these to a fresh dated subdirectory per
+# run. Backend stdout/stderr from `make calibrate-up*` also lands here.
+data/calibration_logs_b28/
+
 # iOS app — vendored KataGo fork (250 MB; re-acquire per ios/README.md)
 ios/KataGo/
 
