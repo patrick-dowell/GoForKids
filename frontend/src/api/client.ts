@@ -149,12 +149,17 @@ async function getAIMoveViaBridge(
 
   const decoded = fromGtp(result.point, state.board_size);
 
+  // Prefer the bridge's scoreLead (computed by the iPad's local KataGo, no
+  // Render dependency). Fall back to whatever the backend returns if the
+  // bridge didn't supply one for some reason.
+  const bridgeScoreLead = result.scoreLead ?? null;
+
   if (decoded === 'pass') {
     const newState = await api.pass(gameId);
     return {
       point: { row: -1, col: -1 },
       captures: [],
-      score_lead: newState.score_lead,
+      score_lead: bridgeScoreLead ?? newState.score_lead,
       final_state: newState.phase === 'finished' ? newState : null,
     };
   }
@@ -167,6 +172,6 @@ async function getAIMoveViaBridge(
   return {
     point: decoded,
     captures: [],
-    score_lead: newState.score_lead,
+    score_lead: bridgeScoreLead ?? newState.score_lead,
   };
 }

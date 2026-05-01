@@ -16,7 +16,7 @@ export interface KataGoBridge {
     moves: Array<{ color: 'B' | 'W'; point: string }>;
     color: 'B' | 'W';
     maxVisits: number;
-  }): Promise<{ point: string }>;
+  }): Promise<{ point: string; scoreLead?: number }>;
 }
 
 declare global {
