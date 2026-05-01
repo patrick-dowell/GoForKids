@@ -20,7 +20,6 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
   const completed = useLearnStore((s) => s.completed);
   const showReward = useLearnStore((s) => s.showReward);
   const toggleHint = useLearnStore((s) => s.toggleHint);
-  const retry = useLearnStore((s) => s.retry);
   const startLesson = useLearnStore((s) => s.startLesson);
   const exit = useLearnStore((s) => s.exit);
   const dismissReward = useLearnStore((s) => s.dismissReward);
@@ -211,14 +210,9 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
               ))}
 
               <div className="learn-actions">
-                {status === 'awaiting' && !lesson.defaultShowHint && (
+                {(status === 'awaiting' || status === 'retry') && !lesson.defaultShowHint && (
                   <button className="btn btn-secondary" onClick={toggleHint}>
                     {showHint ? 'Hide hint' : 'Show hint'}
-                  </button>
-                )}
-                {status === 'retry' && (
-                  <button className="btn btn-secondary" onClick={retry}>
-                    Reset puzzle
                   </button>
                 )}
               </div>

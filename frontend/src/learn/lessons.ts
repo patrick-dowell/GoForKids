@@ -164,7 +164,7 @@ export const LESSONS: Lesson[] = [
   // ---------------------------------------------------------------------------
   {
     id: 'trap-one-stone',
-    title: 'Trap One Stone',
+    title: 'Capture One Stone',
     instruction: 'Fill the last breathing space to capture White!',
     boardSize: 5,
     initialStones: [

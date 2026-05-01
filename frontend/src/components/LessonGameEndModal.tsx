@@ -96,17 +96,23 @@ export function LessonGameEndModal({ onMoveOn, onNextLesson }: LessonGameEndModa
         )}
 
         <div className="lesson-end-actions">
-          <button className="lesson-end-btn lesson-end-btn-secondary" onClick={onMoveOn}>
-            Move on
-          </button>
+          {!userWon && (
+            <button className="lesson-end-btn lesson-end-btn-secondary" onClick={onMoveOn}>
+              Move on
+            </button>
+          )}
           <button className="lesson-end-btn lesson-end-btn-secondary" onClick={replayGame}>
             Play again
           </button>
-          {onNextLesson && (
+          {onNextLesson ? (
             <button className="lesson-end-btn lesson-end-btn-primary" onClick={onNextLesson}>
               Next lesson →
             </button>
-          )}
+          ) : userWon ? (
+            <button className="lesson-end-btn lesson-end-btn-primary" onClick={onMoveOn}>
+              Return Home
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
