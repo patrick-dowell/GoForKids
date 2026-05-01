@@ -32,6 +32,7 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 | 17 | [Rank / progress UI widget](17_rank_progress_ui.md) | 📝 Planned | Medium | 01, 13, 15 |
 | 18 | [Rules refresher (returning adults)](18_rules_refresher.md) | 📝 Planned | Low | 03, 05 |
 | 19 | [What-if exploration (interactive review)](19_whatif_exploration.md) | 📝 Planned | Medium | 04 |
+| 20 | [b28 bot calibration harness](20_b28_calibration.md) | 📝 Planned | High | — |
 
 ## Suggested sequencing
 
