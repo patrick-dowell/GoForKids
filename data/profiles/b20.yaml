@@ -1,0 +1,221 @@
+# b20 — current production calibration, translated verbatim from
+# backend/app/ai/move_selector.py (RANK_PROFILES_5/9/13/19 dicts).
+#
+# This file is the source of truth from feature 20 (b28 calibration harness)
+# onwards. The Python no longer hardcodes profile numbers — move_selector.py
+# loads the file referenced by env var CALIBRATION_PROFILE_PATH, defaulting
+# to data/profiles/b20.yaml.
+#
+# Lookup behavior matches the previous Python:
+#   1. Look up (size, rank). If found, use it.
+#   2. Otherwise fall back to the 19x19 profile for that rank.
+#   3. Otherwise fall back to the 19x19 15k profile.
+#
+# Tuning notes that explain *why* each profile is what it is live in
+# AI_CALIBRATION.md; the YAML stays terse on purpose so it's easy to
+# edit-and-re-run during calibration.
+
+profiles:
+  19x19:
+    "30k":
+      max_point_loss: 30.0
+      mistake_freq: 0.55
+      policy_weight: 0.15
+      randomness: 0.78
+      random_move_chance: 0.08
+      local_bias: 0.42
+      first_line_chance: 0.0
+      visits: 10
+      min_candidates: 15
+      opening_moves: 8
+    "18k":
+      max_point_loss: 28.0
+      mistake_freq: 0.55
+      policy_weight: 0.18
+      randomness: 0.76
+      random_move_chance: 0.12
+      local_bias: 0.38
+      first_line_chance: 0.0
+      visits: 12
+      min_candidates: 15
+      opening_moves: 12
+    "15k":
+      max_point_loss: 20.0
+      mistake_freq: 0.40
+      policy_weight: 0.30
+      randomness: 0.60
+      random_move_chance: 0.05
+      local_bias: 0.25
+      first_line_chance: 0.0
+      visits: 30
+      min_candidates: 12
+      opening_moves: 30
+    "12k":
+      max_point_loss: 17.0
+      mistake_freq: 0.34
+      policy_weight: 0.42
+      randomness: 0.45
+      random_move_chance: 0.02
+      local_bias: 0.20
+      first_line_chance: 0.0
+      visits: 42
+      min_candidates: 10
+      opening_moves: 22
+    "9k":
+      max_point_loss: 10.0
+      mistake_freq: 0.25
+      policy_weight: 0.50
+      randomness: 0.40
+      random_move_chance: 0.02
+      local_bias: 0.12
+      first_line_chance: 0.0
+      visits: 80
+      min_candidates: 8
+      opening_moves: 20
+    "6k":
+      max_point_loss: 9.0
+      mistake_freq: 0.22
+      policy_weight: 0.50
+      randomness: 0.38
+      random_move_chance: 0.02
+      local_bias: 0.08
+      first_line_chance: 0.0
+      visits: 120
+      min_candidates: 8
+      opening_moves: 18
+    "3k":
+      max_point_loss: 4.0
+      mistake_freq: 0.10
+      policy_weight: 0.75
+      randomness: 0.18
+      random_move_chance: 0.0
+      local_bias: 0.03
+      first_line_chance: 0.0
+      visits: 200
+      min_candidates: 6
+      opening_moves: 10
+    "1d":
+      max_point_loss: 2.5
+      mistake_freq: 0.06
+      policy_weight: 0.85
+      randomness: 0.10
+      random_move_chance: 0.0
+      local_bias: 0.0
+      first_line_chance: 0.0
+      visits: 300
+      min_candidates: 5
+      opening_moves: 5
+
+  13x13:
+    "30k":
+      max_point_loss: 35.0
+      mistake_freq: 0.65
+      policy_weight: 0.10
+      randomness: 0.85
+      random_move_chance: 0.15
+      local_bias: 0.80
+      local_bias_in_opening: true
+      first_line_chance: 0.0
+      visits: 5
+      min_candidates: 12
+      opening_moves: 4
+      pass_threshold: 0.15
+      clarity_prior: 1.1
+      clarity_score_gap: 999.0
+    "15k":
+      max_point_loss: 22.0
+      mistake_freq: 0.42
+      policy_weight: 0.28
+      randomness: 0.62
+      random_move_chance: 0.06
+      local_bias: 0.22
+      first_line_chance: 0.0
+      visits: 18
+      min_candidates: 10
+      opening_moves: 8
+      pass_threshold: 0.15
+    "6k":
+      max_point_loss: 9.0
+      mistake_freq: 0.22
+      policy_weight: 0.50
+      randomness: 0.38
+      random_move_chance: 0.02
+      local_bias: 0.08
+      first_line_chance: 0.0
+      visits: 70
+      min_candidates: 8
+      opening_moves: 6
+      pass_threshold: 0.15
+
+  9x9:
+    "30k":
+      max_point_loss: 30.0
+      mistake_freq: 0.70
+      policy_weight: 0.08
+      randomness: 0.88
+      random_move_chance: 0.20
+      local_bias: 0.85
+      local_bias_in_opening: true
+      first_line_chance: 0.0
+      visits: 4
+      min_candidates: 10
+      opening_moves: 2
+      pass_threshold: 0.10
+      clarity_prior: 1.1
+      clarity_score_gap: 999.0
+    "15k":
+      max_point_loss: 22.0
+      mistake_freq: 0.55
+      policy_weight: 0.18
+      randomness: 0.75
+      random_move_chance: 0.12
+      local_bias: 0.45
+      local_bias_in_opening: true
+      first_line_chance: 0.0
+      visits: 8
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.10
+      clarity_prior: 1.1
+      clarity_score_gap: 999.0
+    "6k":
+      max_point_loss: 18.0
+      mistake_freq: 0.45
+      policy_weight: 0.25
+      randomness: 0.65
+      random_move_chance: 0.08
+      local_bias: 0.18
+      first_line_chance: 0.0
+      visits: 12
+      min_candidates: 8
+      opening_moves: 4
+      pass_threshold: 0.10
+    "1d":
+      max_point_loss: 8.0
+      mistake_freq: 0.22
+      policy_weight: 0.50
+      randomness: 0.38
+      random_move_chance: 0.02
+      local_bias: 0.06
+      first_line_chance: 0.0
+      visits: 50
+      min_candidates: 6
+      opening_moves: 3
+      pass_threshold: 0.10
+
+  5x5:
+    "30k":
+      max_point_loss: 38.0
+      mistake_freq: 0.74
+      policy_weight: 0.07
+      randomness: 0.90
+      random_move_chance: 0.22
+      local_bias: 0.87
+      local_bias_in_opening: true
+      first_line_chance: 0.0
+      visits: 4
+      min_candidates: 10
+      opening_moves: 2
+      pass_threshold: 0.05
+      clarity_prior: 1.1
+      clarity_score_gap: 999.0

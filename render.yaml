@@ -20,8 +20,9 @@ services:
     name: goforkids-api
     runtime: docker
     region: oregon
-    rootDir: backend
-    dockerfilePath: ./Dockerfile
+    # Build context is the repo root (no rootDir) so the image can carry
+    # both backend/ and data/profiles/. Mirrors docker-compose.yml.
+    dockerfilePath: ./backend/Dockerfile
     healthCheckPath: /health
     autoDeploy: true
     envVars:

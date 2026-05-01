@@ -16,8 +16,18 @@
 services:
   api:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      # Repo root is the build context so the image can carry both
+      # backend/ and data/profiles/. Render mirrors this in render.yaml.
+      context: .
+      dockerfile: backend/Dockerfile
+      # Build the image for amd64 so the KataGo Eigen Linux x64 binary
+      # downloaded inside the builder stage actually runs. The service-
+      # level `platform` below only affects runtime; it does not cascade
+      # into the build, so `docker compose build` would otherwise pick
+      # the host arch (arm64 on Apple Silicon) and fail mid-build with
+      # `./katago: Exec format error`.
+      platforms:
+        - linux/amd64
     # Force linux/amd64 to match Render's x86 runtime. On Apple Silicon
     # this runs under QEMU emulation — slower than native, but gives
     # the exact Linux Eigen numerical behavior we see on Render.

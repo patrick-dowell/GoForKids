@@ -1,0 +1,43 @@
+# Build context is the repo root (see backend/Dockerfile, docker-compose.yml,
+# render.yaml). Keep the context lean: ship backend/ + data/profiles/ + the
+# Dockerfile, drop everything else.
+
+# Python / test artifacts
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache/
+
+# Virtualenvs (backend/venv lives only on the host)
+**/venv/
+
+# Local databases / env / logs
+**/*.db
+**/*.db-journal
+**/.env
+**/.env.local
+**/*.log
+
+# Host-side SQLite mount target (./backend/data → /data in the container)
+backend/data/
+
+# Frontend / iOS / git / docs — none belong in the API image
+frontend/
+ios/
+.git/
+.github/
+.vscode/
+.idea/
+*.md
+feature_plans/
+analysis_logs/
+
+# data/ is mostly calibration scripts, raw datasets, and per-rank Fox dumps.
+# The image only needs data/profiles/ — whitelist it explicitly.
+data/*
+!data/profiles/
+
+# OS noise
+.DS_Store
+**/.DS_Store
