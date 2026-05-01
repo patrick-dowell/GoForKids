@@ -42,3 +42,11 @@ data/9k/
 data/6k/
 
 data/*.7z
+
+# iOS app — vendored KataGo fork (250 MB; re-acquire per ios/README.md)
+ios/KataGo/
+
+# Xcode user state
+*.xcuserstate
+xcuserdata/
+DerivedData/

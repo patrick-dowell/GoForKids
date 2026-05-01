@@ -2,6 +2,12 @@
 
 How each bot rank was configured, tested, and tuned. Use this to recreate or refine any bot.
 
+> **Platform note (May 2026):** the calibration described here applies to web/Render
+> (the Python backend running `move_selector.py`). The iPad app (Phase 2A) currently
+> bypasses this entire pipeline and plays at a fixed 64-visit strength regardless of
+> selected rank — a temporary state until Path C ports `move_selector.py` to TypeScript.
+> See `DEVJOURNAL.md` Session 12 and `ios/README.md` for context.
+
 ## Architecture
 
 All bots use the same pipeline:

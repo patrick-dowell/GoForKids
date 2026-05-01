@@ -22,6 +22,7 @@ A Go (board game) teaching app built kid-first — but with enough depth for ret
 - **Glicko-2 rating system** — tracks player improvement across ranked games
 - **SGF export/import** — standard Go game record format, any size
 - **Beta hosting on Render** — Vite static site + Dockerized FastAPI/KataGo backend, defined in `render.yaml`. Frontend gated by a shared password (`VITE_BETA_PASSWORD`); floating feedback button (`VITE_FEEDBACK_URL`) opens prefilled mailto / GitHub issue with session context; minimal privacy-and-terms modal. Active games persist to SQLite on a disk-mounted volume so multi-worker requests stay coherent. Local mirror of the deployed image via `make up` (Docker, `--platform linux/amd64`)
+- **Native iPad app (Phase 2A)** — WKWebView wrapping the same React frontend, with KataGo running natively on the iPad's Neural Engine via CoreML (no Render dependency for inference or score-lead). Single source of truth: `frontend/src/` serves both web and iPad. Bot rank calibration on iPad TBD (currently fixed-strength) — see `ios/README.md` and `DEVJOURNAL.md` Session 12
 
 ## Stack
 
@@ -29,7 +30,8 @@ A Go (board game) teaching app built kid-first — but with enough depth for ret
 |-------|------|
 | Frontend | React, TypeScript, Vite, Canvas2D, Zustand |
 | Backend | Python, FastAPI, SQLite |
-| AI Engine | KataGo (Metal/GPU) |
+| AI Engine | KataGo (Metal/GPU on Mac, Eigen/CPU on Render Linux, CoreML/ANE on iPad) |
+| iPad shell | SwiftUI + WKWebView + ChinChangYang/KataGo fork (see `ios/README.md`) |
 | Study Narration | Claude API |
 
 ## Setup

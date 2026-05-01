@@ -1,5 +1,151 @@
 # Development Journal
 
+## Session 12 — April 30 - May 1, 2026
+
+iPad app exists. Native KataGo runs on the Neural Engine via CoreML;
+inference is no longer on Render's CPU. AI moves and score-lead are both
+computed on-device. Single React codebase serves both web and iPad — no
+duplication, no two-place edits.
+
+### Spike first, then real app
+
+Started with a disposable spike at `~/Projects/GoForKidsIOS-Spike/` to
+validate that KataGo could even run on iPadOS before committing to the
+hybrid architecture. Spike took the better part of a session of pure
+Xcode/build-system debugging — eight separate gotchas, each documented in
+the spike README. Highlights:
+
+- Source files missing from the fork's Xcode project (had to add
+  `sgfmetadata.cpp` and `evalcache.cpp` to the `katago` static-lib target;
+  Xcode 16's "Add Files" dialog no longer has the target checkboxes, set
+  via File Inspector after).
+- The "m1" mlpackage variant requires a paired human-trained `.bin.gz`
+  and special config; without it `genmove` throws `modelVersion = 0`
+  because the CoreML backend silently fails to initialize. Use the
+  non-m1 variant + the null-stub bin.gz instead.
+- Xcode auto-compiles `.mlpackage` to `.mlmodelc` and strips the original
+  from the bundle, but the Swift loader expects the raw `.mlpackage`.
+  Workaround: remove from Copy Bundle Resources, add a Run Script phase
+  that `cp -R`'s the raw mlpackage in. AND disable User Script Sandboxing
+  (`Operation not permitted` otherwise).
+- iOS Simulator throws
+  `E5RT: Espresso exception: MpsGraph backend validation on incompatible OS`
+  — Simulator's GPU stack can't run the b28 model. Build verification
+  works on Simulator, but real `genmove` only works on a device.
+- M1's Neural Engine is slower than M2/M3/M4 for these ops; the
+  documented multi-thread split (GPU thread + ANE thread) was 3× *worse*
+  than single-thread CoreML-only on M1. Single-thread is the right
+  default; revisit when shipping on newer devices.
+
+End of spike: ~80–90 NN/s sustained on M1, kid-bot visit counts (1–64)
+respond in 46ms–707ms. Greenlight.
+
+### Phase 1 — WKWebView host pointed at Render
+
+30-min sanity check. Created a fresh Xcode project (`GoForKidsIOS`) with
+a SwiftUI `UIViewRepresentable` wrapping `WKWebView`, pointed it at
+`https://goforkids-web.onrender.com/#/`. App launched on iPad, loaded the
+React frontend, AI moves worked through Render. Validated the WKWebView
+container before introducing native AI complexity.
+
+### Phase 2A — JS bridge to native KataGo
+
+Threw away `GoForKidsIOS` (5 KB of throwaway), pivoted to the spike's
+already-working Xcode project as the iPad app. Ripped out the demo
+SwiftUI, replaced `ContentView.swift` with the WKWebView from Phase 1
+plus a `KataGoBridge` Swift class.
+
+Bridge architecture is satisfyingly thin:
+- Swift class conforms to `WKScriptMessageHandler`, registered as
+  `webkit.messageHandlers.katago`.
+- A user script injected at `documentStart` exposes `window.kataGo` with
+  promise-based methods (`aiMove`, `ping`).
+- JS calls translate to GTP commands sent via the existing
+  `KataGoHelper.sendCommand`/`getMessageLine` from the spike — no new
+  C++ surface.
+- Frontend `api/client.ts` checks `typeof window.kataGo` in `getAIMove`;
+  if present, routes through the bridge, otherwise falls through to the
+  existing `/api/games/:id/ai-move` HTTP path. Web users see zero
+  behavior change.
+
+Two API calls per AI move on iPad: GET game state from Render, ask the
+bridge for a move, POST `/move` to commit. No backend changes required
+because we use the existing human-move endpoint to commit AI moves.
+
+Score-lead is plumbed end-to-end: bridge uses `kata-genmove_analyze`
+instead of `genmove` to get per-candidate analysis info, parses out
+`scoreLead` for the chosen move, negates when AI is white so the value
+is from black's perspective (matches `GameStateDTO.score_lead`
+convention). The score graph on iPad now updates from local KataGo, no
+Render dependency for the live score either.
+
+### Things that bit us this session
+
+- **`ai-move` isn't a thin KataGo wrapper.** It's a wrapper around the
+  Python backend's `move_selector.py`, which does rank-conditioned
+  sampling, mistake injection, opening-phase logic, etc. Naive bridge
+  → all bot ranks play the same strength. Accepted for Phase 2A as
+  "tech preview"; proper fix is Path C (port `move_selector.py` to TS).
+- **First attempt didn't fire because the iPad loaded an old frontend.**
+  WKWebView pulls from Render. Local `client.ts` changes were sitting
+  on disk. Lost ~10 minutes confirming the bridge was actually getting
+  called before realizing we hadn't deployed the frontend changes yet.
+- **`maxTime = 0.1` cfg cap.** First measurements showed only ~10 visits
+  even at `maxVisits = 64`. KataGo's time budget cut search short. Fixed
+  by sending `kata-set-param maxTime 60` from the bridge before genmove.
+- **Score graph "didn't render in production."** Chased a "works locally,
+  broken in prod" theory. Wasn't a build issue — `showScoreGraph`
+  defaults to `false` in `settingsStore.ts` and lives in localStorage,
+  which is per-origin. Local Mac had it enabled historically; Render and
+  iPad were fresh origins. User toggled it on in Settings, problem solved.
+
+### Architecture decision: single frontend, two delivery paths
+
+`frontend/src/` is THE source of truth. Render auto-deploys it to web
+on every push (existing). iPad's WKWebView currently loads from the
+same Render URL; eventually (Phase 3) an Xcode build phase will run
+`npm run build` and bundle `dist/*` into the app for offline support.
+Either way: edit React once, both platforms pick it up. The bridge
+detection in `client.ts` is the only frontend code that knows about the
+native path, and it's a single 3-line check.
+
+### Roadmap from here
+
+| Phase | Status | What |
+|---|---|---|
+| 2A | ✅ Done | Native bridge for AI moves + scoreLead |
+| C  | recommended next | Port `move_selector.py` to TypeScript so iPad bots are properly rank-calibrated. Today every iPad bot plays at fixed 64 visits regardless of rank — playable for adults, crushing for kids. ~4-6h, surgical refactor |
+| 3  | after C | Bundle frontend locally so iPad UI works offline (no Render needed for assets). Required for App Store guideline 4.2. ~1-2h, mostly Xcode build phase scaffolding |
+| D  | after 3 | Port game state (board/captures/ko/scoring) to TS so iPad doesn't need Render at all. Largest scope (~6-10h) |
+| Hygiene | when convenient | Renaming Bundle Identifier from `ccy.KataGo-iOS` to a phasesix-branded one (re-triggers signing setup, not urgent) |
+
+### Lesson worth keeping
+
+Spike before commit. The 8 build gotchas would each have eaten a day
+in a production-app context where every change requires careful review.
+Doing them all in a throwaway directory let us blow through them
+quickly, document the playbook, then carry only the working result
+into the real repo. If a piece of work has unknown-unknowns and the
+"is this even possible" question dominates the "how do we ship it"
+question, build a spike.
+
+### Status of feature plans after this session
+
+- iPad app: 🟢 Phase 2A — native AI inference works, ships through
+  Xcode to a real device, awaits TestFlight + Path C calibration
+
+### Deferred to next session
+
+- Path C: TypeScript port of `move_selector.py` for iPad bot rank
+  calibration (also unlocks the path to making web's bot logic share
+  the same code eventually)
+- Phase 3: bundle frontend locally for offline iPad UI + App Store
+  readiness
+- Custom domain registration (still deferred from Session 11)
+- Sentry + Plausible analytics (still deferred from Session 11)
+
+---
+
 ## Session 11 — April 28-29, 2026
 
 Shipped the beta hosting end-to-end. App is live on Render at
