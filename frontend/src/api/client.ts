@@ -3,7 +3,13 @@
  * Communicates with the FastAPI backend for game management and AI moves.
  */
 
+import { boardToMoves, fromGtp, getKataGoBridge } from './nativeKataGo';
+
 const API_BASE = `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'}/api`;
+
+// Phase 2A: iPad's native KataGo plays at a fixed visit count, no rank
+// calibration. Re-tune once `move_selector.py` is ported to TS (Path C).
+const NATIVE_BRIDGE_VISITS = 64;
 
 interface CreateGameOptions {
   target_rank?: string;
@@ -95,8 +101,11 @@ export const api = {
   undo: (gameId: string) =>
     request<GameStateDTO>(`/games/${gameId}/undo`, { method: 'POST' }),
 
-  getAIMove: (gameId: string) =>
-    request<AIMoveDTO>(`/games/${gameId}/ai-move`, { method: 'POST' }),
+  getAIMove: async (gameId: string): Promise<AIMoveDTO> => {
+    const bridge = getKataGoBridge();
+    if (bridge) return getAIMoveViaBridge(gameId, bridge);
+    return request<AIMoveDTO>(`/games/${gameId}/ai-move`, { method: 'POST' });
+  },
 
   autoComplete: (gameId: string) =>
     request<GameStateDTO>(`/games/${gameId}/auto-complete`, { method: 'POST' }),
@@ -110,3 +119,54 @@ export const api = {
 };
 
 export type { GameStateDTO, AIMoveDTO, PointDTO, CreateGameOptions };
+
+// --- Phase 2A: native KataGo path ----------------------------------------
+//
+// On iPad the WKWebView injects `window.kataGo`. AI moves run locally on the
+// Neural Engine instead of round-tripping to Render. Game state still lives
+// on the backend — we fetch it, ask the bridge for a move, then commit via
+// the existing /move|/pass|/resign endpoints. Two API calls per AI move,
+// but no backend changes required.
+
+async function getAIMoveViaBridge(
+  gameId: string,
+  bridge: ReturnType<typeof getKataGoBridge> & object,
+): Promise<AIMoveDTO> {
+  const state = await api.getGame(gameId);
+  const moves = boardToMoves(state.board, state.board_size);
+  const color = state.current_color === 'black' ? 'B' : 'W';
+
+  // GameStateDTO doesn't expose komi today; backend default is 7.5, handicap
+  // games use 0.5. Fix when porting move_selector.py (Path C).
+  const result = await bridge.aiMove({
+    boardSize: state.board_size,
+    komi: 7.5,
+    rules: 'tromp-taylor',
+    moves,
+    color,
+    maxVisits: NATIVE_BRIDGE_VISITS,
+  });
+
+  const decoded = fromGtp(result.point, state.board_size);
+
+  if (decoded === 'pass') {
+    const newState = await api.pass(gameId);
+    return {
+      point: { row: -1, col: -1 },
+      captures: [],
+      score_lead: newState.score_lead,
+      final_state: newState.phase === 'finished' ? newState : null,
+    };
+  }
+  if (decoded === 'resign') {
+    await api.resign(gameId);
+    return { point: { row: -1, col: -1 }, captures: [] };
+  }
+
+  const newState = await api.playMove(gameId, decoded.row, decoded.col);
+  return {
+    point: decoded,
+    captures: [],
+    score_lead: newState.score_lead,
+  };
+}
