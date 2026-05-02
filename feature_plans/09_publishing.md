@@ -91,17 +91,33 @@ Get the app on the public internet at a real URL so beta testers (kids, parents,
   build the production image with `--platform linux/amd64`. Mac hosts
   reproduce the deployed Linux Eigen behavior under QEMU emulation.
 
-## Still pending (next session candidates)
-- **Custom domain.** Need to register one and point DNS at Render.
-- **Sentry + Plausible.** Frontend error reporting + privacy-friendly
-  analytics. Requires creating accounts on each.
-- **Rate limits.** KataGo + (eventual) Claude calls per session/day.
-  Not strictly beta-blocking at the current scale, but cost guardrail.
-- **Bot calibration sanity-check** on the deployed Linux Eigen build
-  for 6k and 3k specifically. Weaker ranks validated through play
-  this session.
-- **GPU review pod** for AI teacher / study mode. Wait until study mode
-  wires to the UI before spinning this up — currently dormant in code.
+## Web tier scope after iPad-GPU validation
+Once the iPad spike confirmed KataGo runs on the Apple Neural Engine,
+the web deployment was demoted from "primary play surface" to "demo
+URL." Treat it as a place to send someone for a 2-minute look at the
+app before pointing them at the real client (iPad / native Mac+PC).
+Most of the original beta-readiness punch list no longer applies:
+
+- **Custom domain.** Nice for a memorable demo URL but not urgent.
+  Pick when convenient.
+- **Sentry + Plausible.** Skipping for the web tier — telemetry will
+  matter for the iPad app (TestFlight) and native desktop builds, not
+  for a demo URL with low traffic.
+- **Rate limits.** Skipping. Single-CPU Standard tier and a closed
+  beta password bound the cost mechanically; Claude isn't wired anyway.
+- **Bot calibration sanity-check on Linux Eigen.** Skipping — the b28
+  retuning work in feature 20 lives natively (brew KataGo on Mac) and
+  will calibrate against the actual deployment targets (iPad ANE,
+  Mac Metal, native Linux/Windows), not the deprecated web Eigen path.
+- **GPU review pod.** Skipping indefinitely — review/study mode will
+  run on the user's device (iPad GPU or local Mac/PC), not server-side.
+
+## Still potentially worth doing
+- **Spin up "download the real app" links** on the web homepage once
+  the iPad app and desktop builds have public install paths. Web
+  becomes a discovery surface for the native clients.
+- **Clear "beta — for the best experience use the iPad app" banner**
+  on the web entry. Sets expectations that web is intentionally lean.
 
 ## Dependencies
 - None — this is a blocker for 07 and a prerequisite for meaningful beta on all other features.
