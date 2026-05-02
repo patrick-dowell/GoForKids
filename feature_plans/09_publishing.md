@@ -70,8 +70,14 @@ Get the app on the public internet at a real URL so beta testers (kids, parents,
 - **Backend split:** CPU for bots (always-on), on-demand GPU for reviews
   (deferred until study mode wires to the UI).
 - **Host:** Render for both services. `render.yaml` blueprint defines the
-  static site + Docker-based API. Static site free; API on Pro tier
-  (2 vCPU + 4 GB, $85/mo).
+  static site + Docker-based API. Static site free; API on Standard tier
+  (1 vCPU + 2 GB, $25/mo). Briefly ran on Pro (2 vCPU + 4 GB, $85/mo)
+  but downgraded once iPad-with-GPU validated as the primary deployment
+  target — web stays as a low-touch fallback for browsers, not the main
+  way users will play. Bot move latency at strong ranks (6k+) is slow
+  on 1 CPU but acceptable given the audience shift toward iPad.
+  `KATAGO_THREADS=1` and `KATAGO_OWNERSHIP_VISITS=50` are tuned for the
+  Standard tier; bump back up if we ever upsize.
 - **Frontend gate:** shared password via `VITE_BETA_PASSWORD`,
   localStorage-persisted. `AccessGate` wraps the app; unset = no gate.
 - **Feedback channel:** floating button opens `VITE_FEEDBACK_URL`
