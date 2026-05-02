@@ -1,0 +1,64 @@
+# Bot rank profiles
+
+YAML profile files loaded by `backend/app/ai/profile_loader.py` at runtime via the env var `CALIBRATION_PROFILE_PATH` (default: `b20.yaml`).
+
+## Files
+
+- **`b20.yaml`** — Production calibration for the b20 KataGo network. The current source of truth for everything running on Render and on `make native-backend`. Tuning rationale per profile lives in `AI_CALIBRATION.md`.
+- **`b28_candidate.yaml`** — Work-in-progress calibration for the b28 network. Edited as each `(rank, board_size)` profile passes its 45-55% target via `data/calibrate_b28.py`. Renames to `b28.yaml` once every profile is locked.
+
+## Schema
+
+```yaml
+profiles:
+  19x19:           # Board size key — supported: 5x5, 9x9, 13x13, 19x19
+    "30k":         # Rank key — string, can be any KYU/DAN identifier
+      visits: 10
+      max_point_loss: 30.0
+      mistake_freq: 0.55
+      policy_weight: 0.15
+      randomness: 0.78
+      random_move_chance: 0.08
+      local_bias: 0.42
+      first_line_chance: 0.0
+      min_candidates: 15
+      opening_moves: 8
+      # Optional knobs (omitted = use the move_selector default):
+      # pass_threshold: 0.3
+      # clarity_prior: 0.5
+      # clarity_score_gap: 5.0
+      # local_bias_in_opening: false
+```
+
+`profile_loader.py` validates that every required knob is present and typed correctly; unknown knobs log a warning.
+
+## Lookup semantics
+
+`get_profile(rank, size)` resolves in this order:
+1. `(size, rank)` — explicit per-size override.
+2. `(19, rank)` — fall back to the 19x19 profile of the same rank.
+3. `(19, "15k")` — last-resort fallback.
+
+This matches the previous Python behavior in `RANK_PROFILES_BY_SIZE`.
+
+## Editing for calibration
+
+The calibration loop (per `feature_plans/20_b28_calibration.md`) is:
+
+1. Bring up the paired backends: `make calibrate-up`.
+2. Pick an `(rank, board_size)` profile.
+3. Run a triage match: `make calibrate RANK=15k BOARD=9 GAMES=30`.
+4. Look at the win rate. New bot too weak (<45%) → increase its strength: bump `visits`, drop `mistake_freq`, raise `policy_weight`, etc. Too strong (>55%) → opposite.
+5. Edit `b28_candidate.yaml`. The backend reads this file on next /ai-move (no restart needed for a YAML edit, since the loader caches lazily) — but a backend restart guarantees a clean reload, so when in doubt: `make calibrate-down && make calibrate-up`.
+6. Re-run triage. Repeat until it's in 45-55%.
+7. Run a confirmation match: `make calibrate RANK=15k BOARD=9 GAMES=100`. Must hold 45-55%.
+8. Move on to the next profile.
+
+Smaller boards converge fastest; the plan's recommended order is:
+
+| Board | Ranks                          | Why                                |
+|-------|--------------------------------|------------------------------------|
+| 5×5   | 30k                            | first-game profile                 |
+| 9×9   | 30k, 15k, 6k                   | quick iteration, informs 13×13/19  |
+| 13×13 | 30k, 15k, 6k                   | mid-cost; cross-checks 9×9 numbers |
+| 19×19 | 30k, 18k, 15k, 12k, 9k, 6k     | most expensive, do last            |

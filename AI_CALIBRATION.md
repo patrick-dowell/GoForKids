@@ -375,6 +375,50 @@ python analyze_15k.py  # (edit SGF_DIR in script, or duplicate for other ranks)
 
 Measures: move distance distribution, edge distance, local response rates, game length, heatmap.
 
+### `data/calibrate_b28.py` — head-to-head match runner
+Drives two backend instances head-to-head (one per process, separate models / profile YAMLs / SQLite DBs) and reports the new bot's win rate, 95% Wilson CI, and average score margin. Used to retune profiles whenever the underlying KataGo network changes.
+
+```bash
+# Bring up paired backends (b20 on :8100, b28-candidate on :8101)
+make calibrate-up
+
+# Run a triage match (30 games) for one (rank, board) profile
+make calibrate RANK=15k BOARD=9 GAMES=30
+
+# Run a confirmation match (100 games)
+make calibrate RANK=15k BOARD=9 GAMES=100
+
+# Phase 0 sanity (b20 vs b20, identical configs) — must land in 40-60%
+make calibrate-sanity BOARD=9
+
+# Tear down
+make calibrate-down
+```
+
+Per-match artifacts land in `data/calibration_logs_b28/<rank>_<size>x<size>_<run-id>/` (summary.json + games.csv, plus SGFs when `DUMP_SGF=1`).
+
+## Network upgrades — calibration methodology
+
+When the underlying KataGo network changes, every profile needs to be retuned because visit counts, mistake frequencies, and policy weights produce different strengths on the new network. The b20 → b28 swap is the first time we've done this; the methodology below is the template for future network upgrades.
+
+**Anchor:** target ≈50% win rate against the previous network's calibrated bot at the same nominal rank, head-to-head. This is a stronger signal than human-game match rate: 50% says "feels like the bot we already shipped at this rank," which is what we actually mean by "calibrated to rank X."
+
+**Profiles live in YAML.** Both the previous baseline and the current candidate are checked-in YAML files (`data/profiles/b20.yaml`, `data/profiles/b28_candidate.yaml`) loaded by `app/ai/profile_loader.py` at runtime. The Python no longer hardcodes profile numbers — calibration is an edit-and-rerun loop, not an edit-restart loop.
+
+**Phase 0 (mandatory).** Before tuning anything, prove the harness measures what we think it measures: spin up *two identical* backends (both b20 + `b20.yaml`) and run a 100-game match at 15k on 9×9. Expected ≈50% within 40-60%. Anything outside that band is a harness bug, not bot strength.
+
+  - 2026-05-02 result: **55/100 = 55.0% (95% CI 45.2-64.4%, avg margin +7.24 from new-perspective).** Within both bands. Harness sound.
+
+**Per-profile loop (each of the 13 explicit `(rank, board_size)` pairs):**
+1. Seed the candidate by cloning the previous profile (already done — `b28_candidate.yaml` is currently a copy of `b20.yaml`).
+2. **Triage match** — 30 games. Tells us roughly which direction we're off.
+3. Iterate knobs in priority order: `visits` (dominant), `policy_weight`, `mistake_freq` + `max_point_loss`, then flavor knobs. Re-run triage matches between edits.
+4. **Confirmation match** — 100 games. Result must be in the 45-55% band.
+5. Optional second 100-game confirmation. Lock the profile.
+6. Cross-check: confirm sanity tests still pass (no eye-fill, sensible openings, auto-pass on settled positions).
+
+After all 13 are locked, rename `b28_candidate.yaml` → `b28.yaml`, set `CALIBRATION_PROFILE_PATH` (or update the Dockerfile default) to point at it, and swap `backend/models/b20.bin.gz` → `b28.bin.gz` in the production image. Calibrated b28 profile values land here in this doc once they're locked in (currently TODO — calibration runs in progress).
+
 ## Game Data
 
 Downloaded from [featurecat/go-dataset](https://github.com/featurecat/go-dataset) (Fox Go Server):
