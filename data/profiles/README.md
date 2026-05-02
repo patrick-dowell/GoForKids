@@ -41,6 +41,18 @@ profiles:
 
 This matches the previous Python behavior in `RANK_PROFILES_BY_SIZE`.
 
+## Gotcha — git-LFS materialization
+
+`backend/models/b20.bin.gz` and `b28.bin.gz` are tracked via git-LFS (see `.gitattributes`). After a fresh clone, a `git pull`, or in some cases just leaving the working tree alone overnight, the working-copy files can revert to ~134-byte LFS pointer files instead of the real ~80–270 MB networks. KataGo can't load a pointer; before this was hardened, the backend would silently fall back to a "random legal move" stub AI and every calibration result became a measurement of `b20-vs-random`, not `b20-vs-b28`.
+
+Three defenses now in place:
+
+1. **`make calibrate-up*` checks each model file is > 1 MB** before launching backends, with a "run `git lfs pull`" hint on failure.
+2. **Backends launch with `STRICT_KATAGO=1`** (see `app/katago/engine.py`): in strict mode, missing/broken model files (and any KataGo start failure) raise an exception instead of silently falling back to stub AI. Out of strict mode (production), the original graceful-fallback behavior is preserved.
+3. **`make calibrate-up*` runs a real `/ai-move` smoke on each backend** post-startup and verifies `score_lead` is non-null. Stub AI returns `score_lead=null`; the smoke fails fast if either backend is degraded.
+
+If you ever see a calibration result with avg margin > ~20 pts and a wildly out-of-band rate (e.g. <15% or >85%), that's the signature of one side running stub AI — check `data/calibration_logs_b28/backend-{old,new}.log` for "KataGo failed" or "Using stub AI".
+
 ## Editing for calibration
 
 The calibration loop (per `feature_plans/20_b28_calibration.md`) is:

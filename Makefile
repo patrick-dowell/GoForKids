@@ -79,9 +79,21 @@ CAL_LOG_DIR  := $(CURDIR)/data/calibration_logs_b28
 #   $1 = label (old|new)            $2 = port
 #   $3 = path to KataGo model       $4 = path to YAML profile
 # Logs to $(CAL_LOG_DIR)/backend-<label>.log; PID to $(CAL_RUN_DIR)/<label>.pid.
+#
+# STRICT_KATAGO=1 below converts engine.py's silent "fall back to stub AI"
+# into a hard failure. Yesterday's 5x5/9x9 calibration runs were silently
+# measuring b20-vs-stub-AI because backend/models/b28.bin.gz was an
+# unmaterialized git-LFS pointer file (134 bytes); strict mode + the
+# >1 MB sanity check inside engine.py make that mode of failure visible.
 define _calibrate_launch
 	@mkdir -p $(CAL_RUN_DIR) $(CAL_LOG_DIR)
 	@if [ ! -f "$(3)" ]; then echo "ERROR: KataGo model not found: $(3)"; exit 1; fi
+	@sz=$$(stat -f%z "$(3)" 2>/dev/null || stat -c%s "$(3)" 2>/dev/null); \
+	  if [ "$$sz" -lt 1048576 ]; then \
+	    echo "ERROR: KataGo model $(3) is $$sz bytes — too small to be a real network."; \
+	    echo "       Likely an unmaterialized git-LFS pointer. Run: git lfs pull"; \
+	    exit 1; \
+	  fi
 	@if [ ! -f "$(4)" ]; then echo "ERROR: profile YAML not found: $(4)"; exit 1; fi
 	@if [ ! -x "$(KATAGO_BIN)" ]; then echo "ERROR: KataGo binary not executable: $(KATAGO_BIN)"; exit 1; fi
 	@echo "  backend-$(1) :$(2)  model=$$(basename $(3))  profile=$$(basename $(4))"
@@ -91,6 +103,7 @@ define _calibrate_launch
 	    KATAGO_CONFIG='$(KATAGO_CFG)' \
 	    CALIBRATION_PROFILE_PATH='$(4)' \
 	    GOFORKIDS_DB='$(CAL_RUN_DIR)/$(1).db' \
+	    STRICT_KATAGO=1 \
 	    nohup ./venv/bin/uvicorn app.main:app \
 	        --host 127.0.0.1 --port $(2) \
 	        > '$(CAL_LOG_DIR)/backend-$(1).log' 2>&1 & \
@@ -98,20 +111,41 @@ define _calibrate_launch
 	)
 endef
 
-# Internal helper: wait until both ports answer /health (60s timeout).
+# Internal helper: wait until both ports answer /health AND each backend
+# successfully runs one real KataGo /ai-move (returns a non-null score_lead).
+# /health alone passes even when KataGo failed to start and the backend has
+# silently fallen back to the random-legal-move stub AI — the move smoke
+# is what catches that mode of failure.
 define _calibrate_wait
 	@printf "Waiting for backends to come up"; \
 	for i in $$(seq 1 60); do \
 	    if curl -sf http://localhost:$(CAL_PORT_OLD)/health > /dev/null 2>&1 \
 	       && curl -sf http://localhost:$(CAL_PORT_NEW)/health > /dev/null 2>&1; then \
-	        echo " ✓ both healthy"; \
-	        echo "  logs: tail -f $(CAL_LOG_DIR)/backend-{old,new}.log"; \
-	        exit 0; \
+	        echo " ✓ both /health"; break; \
 	    fi; \
 	    printf "."; sleep 1; \
+	    if [ $$i -eq 60 ]; then \
+	        echo " ✗ timed out — check $(CAL_LOG_DIR)/backend-{old,new}.log"; exit 1; \
+	    fi; \
 	done; \
-	echo " ✗ timed out — check $(CAL_LOG_DIR)/backend-{old,new}.log"; \
-	exit 1
+	for who in old new; do \
+	    port=$$([ "$$who" = "old" ] && echo $(CAL_PORT_OLD) || echo $(CAL_PORT_NEW)); \
+	    GAME=$$(curl -sf -X POST "http://localhost:$$port/api/games" \
+	        -H "Content-Type: application/json" \
+	        -d '{"target_rank":"15k","mode":"casual","komi":7.5,"player_color":"black","handicap":0,"board_size":9}'); \
+	    GID=$$(printf '%s' "$$GAME" | python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["game_id"])'); \
+	    AI=$$(curl -sf -X POST "http://localhost:$$port/api/games/$$GID/ai-move" --max-time 30); \
+	    SL=$$(printf '%s' "$$AI" | python3 -c 'import json,sys;print(json.loads(sys.stdin.read()).get("score_lead"))'); \
+	    if [ "$$SL" = "None" ] || [ -z "$$SL" ]; then \
+	        echo "ERROR: backend-$$who is alive but score_lead is null — KataGo isn't running, harness would silently measure stub AI."; \
+	        echo "  See $(CAL_LOG_DIR)/backend-$$who.log for the failure reason."; \
+	        exit 1; \
+	    fi; \
+	    AIPT=$$(printf '%s' "$$AI" | python3 -c 'import json,sys;d=json.loads(sys.stdin.read())["point"];print("({},{})".format(d["row"],d["col"]))'); \
+	    printf "  backend-%s KataGo move smoke: ai=%s score_lead=%s ✓\n" "$$who" "$$AIPT" "$$SL"; \
+	done; \
+	echo "  logs: tail -f $(CAL_LOG_DIR)/backend-{old,new}.log"; \
+	exit 0
 endef
 
 calibrate-up:

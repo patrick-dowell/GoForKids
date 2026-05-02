@@ -246,11 +246,27 @@ class KataGoEngine:
 _engine: Optional[KataGoEngine] = None
 
 
+def _strict_katago() -> bool:
+    """Whether STRICT_KATAGO=1 is set. In strict mode, missing/broken KataGo
+    raises instead of silently falling back to stub AI. Used by the calibration
+    harness — a stub-AI bot would silently invalidate every calibration result."""
+    return os.environ.get("STRICT_KATAGO", "").lower() in ("1", "true", "yes")
+
+
 async def get_engine() -> Optional[KataGoEngine]:
-    """Get or create the KataGo engine singleton."""
+    """Get or create the KataGo engine singleton.
+
+    Returns None (and the bot falls back to random-legal-move stub AI) when
+    KataGo can't be located or fails to start, UNLESS the STRICT_KATAGO env
+    var is set, in which case any failure raises. The strict path is for the
+    calibration harness — silently degrading to stub AI made yesterday's
+    results meaningless when the b28.bin.gz LFS pointer didn't smudge.
+    """
     global _engine
     if _engine and _engine.is_running:
         return _engine
+
+    strict = _strict_katago()
 
     # Resolve paths: env vars > brew defaults > bare command
     executable = os.environ.get("KATAGO_PATH", "katago")
@@ -264,7 +280,26 @@ async def get_engine() -> Optional[KataGoEngine]:
         config = _DEFAULT_CONFIG
 
     if not model or not config:
-        logger.warning("KataGo model or config not found, using stub AI")
+        msg = f"KataGo model or config not found (model={model!r} config={config!r})"
+        if strict:
+            raise RuntimeError(f"{msg} — STRICT_KATAGO=1 set, refusing to fall back to stub AI")
+        logger.warning(f"{msg}, using stub AI")
+        return None
+
+    # Catch the most common LFS-pointer footgun explicitly: a model file under
+    # ~1 KB is never a real KataGo network (real ones are ~80 MB / ~270 MB).
+    try:
+        size = os.path.getsize(model)
+    except OSError:
+        size = -1
+    if 0 <= size < 1024 * 1024:  # < 1 MB
+        msg = (
+            f"KataGo model file is implausibly small ({size} bytes): {model!r}. "
+            "Likely an unmaterialized git-LFS pointer — run `git lfs pull`."
+        )
+        if strict:
+            raise RuntimeError(f"{msg} — STRICT_KATAGO=1 set, refusing to fall back to stub AI")
+        logger.warning(f"{msg}, using stub AI")
         return None
 
     kg_config = KataGoConfig(
@@ -280,6 +315,8 @@ async def get_engine() -> Optional[KataGoEngine]:
         await _engine.start()
         return _engine
     except Exception as e:
-        logger.warning(f"KataGo failed to start: {e}. Using stub AI.")
         _engine = None
+        if strict:
+            raise RuntimeError(f"KataGo failed to start: {e}") from e
+        logger.warning(f"KataGo failed to start: {e}. Using stub AI.")
         return None
