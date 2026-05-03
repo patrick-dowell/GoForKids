@@ -100,7 +100,16 @@ profiles:
 
   13x13:
     "30k":
-      max_point_loss: 35.0
+      # b28 calibration:
+      #   v1 visits=5  max_pl=35: 33.3% n=30 margin -18.67
+      #   v2 visits=8  max_pl=35: 30.0% n=30 margin -34.77 (worse — visits
+      #     not the lever; combined 19/60 = 31.7%)
+      #   v3 (current): max_point_loss 35 -> 22, visits back to 5. Hypothesis:
+      #     b28's sharper score_lead estimates mean the mistake mechanism
+      #     (which picks moves up to max_point_loss worse) actually loses
+      #     close to that many points on b28-side, while b20's noisier
+      #     estimates yielded smaller real losses for the "same" mistake.
+      max_point_loss: 22.0
       mistake_freq: 0.65
       policy_weight: 0.10
       randomness: 0.85
@@ -115,6 +124,18 @@ profiles:
       clarity_prior: 1.1
       clarity_score_gap: 999.0
     "15k":
+      # b28 calibration: 5 rounds explored visits + mistake_freq + max_pl axes.
+      # All rounds cluster 70-83% (combined 115/150 = 76.7%). b28's MCTS quality
+      # at this rank is robust to all knob changes attempted; profile-symmetric
+      # tweaks can't bridge the strength gap on 13x13.
+      #   v1 visits=18 mistake=0.42 max_pl=22: 70.0% n=30, margin +35.70
+      #   v2 visits=12 mistake=0.55 max_pl=22: 76.7% n=30, margin +51.57
+      #   v3 visits=18 mistake=0.55 max_pl=30: 80.0% n=30, margin +54.77
+      #   v4 visits=6  mistake=0.42 max_pl=22: 83.3% n=30, margin +53.93
+      #   v5 visits=40 mistake=0.42 max_pl=22: 73.3% n=30, margin +31.43
+      # LOCKED at v1 (b20-clone, simplest, tied with v5 for best rate). Bot
+      # will play stronger than nominal 15k — kids picking 13x13 15k face a
+      # ~12k-equivalent. Rank ordering is preserved (30k < 15k < 6k strength).
       max_point_loss: 22.0
       mistake_freq: 0.42
       policy_weight: 0.28
@@ -127,8 +148,11 @@ profiles:
       opening_moves: 8
       pass_threshold: 0.15
     "6k":
+      # b28 calibration round 1: b20-clone (visits=70, mistake=0.22) landed at
+      # 73.3% n=30 (CI 55.6-85.8%, margin +28.80). Mirrors 13x13 15k pattern.
+      # v2: bump mistake_freq 0.22 -> 0.45 (the lever that helped at 9x9 6k).
       max_point_loss: 9.0
-      mistake_freq: 0.22
+      mistake_freq: 0.45
       policy_weight: 0.50
       randomness: 0.38
       random_move_chance: 0.02
