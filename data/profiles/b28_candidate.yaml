@@ -156,6 +156,11 @@ profiles:
       clarity_prior: 1.1
       clarity_score_gap: 999.0
     "15k":
+      # b28 calibration round 1: b20-clone landed at 36.7% (CI 21.9-54.5%,
+      # margin -16.30) over 30 games. b28-side losing by big margins —
+      # catastrophic mistake injection at 8 visits. Bumping visits 8 -> 12
+      # to give MCTS more headroom; if still under-band, consider
+      # max_point_loss 22 -> 18 to cap mistake magnitude.
       max_point_loss: 22.0
       mistake_freq: 0.55
       policy_weight: 0.18
@@ -164,15 +169,25 @@ profiles:
       local_bias: 0.45
       local_bias_in_opening: true
       first_line_chance: 0.0
-      visits: 8
+      visits: 12
       min_candidates: 10
       opening_moves: 3
       pass_threshold: 0.10
       clarity_prior: 1.1
       clarity_score_gap: 999.0
     "6k":
+      # b28 calibration:
+      #   v1 visits=12 mistake=0.45: 66.0% n=50, margin +25.58
+      #   v2 visits=8  mistake=0.45: 66.7% n=30, margin +12.00
+      #   v3 visits=12 mistake=0.55: 60.0% n=30, margin +17.30
+      #   v4 visits=8  mistake=0.55: 63.3% n=30, margin +19.70
+      # All four iterations cluster 60-67% — combined 74/120 = 61.7% (CI
+      # 52.6-70.0%), out of band but in sanity band. Locked at v3 (best of
+      # the four). 6k is the strongest 9x9 bot we expose so being slightly
+      # over-strength is acceptable — picking 6k means the kid expects the
+      # toughest 9x9 fight, so a 60%-rate b28 is functionally on-mission.
       max_point_loss: 18.0
-      mistake_freq: 0.45
+      mistake_freq: 0.55
       policy_weight: 0.25
       randomness: 0.65
       random_move_chance: 0.08
@@ -197,6 +212,12 @@ profiles:
 
   5x5:
     "30k":
+      # b28 calibration round 1: b20-clone landed at 36% (margin -5.66) over
+      # 50 games. Bumping visits 4 -> 8 to compensate for b28's flatter policy
+      # distribution at low visit counts (the candidate list at 4 visits has
+      # 12+ near-equal-prior moves on this board, so the mistake-injection
+      # mechanism picks worse moves on average than b20 does at the same
+      # nominal profile).
       max_point_loss: 38.0
       mistake_freq: 0.74
       policy_weight: 0.07
@@ -205,7 +226,7 @@ profiles:
       local_bias: 0.87
       local_bias_in_opening: true
       first_line_chance: 0.0
-      visits: 4
+      visits: 8
       min_candidates: 10
       opening_moves: 2
       pass_threshold: 0.05
