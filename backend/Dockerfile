@@ -94,14 +94,20 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
 
+# Production runs b20 by default — the b28 calibration was completed
+# (see data/profiles/b28.yaml + AI_CALIBRATION.md "b28 calibration outcome")
+# but Render Standard tier (1 vCPU + 2 GB) is too underpowered for b28's
+# per-move latency to feel acceptable. Both models ship in the image; to
+# switch, override KATAGO_MODEL + CALIBRATION_PROFILE_PATH at runtime
+# (e.g. when Render moves to a beefier tier or for local A/B testing).
 ENV KATAGO_PATH=/opt/katago/squashfs-root/AppRun \
-    KATAGO_MODEL=/opt/katago/models/b28.bin.gz \
+    KATAGO_MODEL=/opt/katago/models/b20.bin.gz \
     KATAGO_CONFIG=/opt/katago/configs/analysis_example.cfg \
     KATAGO_THREADS=1 \
     KATAGO_VISITS=100 \
     KATAGO_SCORE_VISITS=10 \
     KATAGO_OWNERSHIP_VISITS=50 \
-    CALIBRATION_PROFILE_PATH=/opt/profiles/b28.yaml
+    CALIBRATION_PROFILE_PATH=/opt/profiles/b20.yaml
 
 EXPOSE 8000
 
