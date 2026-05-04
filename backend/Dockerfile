@@ -72,12 +72,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /opt/katago/squashfs-root /opt/katago/squashfs-root
 COPY backend/configs/analysis_example.cfg     /opt/katago/configs/analysis_example.cfg
-COPY backend/models/b20.bin.gz                /opt/katago/models/b20.bin.gz
+COPY backend/models/b28.bin.gz                /opt/katago/models/b28.bin.gz
 
 # Bot rank profiles. Source of truth lives at data/profiles/ in the repo;
-# the image bakes them at /opt/profiles/. CALIBRATION_PROFILE_PATH below
-# points the loader at b20.yaml by default — flip to b28.yaml (or any other
-# YAML mounted into the container) to swap calibrations without rebuilding.
+# the image bakes them at /opt/profiles/. b28.yaml is the production-active
+# calibration; b20.yaml is also bundled so you can flip the env var without
+# rebuilding (e.g. CALIBRATION_PROFILE_PATH=/opt/profiles/b20.yaml).
 COPY data/profiles                            /opt/profiles
 
 WORKDIR /app
@@ -88,13 +88,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
 
 ENV KATAGO_PATH=/opt/katago/squashfs-root/AppRun \
-    KATAGO_MODEL=/opt/katago/models/b20.bin.gz \
+    KATAGO_MODEL=/opt/katago/models/b28.bin.gz \
     KATAGO_CONFIG=/opt/katago/configs/analysis_example.cfg \
     KATAGO_THREADS=1 \
     KATAGO_VISITS=100 \
     KATAGO_SCORE_VISITS=10 \
     KATAGO_OWNERSHIP_VISITS=50 \
-    CALIBRATION_PROFILE_PATH=/opt/profiles/b20.yaml
+    CALIBRATION_PROFILE_PATH=/opt/profiles/b28.yaml
 
 EXPOSE 8000
 

@@ -151,7 +151,7 @@ endef
 calibrate-up:
 	@echo "Bringing up paired backends (real calibration mode):"
 	$(call _calibrate_launch,old,$(CAL_PORT_OLD),$(KATAGO_B20),$(CURDIR)/data/profiles/b20.yaml)
-	$(call _calibrate_launch,new,$(CAL_PORT_NEW),$(KATAGO_B28),$(CURDIR)/data/profiles/b28_candidate.yaml)
+	$(call _calibrate_launch,new,$(CAL_PORT_NEW),$(KATAGO_B28),$(CURDIR)/data/profiles/b28.yaml)
 	$(_calibrate_wait)
 
 calibrate-up-sanity:

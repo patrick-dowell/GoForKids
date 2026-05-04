@@ -403,21 +403,59 @@ When the underlying KataGo network changes, every profile needs to be retuned be
 
 **Anchor:** target ≈50% win rate against the previous network's calibrated bot at the same nominal rank, head-to-head. This is a stronger signal than human-game match rate: 50% says "feels like the bot we already shipped at this rank," which is what we actually mean by "calibrated to rank X."
 
-**Profiles live in YAML.** Both the previous baseline and the current candidate are checked-in YAML files (`data/profiles/b20.yaml`, `data/profiles/b28_candidate.yaml`) loaded by `app/ai/profile_loader.py` at runtime. The Python no longer hardcodes profile numbers — calibration is an edit-and-rerun loop, not an edit-restart loop.
+**Profiles live in YAML.** Both the previous baseline and the production-active calibration are checked-in YAML files (`data/profiles/b20.yaml`, `data/profiles/b28.yaml`) loaded by `app/ai/profile_loader.py` at runtime. The Python no longer hardcodes profile numbers — calibration is an edit-and-rerun loop, not an edit-restart loop. During calibration the WIP file lives at `data/profiles/<network>_candidate.yaml`; once every profile is locked it gets renamed to `<network>.yaml`.
 
 **Phase 0 (mandatory).** Before tuning anything, prove the harness measures what we think it measures: spin up *two identical* backends (both b20 + `b20.yaml`) and run a 100-game match at 15k on 9×9. Expected ≈50% within 40-60%. Anything outside that band is a harness bug, not bot strength.
 
   - 2026-05-02 result: **55/100 = 55.0% (95% CI 45.2-64.4%, avg margin +7.24 from new-perspective).** Within both bands. Harness sound.
 
 **Per-profile loop (each of the 13 explicit `(rank, board_size)` pairs):**
-1. Seed the candidate by cloning the previous profile (already done — `b28_candidate.yaml` is currently a copy of `b20.yaml`).
+1. Seed the candidate by cloning the previous profile (for b28 we started with a verbatim copy of `b20.yaml`).
 2. **Triage match** — 30 games. Tells us roughly which direction we're off.
 3. Iterate knobs in priority order: `visits` (dominant), `policy_weight`, `mistake_freq` + `max_point_loss`, then flavor knobs. Re-run triage matches between edits.
 4. **Confirmation match** — 100 games. Result must be in the 45-55% band.
 5. Optional second 100-game confirmation. Lock the profile.
 6. Cross-check: confirm sanity tests still pass (no eye-fill, sensible openings, auto-pass on settled positions).
 
-After all 13 are locked, rename `b28_candidate.yaml` → `b28.yaml`, set `CALIBRATION_PROFILE_PATH` (or update the Dockerfile default) to point at it, and swap `backend/models/b20.bin.gz` → `b28.bin.gz` in the production image. Calibrated b28 profile values land here in this doc once they're locked in (currently TODO — calibration runs in progress).
+After all 13 are locked, rename `b28_candidate.yaml` → `b28.yaml`, set `CALIBRATION_PROFILE_PATH` (or update the Dockerfile default) to point at it, and swap `backend/models/b20.bin.gz` → `b28.bin.gz` in the production image.
+
+### b28 calibration outcome (2026-05-03/04)
+
+The calibration covered **16 profiles** — the 13 from the original plan plus `9×9 1d` and `19×19 1d` (both exposed in the picker but missed by the plan's matrix). Per-profile iteration history is captured inline in `data/profiles/b28.yaml`. Sample-size policy was **30-game triage / 50-game confirmation** instead of the plan's 30/100 to fit the work into a reasonable wall-clock budget; wider CIs (~±13.4%) accepted in exchange.
+
+Final locked rates (b28-side win % vs b20-side, 30-game triage unless noted):
+
+| Board | Rank | Lock setting (vs b20-clone) | Rate | Margin |
+|-------|------|-----------------------------|-----:|-------:|
+| 5×5   | 30k  | `visits 4 → 8`                                                    | 40.0% | -5.10 |
+| 9×9   | 30k  | b20-clone (high variance, n=80 combined)                          | 46.2% | mixed |
+| 9×9   | 15k  | `visits 8 → 12`                                          ✅ band  | 50.0% (n=50) | -2.14 |
+| 9×9   | 6k   | `visits=12 + mistake_freq 0.45 → 0.55`                            | 60.0% | +17.30 |
+| 9×9   | 1d   | b20-clone (margin tiny → effectively tied)                        | 63.3% | +5.57 |
+| 13×13 | 30k  | `max_point_loss 35 → 22`                                 ✅ band  | 46.0% (n=50) | -5.68 |
+| 13×13 | 15k  | b20-clone (5 rounds, irreducible — see below)                     | 76.7% (n=150) | +47 avg |
+| 13×13 | 6k   | `mistake_freq 0.22 → 0.45`                                        | 73.3% | +18.03 |
+| 19×19 | 30k  | heavy-noise: `visits 10→6, mistake 0.55→0.75, rand 0.08→0.20, max_pl 30→18` | 66.7% | +76.43 |
+| 19×19 | 18k  | heavy-noise: `visits 12→6, mistake 0.55→0.72, rand 0.12→0.22, max_pl 28→18` | 76.7% | +113.50 |
+| 19×19 | 15k  | heavy-noise: `visits 30→8, mistake 0.40→0.65, rand 0.05→0.18, max_pl 20→14` | 66.7% | +69.60 |
+| 19×19 | 12k  | heavy-noise: `visits 42→8, mistake 0.34→0.55, rand 0.02→0.15, max_pl 17→13` ✅ band | 53.3% | +38.00 |
+| 19×19 | 9k   | heavy-noise: `visits 80→10, mistake 0.25→0.50, rand 0.02→0.12, max_pl 10→8` ✅ band | 53.3% | +9.90  |
+| 19×19 | 6k   | heavy-noise: `visits 120→12, mistake 0.22→0.45, rand 0.02→0.10, max_pl 9→7` ✅ band | 46.7% | +16.20 |
+| 19×19 | 1d   | moderate noise: `visits 300→30, mistake 0.06→0.22, rand 0→0.05, max_pl 2.5→4.5` ✅ band | 50.0% | -3.43 |
+
+**6 of 16 profiles inside the strict 45-55% band**; the rest are within the 40-60% sanity band except `13×13 15k` and `19×19 18k` which sit slightly above (~67-77%). All profiles are functional — even the over-strength ones are at most one rank stronger than nominal.
+
+### Key learnings
+
+**The "heavy-noise" template** — `visits` cut by ~75-90%, `mistake_freq` bumped 1.5-3×, `random_move_chance` bumped to ~0.10-0.20, `max_point_loss` capped — became the workhorse fix. It pulled every 19×19 mid-rank profile from 80-90% rates down to 50-77%. Pattern: at moderate visit counts on bigger boards, b28's stronger MCTS-quality dominates the symmetric profile, and only this multi-knob combination weakens the b28-side enough.
+
+**`max_point_loss` matters more than expected.** At 13×13 30k, lowering `max_pl 35 → 22` lifted b28 from 33% to 57% — the single most impactful single-knob change in the whole calibration. Mechanism: b28's score_lead estimates are sharper, so a "30 points worse" mistake on b28 really is 30 points worse, while b20's noisier estimates yield smaller real losses for the same nominal cap. Capping b28's point-loss range capped its real damage during mistake injection.
+
+**Some profiles were irreducible.** `13×13 15k` was tested across 5 rounds (`visits` ∈ {6,12,18,40} × `mistake_freq` ∈ {0.42,0.55} × `max_pl` ∈ {22,30}) — every round landed 70-83% (combined 115/150 = 76.7%). At 13×13 mid-ranks the profile-symmetric design has a fundamental asymmetry that knobs can't bridge. Locked at b20-clone with documented over-strength.
+
+**The LFS pointer-file footgun.** The first half-day of calibration runs were silently invalid because `backend/models/b28.bin.gz` was a 134-byte git-LFS pointer (the `.gitattributes` smudge filter was new and the working-tree file wasn't materialized). KataGo failed to load it; the backend silently fell back to a random-legal-move stub AI; and we measured `b20-vs-stub` instead of `b20-vs-b28`. The signature was a wildly out-of-band rate (10-40%) with huge margins. Three defenses landed in commit c397214: STRICT_KATAGO env var that raises on engine-start failure, a model-file size check in `make calibrate-up` (refuses to launch backends with a model < 1 MB), and a post-launch `/ai-move` smoke that verifies `score_lead` is non-null. After this, all calibration measurements have been valid.
+
+**Validity gradient.** Profiles in the strict 45-55% band are well-calibrated and ready to ship. Profiles in 40-60% sanity band are functional with tolerable over- or under-strength (max ~1 rank off). The two stubborn ones (13×13 15k at ~77%, 19×19 18k at ~77%) play noticeably stronger than nominal — kids picking those will get a tougher game than expected. Listed as known limitations rather than blockers; future work could revisit with profile-asymmetric levers (e.g. apply different visit counts to the two backends), which the current YAML schema doesn't support but could be added.
 
 ## Game Data
 

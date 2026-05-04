@@ -5,7 +5,9 @@ YAML profile files loaded by `backend/app/ai/profile_loader.py` at runtime via t
 ## Files
 
 - **`b20.yaml`** — Production calibration for the b20 KataGo network. The current source of truth for everything running on Render and on `make native-backend`. Tuning rationale per profile lives in `AI_CALIBRATION.md`.
-- **`b28_candidate.yaml`** — Work-in-progress calibration for the b28 network. Edited as each `(rank, board_size)` profile passes its 45-55% target via `data/calibrate_b28.py`. Renames to `b28.yaml` once every profile is locked.
+- **`b28.yaml`** — Production-active calibration for the b28c512nbt network (locked 2026-05-04). See per-profile inline comments for iteration history; see `AI_CALIBRATION.md` "b28 calibration outcome" section for the rate/margin summary table and key learnings. The production Dockerfile defaults to this file.
+
+During a future network swap, the WIP file would be `<network>_candidate.yaml`, edited via `data/calibrate_b28.py` against the previous network's YAML, then renamed to `<network>.yaml` once every profile is locked.
 
 ## Schema
 
@@ -61,7 +63,7 @@ The calibration loop (per `feature_plans/20_b28_calibration.md`) is:
 2. Pick an `(rank, board_size)` profile.
 3. Run a triage match: `make calibrate RANK=15k BOARD=9 GAMES=30`.
 4. Look at the win rate. New bot too weak (<45%) → increase its strength: bump `visits`, drop `mistake_freq`, raise `policy_weight`, etc. Too strong (>55%) → opposite.
-5. Edit `b28_candidate.yaml`. The backend reads this file on next /ai-move (no restart needed for a YAML edit, since the loader caches lazily) — but a backend restart guarantees a clean reload, so when in doubt: `make calibrate-down && make calibrate-up`.
+5. Edit the candidate YAML (during the b28 calibration this was `b28_candidate.yaml`; after lock it's `b28.yaml`). The backend caches the loaded profile, so a clean reload requires restarting the backend: `make calibrate-down && make calibrate-up`.
 6. Re-run triage. Repeat until it's in 45-55%.
 7. Run a confirmation match: `make calibrate RANK=15k BOARD=9 GAMES=100`. Must hold 45-55%.
 8. Move on to the next profile.
