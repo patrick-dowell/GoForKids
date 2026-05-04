@@ -122,7 +122,8 @@ copies `dist/` into the app bundle on every Xcode build.
 2. Top of Build Phases area, click **`+`** → **New Run Script Phase**.
 3. **Drag it above "Copy Bundle Resources"** (and below the existing "Copy raw mlpackage" Run Script — order doesn't actually matter between the two, but keeps things tidy).
 4. Rename the phase to **"Bundle React frontend"**.
-5. Paste this script:
+5. Paste this script (DO NOT leave Xcode's default placeholder comment in
+   the body — clear it out completely first):
    ```sh
    set -e
 
@@ -152,9 +153,18 @@ copies `dist/` into the app bundle on every Xcode build.
    mkdir -p "${DST}"
    cp -R dist/* "${DST}/"
 
-   echo "Bundle complete:"
-   ls "${DST}"
+   # Strip Vite's `crossorigin` attribute from the bundled HTML. Belt-and-
+   # suspenders — the custom `app://` URL scheme handler should make this
+   # unnecessary, but if it ever leaks, the symptom is a blank screen.
+   sed -i '' 's/ crossorigin//g' "${DST}/index.html"
    ```
+
+   **Why a custom `app://` scheme handler?** WKWebView refuses to execute
+   `<script type="module">` over `file://` (silent failure). The Swift
+   `WebBundleSchemeHandler` in `ContentView.swift` registers an `app://`
+   handler that serves files from `<App>.app/web/`, giving the page a real
+   origin (`app://localhost`) so ES modules work. The backend's CORS
+   allow-list includes `app://localhost` so fetches still reach Render.
 6. **Critical checkboxes:**
    - ⬜ **"Based on dependency analysis"** → **UNCHECKED** (so it runs every build — frontend changes don't trigger Xcode dependency tracking)
    - ⬜ **"Show environment variables in build log"** → CHECKED (helps debug PATH issues)

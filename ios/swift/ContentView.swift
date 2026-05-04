@@ -1,32 +1,107 @@
 import SwiftUI
 import WebKit
 
-/// Locate the bundled React frontend. The Xcode Run Script "Bundle React
-/// frontend" copies `frontend/dist/*` into `<App>.app/web/` on every build.
-/// If you see this fatalError, that build phase didn't run — check the
-/// Build Phases tab and the iOS README.
-private func bundledIndexURL() -> URL {
-    if let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "web") {
-        return url
+/// Custom URL scheme `app://` so the bundled React app loads with a real
+/// origin (`app://localhost`) instead of `file://`. WKWebView refuses to
+/// execute `<script type="module">` over `file://` — this scheme handler
+/// is the standard fix and the path Apple recommends for hybrid apps.
+///
+/// Origin sent on cross-origin fetches: `app://localhost`. The backend
+/// CORS allow-list includes this string.
+final class WebBundleSchemeHandler: NSObject, WKURLSchemeHandler {
+    private let webRoot: URL
+
+    init(webRoot: URL) {
+        self.webRoot = webRoot
     }
-    fatalError("Bundled web/index.html not found — Run Script 'Bundle React frontend' didn't run")
+
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        guard let url = urlSchemeTask.request.url else {
+            urlSchemeTask.didFailWithError(URLError(.badURL))
+            return
+        }
+        var path = url.path
+        if path.hasPrefix("/") { path = String(path.dropFirst()) }
+        if path.isEmpty { path = "index.html" }
+
+        let fileURL = webRoot.appendingPathComponent(path)
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: [
+                    "Content-Type": Self.mimeType(for: fileURL),
+                    "Content-Length": "\(data.count)",
+                ]
+            )!
+            urlSchemeTask.didReceive(response)
+            urlSchemeTask.didReceive(data)
+            urlSchemeTask.didFinish()
+        } catch {
+            print("[WebScheme] failed to serve \(fileURL.path): \(error)")
+            let response = HTTPURLResponse(
+                url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: [:]
+            )!
+            urlSchemeTask.didReceive(response)
+            urlSchemeTask.didFinish()
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        // No async work to cancel.
+    }
+
+    private static func mimeType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "html", "htm": return "text/html; charset=utf-8"
+        case "js", "mjs": return "application/javascript; charset=utf-8"
+        case "css": return "text/css; charset=utf-8"
+        case "json": return "application/json; charset=utf-8"
+        case "svg": return "image/svg+xml"
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif": return "image/gif"
+        case "woff": return "font/woff"
+        case "woff2": return "font/woff2"
+        case "wasm": return "application/wasm"
+        case "ico": return "image/x-icon"
+        case "map": return "application/json"
+        default: return "application/octet-stream"
+        }
+    }
 }
+
+/// The Xcode Run Script "Bundle React frontend" copies `frontend/dist/*`
+/// into `<App>.app/web/` on every build. The scheme handler reads from
+/// here.
+private func bundledWebRoot() -> URL {
+    Bundle.main.bundleURL.appendingPathComponent("web", isDirectory: true)
+}
+
+private let appURL = URL(string: "app://localhost/index.html")!
 
 struct ContentView: View {
     var body: some View {
-        WebView(url: bundledIndexURL())
+        WebView()
             .ignoresSafeArea()
     }
 }
 
 struct WebView: UIViewRepresentable {
-    let url: URL
-
     func makeUIView(context: Context) -> WKWebView {
         print("[ContentView] makeUIView — building WKWebView with bridge")
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
+
+        // Register the custom scheme handler before creating the WKWebView.
+        let webRoot = bundledWebRoot()
+        if !FileManager.default.fileExists(atPath: webRoot.appendingPathComponent("index.html").path) {
+            fatalError("Bundled web/index.html not found at \(webRoot.path) — Run Script 'Bundle React frontend' didn't run")
+        }
+        config.setURLSchemeHandler(WebBundleSchemeHandler(webRoot: webRoot), forURLScheme: "app")
 
         let instrumentedShim = KataGoJSShim.source + """
 
@@ -59,11 +134,10 @@ struct WebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         if webView.url == nil {
-            // Phase 3: load bundled index.html via file://. Grant read access
-            // to the entire web/ directory so JS, CSS, and assets resolve.
-            // fetch() calls to the Render API will appear as Origin: null,
-            // which the backend's CORS allow-list must include.
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            // Load via custom `app://` scheme — gives the page a real origin
+            // (`app://localhost`) so ES modules work and CORS has a stable
+            // origin to allow.
+            webView.load(URLRequest(url: appURL))
         }
     }
 }
