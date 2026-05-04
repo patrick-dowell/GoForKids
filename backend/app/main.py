@@ -29,12 +29,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-_default_origins = "http://localhost:5173,http://localhost:3000"
+# `null` (literal string) is sent as the Origin header by WKWebView when the
+# iPad app loads its bundled index.html via file://. Allow it unconditionally
+# so the iPad app can call this API regardless of dashboard env-var config.
+_default_origins = "http://localhost:5173,http://localhost:3000,null"
 _allowed_origins = [
     o.strip()
     for o in os.environ.get("CORS_ALLOWED_ORIGINS", _default_origins).split(",")
     if o.strip()
 ]
+if "null" not in _allowed_origins:
+    _allowed_origins.append("null")
 
 app.add_middleware(
     CORSMiddleware,
