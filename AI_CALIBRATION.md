@@ -2,11 +2,19 @@
 
 How each bot rank was configured, tested, and tuned. Use this to recreate or refine any bot.
 
-> **Platform note (May 2026):** the calibration described here applies to web/Render
-> (the Python backend running `move_selector.py`). The iPad app (Phase 2A) currently
-> bypasses this entire pipeline and plays at a fixed 64-visit strength regardless of
-> selected rank — a temporary state until Path C ports `move_selector.py` to TypeScript.
-> See `DEVJOURNAL.md` Session 12 and `ios/README.md` for context.
+> **Platform note (May 2026):** Calibration values in this doc are loaded as YAML
+> (`data/profiles/b20.yaml`, `b28.yaml`) at runtime by both:
+>
+> - **Web / Render:** Python backend's `move_selector.py` reads the active YAML via
+>   `app/ai/profile_loader.py` (selected by `CALIBRATION_PROFILE_PATH`).
+> - **iPad app:** TypeScript port `frontend/src/ai/moveSelector.ts` imports
+>   `data/profiles/b28.yaml` at build time via `@rollup/plugin-yaml` and runs the
+>   same heuristic logic locally.
+>
+> Both deployments share one source of truth — edit a YAML once, both pick it up on
+> next deploy. Render currently runs b20 (b28 too slow on Render Standard, see
+> `feature_plans/20_b28_calibration.md`); iPad runs b28 (matches its bundled CoreML
+> model). See `DEVJOURNAL.md` Sessions 13–14 and `ios/README.md` for the iPad path.
 
 ## Architecture
 

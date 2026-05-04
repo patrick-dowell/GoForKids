@@ -1,5 +1,182 @@
 # Development Journal
 
+## Session 14 — May 4, 2026 (continuation)
+
+iPad gets the rest of the way to a finished app. Path C (TypeScript port
+of `move_selector.py`) and Phase 3 (bundle the React frontend into the
+app) both shipped in one push. The iPad now plays b28-calibrated bots
+that match web strength rank-for-rank, and ships its own UI rather than
+loading from Render.
+
+### Path C — `move_selector.py` ported to TypeScript
+
+Mechanical translation, ~280 lines of TS mirroring the 540-line Python.
+The Python remains the source of truth; TS is the iPad copy until smoke
+testing builds enough confidence to consider removing it.
+
+- `frontend/src/ai/profileLoader.ts` mirrors `profile_loader.py`. Imports
+  `data/profiles/b28.yaml` at build time via `@rollup/plugin-yaml` —
+  single source of truth shared with the Python backend, no JSON
+  conversion step. Vite's `server.fs.allow: ['..']` lets the import reach
+  outside the frontend root into the repo's `data/profiles/`.
+- `frontend/src/ai/moveSelector.ts` mirrors `move_selector.py` heuristic-
+  for-heuristic: eye-fill safety with 5-attempt retry, 30k pure-heuristic
+  atari/capture/local path, KataGo-backed pass detection (with the
+  min-pass-visits gate), tactical clarity gate, opening top-3 sampling
+  weighted by visits, random move injection, local bias, max_point_loss
+  candidate filter, and mistake-injected weighted selection.
+- The bridge surface flipped: the old `window.kataGo.aiMove(...)` is gone;
+  `analyze(...)` returns the full KataGo candidate list (move, visits,
+  winrate, prior, scoreLead, order). The TS selector picks the move
+  locally — bridge is intentionally dumb. scoreLead is normalized to
+  black's perspective at the bridge boundary.
+- `api.getAIMove(gameId, targetRank?)` takes an optional rank now.
+  `gameStore` passes `targetRank` for single-player and side-of-turn rank
+  for bot-vs-bot. Web HTTP path ignores it (backend reads target_rank
+  from the active-game record).
+
+Smoke-tested on M1 iPad: bridge fires, KataGo returns 1+ candidates per
+analyze, selector picks a sensible move, score graph still updates from
+the bridge's scoreLead. Not the full rank-by-rank smoke matrix — that's
+deferred until the user can play a few real games.
+
+### Phase 3 — bundle the React frontend
+
+Two-track problem: the universal config changes that affect both web and
+iPad, and the iOS-specific work to actually load the bundle.
+
+**Universal:**
+- Vite `base: './'` so asset URLs in built `index.html` are relative
+  (`./assets/foo.js` instead of `/assets/foo.js`). Works under both
+  `https://` (Render) and the `app://localhost/` we landed on for iPad.
+  Hash routing means SPA paths stay at `/` so this is safe for web.
+- `index.html` got `./vite.svg` instead of `/vite.svg` and a real title
+  ("GoForKids" instead of "Vite + React + TS"). Both shipped harmlessly
+  to web users.
+
+**iOS:**
+- Xcode Run Script "Bundle React frontend": `cd frontend && export
+  VITE_API_BASE_URL=https://goforkids-api.onrender.com && npm run build &&
+  cp -R dist/* "<App>.app/web/"`. Runs every build; takes ~2-3s.
+- `ContentView.swift` rewrite: instead of loading from Render's URL,
+  loads `app://localhost/index.html` via a custom URL scheme handler.
+
+### The blank-screen detour (real source: WKWebView refuses ES modules over file://)
+
+Phase 3 looked done after the run script worked — `cp -R` populated the
+bundle, `loadFileURL` opened the page, JS shim ran (we got the ping
+message). But the React app silently never mounted. Black screen.
+
+Trace was painful. Without Web Inspector (user preference) we had no
+visibility into JS errors. Built diagnostic plumbing into the bridge:
+console.{log,info,warn,error} interception, `window.onerror` capture-
+phase listener (catches script load failures that don't bubble), 2-second
+post-load DOM snapshot. Surfaced the actual error in one round-trip:
+
+```
+[JS error] resource load failed: SCRIPT
+  file:///.../KataGo iOS.app/web/assets/index-Bg6RR7q8.js
+```
+
+WKWebView refuses to execute `<script type="module">` over file://. Well-
+documented restriction; the standard fix is a custom URL scheme handler.
+
+`WebBundleSchemeHandler` (~50 lines) implements `WKURLSchemeHandler` for
+the `app` scheme. Registered on the WKWebViewConfiguration, it serves
+files from `<App>.app/web/` on demand. The page loads via
+`app://localhost/index.html`, has a real origin (`app://localhost`), and
+ES modules work. Backend CORS allow-list extended to include
+`app://localhost`.
+
+The diagnostic plumbing stayed — `[JS log]` / `[JS error]` / etc lines
+in the Xcode console are now permanent and free.
+
+### Things that bit us this session
+
+- **Render auto-deploy timing.** Path C frontend changes need to deploy
+  to Render BEFORE rebuilding the iPad app, or the WKWebView loads the
+  old client.ts that calls the deleted `bridge.aiMove()` instead of the
+  new `bridge.analyze()`. Cost ~5 min before that clicked.
+- **Xcode 16 Run Script default body.** When the user pasted my script,
+  Xcode's placeholder comment ("Type a script or drag a script file from
+  your workspace to insert its path.") leaked onto the same line as the
+  trailing `ls "${DST}"` diagnostic, producing `ls "${DST}"insert its
+  path.` — three bogus arguments and a non-zero exit. README now
+  explicitly warns to clear the placeholder before pasting, and the
+  diagnostic line is gone.
+- **`crossorigin` attribute on Vite-built script tags.** Stripped in the
+  Run Script via `sed` belt-and-suspenders. Custom scheme handler made
+  it unnecessary, but no harm in keeping the strip.
+- **Score graph "didn't render in production" replay.** Forgot during
+  Path C smoke test that `showScoreGraph` defaults to false in
+  localStorage and the iPad install is a fresh origin. Same bug, second
+  appearance, still fixed by toggling Settings.
+
+### Architecture after this session
+
+```
+┌──────────────────────┐                ┌──────────────────────┐
+│      iPad app        │                │       Render         │
+│                      │                │                      │
+│ WKWebView            │                │  goforkids-api       │
+│  (app://localhost)   │   game state   │  FastAPI + KataGo    │
+│        │             │   /move /pass  │  (CPU, b20 default)  │
+│        ▼             │ ◄────────────► │                      │
+│ Bundled React app    │                └──────────────────────┘
+│ (frontend/dist)      │
+│        │             │
+│        ▼             │
+│ window.kataGo        │
+│        │             │
+│        ▼             │  AI inference + selection 100% on-device.
+│ KataGoBridge.swift   │  TS selector consumes b28.yaml (same file
+│ (analyze only)       │  Render's Python uses) for rank profiles.
+│        │             │
+│        ▼             │
+│ KataGoHelper.mm      │
+│ → CoreML on ANE      │
+└──────────────────────┘
+```
+
+Single source of truth for everything calibration-related:
+`data/profiles/b28.yaml` shared between TS (iPad) and Python (Render).
+Single source of truth for UI: `frontend/src/`. The bridge detection in
+`client.ts` is the only frontend code that knows whether it's running on
+the iPad or the web.
+
+### Roadmap update
+
+| Phase | Status | What |
+|---|---|---|
+| 2A | ✅ Done | Native bridge for AI moves + scoreLead |
+| C  | ✅ Done | TS port of `move_selector.py`; iPad bots b28-calibrated |
+| 3  | ✅ Done | Bundle React UI in app; loads via `app://` custom scheme |
+| D  | next | Port game state (board/captures/ko/scoring) to TS so iPad doesn't need Render at all (~6-10h, mostly mechanical) |
+| Hygiene | when convenient | Bundle Identifier from `ccy.KataGo-iOS` to phasesix-branded |
+| Smoke matrix | when convenient | Real games at each rank × board on iPad to confirm the b28 calibration carried over correctly |
+
+### Lesson worth keeping
+
+Diagnostic plumbing pays. The bridge's `[JS error]` / `[JS log]`
+forwarding took 30 minutes to write and immediately surfaced the
+ES-module-under-file:// failure that would have taken hours to find by
+guessing. It's now permanent infrastructure — every JS error from now on
+shows up in Xcode console without any ceremony. Worth the upfront cost
+on any system that has a hard-to-inspect runtime.
+
+### Deferred to next session
+
+- Phase D: TS port of game state (Board/captures/ko/scoring) to make
+  iPad fully offline. Largest remaining iPad piece.
+- Smoke matrix on iPad (each rank × board) to confirm Path C parity
+  with the Python.
+- Optional: remove `move_selector.py` from the iPad code path (already
+  not invoked from iPad — purely cleanup).
+- Custom domain registration (still deferred from Session 11)
+- Sentry + Plausible analytics (still deferred from Session 11)
+
+---
+
 ## Session 13 — May 1 - 4, 2026
 
 Feature 20 (b28 bot calibration) — start to finish in one extended push. All

@@ -4,9 +4,13 @@ Native iPad build of GoForKids. Wraps the existing React frontend in a
 WKWebView, replaces Render-hosted KataGo inference with on-device CoreML
 running on the Neural Engine.
 
-**Status (Phase 2A, 2026-05-01):** working end-to-end on real M-series
-iPads. AI moves + score lead computed locally. UI still loads from Render;
-game state still lives on Render. See **Roadmap** below.
+**Status (Phase 3 done, 2026-05-04):** working end-to-end on real M-series
+iPads. UI is bundled in the app and loaded via a custom `app://` URL scheme.
+AI moves, score lead, and rank-calibrated move selection all run on-device
+(KataGo CoreML + TypeScript port of `move_selector.py` reading the same
+`data/profiles/b28.yaml` Render's Python backend uses). Game-state endpoints
+(/move, /pass, /score) still hit Render — making the iPad fully offline is
+**Phase D**, the next iPad milestone. See **Roadmap** below.
 
 ## Why this directory looks weird
 
@@ -182,16 +186,17 @@ compilation (~30s on M1; cached afterward in Application Support).
 ┌──────────────────────┐                ┌──────────────────────┐
 │      iPad app        │                │       Render         │
 │                      │                │                      │
-│  WKWebView (file://) │                │  goforkids-api       │
-│        │             │                │  FastAPI + KataGo    │
-│        ▼             │  game state    │  (CPU, b20)          │
-│  Bundled React app   │  /move /pass   │                      │
-│  (frontend/dist      │ ◄────────────► │                      │
-│   shipped in app)    │                └──────────────────────┘
+│  WKWebView           │                │  goforkids-api       │
+│   (app://localhost)  │                │  FastAPI + KataGo    │
+│        │             │  game state    │  (CPU, b20)          │
+│        ▼             │  /move /pass   │                      │
+│  Bundled React app   │ ◄────────────► │                      │
+│  (frontend/dist      │                └──────────────────────┘
+│   shipped in app)    │
 │        │             │
 │        ▼             │
 │  window.kataGo       │
-│        │             │  AI inference is fully on-device.
+│        │             │  AI inference + rank selection 100% on-device.
 │        ▼             │  Render is only used for game-state
 │  KataGoBridge.swift  │  endpoints (board, captures, ko).
 │        │             │
