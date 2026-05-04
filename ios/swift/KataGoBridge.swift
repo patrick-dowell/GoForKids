@@ -55,6 +55,12 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
             return try analyze(params: params)
         case "ping":
             return ["pong": true]
+        case "log":
+            // Diagnostic: print JS console / errors into Xcode console.
+            let level = (params["level"] as? String) ?? "log"
+            let msg = (params["msg"] as? String) ?? ""
+            print("[JS \(level)] \(msg)")
+            return ["ok": true]
         default:
             throw BridgeError.unknownCommand(cmd)
         }
@@ -253,6 +259,63 @@ enum KataGoJSShim {
         ping: () => call('ping', {}),
         analyze: (params) => call('analyze', params)
       };
+
+      // --- Diagnostic console / error interceptor ---------------------------
+      // Routes window.onerror, unhandled rejections, and console.{log,info,
+      // warn,error} through the bridge so they show up in Xcode console with
+      // a [JS <level>] prefix. Without this we have zero visibility into JS
+      // failures unless Web Inspector is attached.
+      function postLog(level, args) {
+        try {
+          var msg = Array.prototype.map.call(args, function(a) {
+            if (a instanceof Error) return a.stack || (a.name + ': ' + a.message);
+            if (typeof a === 'object') {
+              try { return JSON.stringify(a); } catch (e) { return String(a); }
+            }
+            return String(a);
+          }).join(' ');
+          window.webkit.messageHandlers.katago.postMessage({
+            id: nextId++,
+            cmd: 'log',
+            params: { level: level, msg: msg }
+          });
+        } catch (e) {
+          // last-resort: bridge unavailable — nothing we can do.
+        }
+      }
+      var origLog = console.log, origInfo = console.info, origWarn = console.warn, origErr = console.error;
+      console.log = function() { postLog('log', arguments); origLog.apply(console, arguments); };
+      console.info = function() { postLog('info', arguments); origInfo.apply(console, arguments); };
+      console.warn = function() { postLog('warn', arguments); origWarn.apply(console, arguments); };
+      console.error = function() { postLog('error', arguments); origErr.apply(console, arguments); };
+      window.addEventListener('error', function(e) {
+        // Capture script load failures (e.target is the failing script/link).
+        if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
+          postLog('error', ['resource load failed:', e.target.tagName, e.target.src || e.target.href]);
+        } else {
+          postLog('error', ['window.error:', e.message, 'at', e.filename + ':' + e.lineno + ':' + e.colno]);
+        }
+      }, true);  // capture-phase: catches script/link load failures that don't bubble
+      window.addEventListener('unhandledrejection', function(e) {
+        postLog('error', ['unhandled rejection:', e.reason && (e.reason.stack || e.reason.message || e.reason)]);
+      });
+      // After 2s, dump page state — catches "silent script never executed".
+      setTimeout(function() {
+        var rootEl = document.getElementById('root');
+        var rootChildren = rootEl ? rootEl.children.length : -1;
+        var scripts = [];
+        for (var i = 0; i < document.scripts.length; i++) {
+          var s = document.scripts[i];
+          scripts.push((s.src || '<inline>') + ' type=' + (s.type || ''));
+        }
+        var styles = [];
+        var ssLinks = document.querySelectorAll('link[rel="stylesheet"]');
+        for (var j = 0; j < ssLinks.length; j++) styles.push(ssLinks[j].href);
+        postLog('log', ['[diag@2s] location=' + location.href]);
+        postLog('log', ['[diag@2s] document.readyState=' + document.readyState + ' #root.children=' + rootChildren]);
+        postLog('log', ['[diag@2s] scripts=' + JSON.stringify(scripts)]);
+        postLog('log', ['[diag@2s] stylesheets=' + JSON.stringify(styles)]);
+      }, 2000);
     })();
     """
 }
