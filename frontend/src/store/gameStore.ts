@@ -595,13 +595,16 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   requestAIMove: async () => {
-    const { gameId, _game, phase } = get();
+    const { gameId, _game, phase, targetRank } = get();
     if (!gameId || phase !== 'playing') return;
 
     set({ aiThinking: true });
 
     try {
-      const aiMove = await api.getAIMove(gameId);
+      // Pass targetRank so the iPad bridge path can apply rank-calibrated
+      // selection. Web (HTTP) path ignores it — backend reads target_rank
+      // from the active-game record.
+      const aiMove = await api.getAIMove(gameId, targetRank);
       // Re-check state hasn't changed (e.g., user resigned while AI was thinking)
       if (get().phase !== 'playing') {
         set({ aiThinking: false });
@@ -682,13 +685,16 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   requestBotVsBotMove: async () => {
-    const { gameId, _game, phase, botVsBotPaused, botVsBotSpeed } = get();
+    const { gameId, _game, phase, botVsBotPaused, botVsBotSpeed, blackRank, whiteRank } = get();
     if (!gameId || phase !== 'playing' || botVsBotPaused) return;
 
     set({ aiThinking: true });
 
     try {
-      const aiMove = await api.getAIMove(gameId);
+      // Bot-vs-bot: pick the rank for whoever's turn it is. iPad bridge path
+      // uses this to apply per-bot calibration; HTTP path ignores it.
+      const sideRank = _game.currentColor === Color.Black ? blackRank : whiteRank;
+      const aiMove = await api.getAIMove(gameId, sideRank ?? '15k');
       if (get().phase !== 'playing') {
         set({ aiThinking: false });
         return;

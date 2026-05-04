@@ -3,20 +3,45 @@
  * WKWebView (the bridge is injected by Swift at document-start). On the web,
  * `window.kataGo` is undefined and callers fall back to the HTTP backend.
  *
- * Phase 2A: fixed-strength AI on iPad (no rank calibration yet). Bot rank
- * profile logic still lives in Python and ships only via Render.
+ * Path C (May 2026): bridge returns the full KataGo candidate list, and
+ * frontend/src/ai/moveSelector.ts picks the actual move using b28-calibrated
+ * profile logic. The bridge is intentionally dumb — it does NOT pick a move,
+ * just runs analysis.
  */
+
+/** One candidate from `kata-genmove_analyze`. Bridge passes through the
+ *  raw KataGo fields; fields are optional because parser drops malformed ones. */
+export interface BridgeCandidate {
+  /** GTP coord like "C4", or "pass". */
+  move: string;
+  visits?: number;
+  winrate?: number;
+  /** Already flipped to black's perspective by the bridge. */
+  scoreLead?: number;
+  scoreMean?: number;
+  prior?: number;
+  /** KataGo's preference rank (0 = best). Bridge sorts the array by this. */
+  order?: number;
+}
+
+export interface BridgeAnalysis {
+  candidates: BridgeCandidate[];
+  rootVisits: number;
+  /** The move KataGo would have picked (best candidate per its own logic).
+   *  Useful only for diagnostics; the selector ignores it. */
+  kataGoPlayedMove: string;
+}
 
 export interface KataGoBridge {
   ping(): Promise<{ pong: boolean }>;
-  aiMove(params: {
+  analyze(params: {
     boardSize: number;
     komi: number;
     rules?: string;
     moves: Array<{ color: 'B' | 'W'; point: string }>;
     color: 'B' | 'W';
     maxVisits: number;
-  }): Promise<{ point: string; scoreLead?: number }>;
+  }): Promise<BridgeAnalysis>;
 }
 
 declare global {
