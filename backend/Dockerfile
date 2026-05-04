@@ -72,12 +72,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /opt/katago/squashfs-root /opt/katago/squashfs-root
 COPY backend/configs/analysis_example.cfg     /opt/katago/configs/analysis_example.cfg
+
+# Both KataGo networks ship in the image so we can flip between them at
+# runtime via env vars without rebuilding. b28 is the production-active
+# default (set via ENV below); b20 stays bundled as a hot-rollback target.
+# Cost: extra ~87 MB of image size.
+COPY backend/models/b20.bin.gz                /opt/katago/models/b20.bin.gz
 COPY backend/models/b28.bin.gz                /opt/katago/models/b28.bin.gz
 
 # Bot rank profiles. Source of truth lives at data/profiles/ in the repo;
 # the image bakes them at /opt/profiles/. b28.yaml is the production-active
-# calibration; b20.yaml is also bundled so you can flip the env var without
-# rebuilding (e.g. CALIBRATION_PROFILE_PATH=/opt/profiles/b20.yaml).
+# calibration; b20.yaml is also bundled. To roll back: override both
+# KATAGO_MODEL=/opt/katago/models/b20.bin.gz AND
+# CALIBRATION_PROFILE_PATH=/opt/profiles/b20.yaml in the runtime env.
 COPY data/profiles                            /opt/profiles
 
 WORKDIR /app
