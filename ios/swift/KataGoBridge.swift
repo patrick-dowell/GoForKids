@@ -51,8 +51,8 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
 
     private func handle(cmd: String, params: [String: Any]) throws -> [String: Any] {
         switch cmd {
-        case "aiMove":
-            return try aiMove(params: params)
+        case "analyze":
+            return try analyze(params: params)
         case "ping":
             return ["pong": true]
         default:
@@ -60,7 +60,11 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
         }
     }
 
-    private func aiMove(params: [String: Any]) throws -> [String: Any] {
+    /// Run KataGo analysis on a position and return ALL candidates with their
+    /// per-move stats (visits, winrate, prior, scoreLead, order). The frontend's
+    /// rank-calibrated selector (frontend/src/ai/moveSelector.ts) consumes this
+    /// list and applies bot-rank logic — the bridge is intentionally dumb.
+    private func analyze(params: [String: Any]) throws -> [String: Any] {
         guard let boardSize = params["boardSize"] as? Int,
               let komi = params["komi"] as? Double,
               let moves = params["moves"] as? [[String: String]],
@@ -69,7 +73,7 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
             throw BridgeError.invalidParams
         }
         let rules = (params["rules"] as? String) ?? "tromp-taylor"
-        print("[Bridge] aiMove: boardSize=\(boardSize) komi=\(komi) rules=\(rules) moves=\(moves.count) color=\(color) maxVisits=\(maxVisits)")
+        print("[Bridge] analyze: boardSize=\(boardSize) komi=\(komi) rules=\(rules) moves=\(moves.count) color=\(color) maxVisits=\(maxVisits)")
 
         let startTime = Date()
         gtp("clear_board")
@@ -85,11 +89,15 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
         gtp("kata-set-param maxTime 60")
 
         // kata-genmove_analyze streams `info` lines (one per candidate) then
-        // ends with `play <move>`. Parse the info line matching the played
-        // move to extract scoreLead.
+        // ends with `play <move>`. Parse every info line into a candidate dict.
         KataGoHelper.sendCommand("kata-genmove_analyze \(color)")
         var playedMove: String? = nil
-        var infosByMove: [String: Double] = [:]
+        // Keep the LAST info line per move (KataGo emits multiple as the search
+        // progresses; later lines have the final visit counts).
+        var candidatesByMove: [String: [String: Any]] = [:]
+        // Preserve insertion order so we can also report it back; we override
+        // it with the explicit `order N` field if present.
+        var moveOrder: [String] = []
         var rawLines = 0
         while true {
             let line = KataGoHelper.getMessageLine()
@@ -98,51 +106,80 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
                 playedMove = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
             } else if line.hasPrefix("info ") {
                 if let parsed = parseInfoLine(line) {
-                    infosByMove[parsed.move] = parsed.scoreLead
+                    if candidatesByMove[parsed["move"] as! String] == nil {
+                        moveOrder.append(parsed["move"] as! String)
+                    }
+                    candidatesByMove[parsed["move"] as! String] = parsed
                 }
             } else if playedMove != nil && line.isEmpty {
                 break
-            } else if rawLines > 10000 {
+            } else if rawLines > 50000 {
                 break  // safety: never spin forever
             }
         }
         let elapsed = Date().timeIntervalSince(startTime)
 
-        guard let move = playedMove else {
-            print("[Bridge] aiMove: failed to parse play line")
-            throw BridgeError.invalidParams
+        // Sort candidates by their explicit `order` field (KataGo's preference,
+        // 0 = best). Pass this on so the frontend's selector treats array
+        // index 0 as the best candidate, matching the Python's behavior.
+        let sortedKeys = moveOrder.sorted { a, b in
+            let ao = (candidatesByMove[a]?["order"] as? Int) ?? Int.max
+            let bo = (candidatesByMove[b]?["order"] as? Int) ?? Int.max
+            return ao < bo
         }
 
-        // KataGo's scoreLead is from the perspective of the side to move.
-        // Convert to Black's perspective for the frontend score graph.
-        var scoreLeadBlack: Double? = nil
-        if let raw = infosByMove[move] {
-            scoreLeadBlack = (color.uppercased() == "B") ? raw : -raw
+        // Flip scoreLead to black's perspective. KataGo emits it from the
+        // side-to-move's perspective; the frontend score graph + selector both
+        // expect black's perspective for consistency with GameStateDTO.
+        var candidatesOut: [[String: Any]] = []
+        for key in sortedKeys {
+            guard var cand = candidatesByMove[key] else { continue }
+            if let raw = cand["scoreLead"] as? Double {
+                cand["scoreLead"] = (color.uppercased() == "B") ? raw : -raw
+            }
+            candidatesOut.append(cand)
         }
 
-        var result: [String: Any] = ["point": move]
-        if let s = scoreLeadBlack { result["scoreLead"] = s }
-        let scoreStr = scoreLeadBlack.map { String(format: "%.2f", $0) } ?? "—"
-        print("[Bridge] aiMove returned '\(move)' scoreLead(B)=\(scoreStr) in \(String(format: "%.2f", elapsed))s")
-        return result
+        let bestPreview: String = {
+            guard let first = candidatesOut.first else { return "—" }
+            let mv = (first["move"] as? String) ?? "?"
+            let sl = (first["scoreLead"] as? Double).map { String(format: "%.2f", $0) } ?? "—"
+            let v = (first["visits"] as? Int).map { String($0) } ?? "?"
+            return "\(mv) sl=\(sl) v=\(v)"
+        }()
+        print("[Bridge] analyze returned \(candidatesOut.count) candidates (best: \(bestPreview)) in \(String(format: "%.2f", elapsed))s")
+
+        return [
+            "candidates": candidatesOut,
+            "rootVisits": maxVisits,
+            "kataGoPlayedMove": playedMove ?? "",
+        ]
     }
 
     /// Parse a `kata-genmove_analyze` info line like
-    /// `info move C4 visits 5 winrate 0.95 ... scoreLead 1.23 ... pv C4 D5 ...`
-    /// Looks up `scoreLead` by token, ignoring the variable-length `pv` tail.
-    private func parseInfoLine(_ line: String) -> (move: String, scoreLead: Double)? {
+    /// `info move C4 visits 5 winrate 0.95 ... scoreLead 1.23 prior 0.18 order 0 pv C4 D5 ...`
+    /// Stops at the `pv` token (variable-length tail). Returns dict with the
+    /// frontend's expected keys; missing fields are simply omitted.
+    private func parseInfoLine(_ line: String) -> [String: Any]? {
         let tokens = line.split(separator: " ").map(String.init)
         guard tokens.count >= 4, tokens[0] == "info", tokens[1] == "move" else { return nil }
-        let move = tokens[2]
+        var out: [String: Any] = ["move": tokens[2]]
         var i = 3
         while i + 1 < tokens.count {
-            if tokens[i] == "pv" { break }  // pv is variable-length, stops scoreLead lookup
-            if tokens[i] == "scoreLead", let value = Double(tokens[i + 1]) {
-                return (move, value)
+            let key = tokens[i]
+            if key == "pv" { break }  // variable-length tail
+            let valTok = tokens[i + 1]
+            switch key {
+            case "visits", "order":
+                if let v = Int(valTok) { out[key] = v }
+            case "winrate", "scoreLead", "scoreMean", "scoreStdev", "prior", "utility", "utilityLcb":
+                if let v = Double(valTok) { out[key] = v }
+            default:
+                break  // unknown key; ignore
             }
             i += 2
         }
-        return nil
+        return out
     }
 
     @discardableResult
@@ -214,7 +251,7 @@ enum KataGoJSShim {
       }
       window.kataGo = {
         ping: () => call('ping', {}),
-        aiMove: (params) => call('aiMove', params)
+        analyze: (params) => call('analyze', params)
       };
     })();
     """
