@@ -112,54 +112,107 @@ Bundle Identifier defaults to `ccy.KataGo-iOS` (the fork's). Change to
 `Assets.xcassets` → `AppIcon` → drag `ios/AppIcon-1024.png` into the
 1024 slot.
 
-### 6. Build & run on iPad
+### 6. Add the "Bundle React frontend" Run Script (Phase 3)
+
+The iPad app loads its UI from a bundled copy of the React frontend
+(NOT from Render). A Run Script build phase rebuilds the frontend and
+copies `dist/` into the app bundle on every Xcode build.
+
+1. Project navigator → `KataGo iOS` (blue icon) → target `KataGo iOS` → **Build Phases**.
+2. Top of Build Phases area, click **`+`** → **New Run Script Phase**.
+3. **Drag it above "Copy Bundle Resources"** (and below the existing "Copy raw mlpackage" Run Script — order doesn't actually matter between the two, but keeps things tidy).
+4. Rename the phase to **"Bundle React frontend"**.
+5. Paste this script:
+   ```sh
+   set -e
+
+   FRONTEND_DIR="/Users/patrickdowell/Projects/GoForKids/frontend"
+   DST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/web"
+
+   echo "=== Bundle React frontend phase ==="
+   echo "  frontend: ${FRONTEND_DIR}"
+   echo "  dst:      ${DST}"
+
+   if [ ! -d "${FRONTEND_DIR}" ]; then
+     echo "ERROR: frontend directory missing at ${FRONTEND_DIR}"
+     exit 1
+   fi
+
+   # Build with Render API as the backend (HTTP fetches still go to Render
+   # for game state; the bridge handles AI inference locally).
+   cd "${FRONTEND_DIR}"
+   export VITE_API_BASE_URL="https://goforkids-api.onrender.com"
+   # Xcode build env doesn't include Homebrew/NVM by default. Add common
+   # node install locations so npm resolves.
+   export PATH="/opt/homebrew/bin:/usr/local/bin:${HOME}/.nvm/versions/node/$(ls ${HOME}/.nvm/versions/node 2>/dev/null | tail -1)/bin:${PATH}"
+   npm run build
+
+   # Copy dist/ into the app bundle's web/ subdirectory.
+   rm -rf "${DST}"
+   mkdir -p "${DST}"
+   cp -R dist/* "${DST}/"
+
+   echo "Bundle complete:"
+   ls "${DST}"
+   ```
+6. **Critical checkboxes:**
+   - ⬜ **"Based on dependency analysis"** → **UNCHECKED** (so it runs every build — frontend changes don't trigger Xcode dependency tracking)
+   - ⬜ **"Show environment variables in build log"** → CHECKED (helps debug PATH issues)
+
+If `npm run build` fails with "command not found", check the build log to see what `${PATH}` resolved to and add your node install path.
+
+### 7. Build & run on iPad
 
 `⌘R` to your connected iPad. First launch incurs a one-time CoreML model
 compilation (~30s on M1; cached afterward in Application Support).
 
-## Architecture (Phase 2A)
+## Architecture (Phase 3)
 
 ```
-┌──────────────┐                    ┌──────────────────────┐
-│   iPad app   │                    │     Render (web)     │
-│              │                    │                      │
-│   WKWebView  │  loads UI          │  React frontend      │
-│      │       │ ─────────────────► │  (single src tree)   │
-│      ▼       │                    │                      │
-│  React app   │  game state,       │  FastAPI backend     │
-│   (same JS   │  /move /pass etc.  │  + KataGo (CPU)      │
-│   as web)    │ ◄────────────────► │                      │
-│      │       │                    └──────────────────────┘
-│      ▼       │
-│ window.kataGo│
-│      │       │
-│      ▼       │
-│ KataGoBridge │  GTP commands
-│  (Swift)     │ ───────────┐
-│              │            │
-│              │            ▼
-│              │     KataGoHelper.mm
-│              │     (ObjC++ → C++ engine)
-│              │            │
-│              │            ▼
-│              │     CoreML on Neural Engine
-└──────────────┘
+┌──────────────────────┐                ┌──────────────────────┐
+│      iPad app        │                │       Render         │
+│                      │                │                      │
+│  WKWebView (file://) │                │  goforkids-api       │
+│        │             │                │  FastAPI + KataGo    │
+│        ▼             │  game state    │  (CPU, b20)          │
+│  Bundled React app   │  /move /pass   │                      │
+│  (frontend/dist      │ ◄────────────► │                      │
+│   shipped in app)    │                └──────────────────────┘
+│        │             │
+│        ▼             │
+│  window.kataGo       │
+│        │             │  AI inference is fully on-device.
+│        ▼             │  Render is only used for game-state
+│  KataGoBridge.swift  │  endpoints (board, captures, ko).
+│        │             │
+│        ▼             │
+│  KataGoHelper.mm     │
+│  (ObjC++ → C++)      │
+│        │             │
+│        ▼             │
+│  CoreML on ANE       │
+└──────────────────────┘
 ```
 
-Single React codebase serves both web (Render) and iPad (WKWebView).
-`frontend/src/api/client.ts` detects `window.kataGo` and routes AI
-inference through the bridge instead of HTTP. Web users see no behavior
-change.
+Single React codebase (`frontend/src/`) serves both web (Render-deployed)
+and iPad (bundled). `frontend/src/api/client.ts` detects `window.kataGo`
+and routes AI inference through the bridge instead of HTTP. AI rank
+selection is done by `frontend/src/ai/moveSelector.ts` reading
+`data/profiles/b28.yaml` — same source the Python backend uses.
+
+UI ships with the iPad app, so the React assets work even if Render is
+down. The backend (game state) still requires Render to be reachable —
+making the iPad fully offline is Phase D.
 
 ## Roadmap
 
 | Phase | Status | What |
 |---|---|---|
 | 2A | ✅ Done | Native bridge for AI moves + scoreLead |
-| 2B | next | (optional) Captures animation, pass/resign UI polish |
-| C  | recommended next | Port `backend/app/ai/move_selector.py` to TypeScript so iPad bots are properly rank-calibrated. Currently iPad ignores rank and plays at fixed 64 visits. The b28 calibrated profiles are now committed at `data/profiles/b28.yaml` (see `AI_CALIBRATION.md`); the TS port can consume them directly via `js-yaml` and apply the same heuristic logic as `move_selector.py` |
-| 3  | after C | Bundle frontend locally so the iPad UI works offline (no Render needed for assets). Required for App Store guideline 4.2 |
-| D  | after 3 | Port game state (board, captures, ko, scoring) to TypeScript so iPad doesn't need Render at all |
+| C  | ✅ Done | TS port of `move_selector.py` so iPad bots are b28-calibrated |
+| 3  | ✅ Done | Bundle frontend locally so iPad UI ships with the app (no Render dependency for assets) |
+| D  | next | Port game state (board, captures, ko, scoring) to TypeScript so iPad doesn't need Render at all |
+| 2B | optional | Captures animation, pass/resign UI polish |
 
 See `DEVJOURNAL.md` for the session-by-session story.
 
