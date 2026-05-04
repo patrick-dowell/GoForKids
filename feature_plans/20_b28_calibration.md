@@ -1,7 +1,15 @@
 # 20 — b28 Bot Calibration Harness
 
-**Status:** 📝 Planned
+**Status:** ✅ Complete (2026-05-04)
 **Priority:** High (blocks the b20 → b28 model swap on Render+local; that swap blocks Path C / iPad rank calibration)
+
+## Outcome
+
+All 16 explicit profiles calibrated. Harness, b28 model, and tuned YAML are checked in. Render currently runs **b20 by default** — the rebuild deploy went out as b28 first, but per-move latency on Render Standard (1 vCPU + 2 GB) was unacceptable, so production was reverted to b20. Both networks ship in the image; flipping back to b28 is a runtime env-var change (`KATAGO_MODEL` + `CALIBRATION_PROFILE_PATH`), no rebuild needed.
+
+Full per-profile rate/margin table, key learnings (heavy-noise template, `max_point_loss` insight), and the LFS-pointer-file postmortem all live in `AI_CALIBRATION.md` under "b28 calibration outcome" — see that section for the canonical record. Per-profile iteration history is also captured inline as comments in `data/profiles/b28.yaml`.
+
+In short: the calibration is **done and committed**, but the b28 deploy itself is **paused on resource grounds**. b28 stays a one-env-var flip away whenever Render gets beefier or for local Mac / iPad use where Metal/ANE makes it fast.
 
 ## What
 

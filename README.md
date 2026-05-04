@@ -70,6 +70,16 @@ export KATAGO_MODEL=/path/to/model.bin.gz
 export KATAGO_CONFIG=/path/to/analysis.cfg
 ```
 
+Bot rank profiles are loaded from YAML at runtime (see `data/profiles/`).
+Both `b20.yaml` and `b28.yaml` ship in the production image; the active
+profile is controlled by `CALIBRATION_PROFILE_PATH`. Production currently
+defaults to b20 — b28 was calibrated head-to-head against b20 (see
+`AI_CALIBRATION.md` "b28 calibration outcome" + `feature_plans/20_b28_calibration.md`)
+but its per-move latency on Render Standard is too high; flipping back
+to b28 is a single env-var override (`KATAGO_MODEL` + `CALIBRATION_PROFILE_PATH`),
+no rebuild required. b28 is the right choice on local Mac (Metal) or iPad
+(ANE) where inference is fast.
+
 For study mode narratives, set your Anthropic API key:
 
 ```bash

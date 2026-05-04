@@ -1,6 +1,191 @@
 # Development Journal
 
-## Session 12 — April 30 - May 1, 2026
+## Session 13 — May 1 - 4, 2026
+
+Feature 20 (b28 bot calibration) — start to finish in one extended push. All
+16 explicit profiles calibrated against the b20 baseline, infrastructure
+to swap models in place, then a strategic retreat on the production deploy
+because b28 is too slow on Render Standard.
+
+### Phase 1 — YAML refactor (load-bearing prerequisite)
+
+Three commits before any calibration could even start. The 350+ lines of
+hardcoded `RANK_PROFILES_*` dicts in `move_selector.py` got pulled into
+`data/profiles/b20.yaml` (verbatim translation, AST-diffed against the
+original to confirm zero drift). New `app/ai/profile_loader.py` reads the
+file referenced by `CALIBRATION_PROFILE_PATH` at runtime with the same
+fallback semantics (size → 19x19 → 15k). `move_selector.py` shrank from
+888 lines to 541, calibration is now an edit-and-rerun loop instead of
+edit-restart.
+
+Docker context expansion was the unexpected gotcha here. `data/profiles/`
+lives at the repo root but the build context was `./backend`, so the YAML
+wouldn't have been available in the production image. Fixed by moving the
+build context up to repo root (changes in `docker-compose.yml`,
+`render.yaml`, root `.dockerignore`). That cascaded into discovering three
+*more* Docker bugs: `platforms: [linux/amd64]` had to move under `build:`
+instead of just `service:` so cross-arch builds worked on Apple Silicon;
+the KataGo AppImage wouldn't execute under buildx + QEMU emulation
+(`Exec format error`); and `unsquashfs` without a manual offset returned
+"no superblock" because grep'ing for the `hsqs` magic finds a false
+positive at byte 194134 inside the runtime ELF — fixed by parsing the ELF
+section header table to compute the real squashfs offset.
+
+### Phase 2 — calibration harness
+
+`data/calibrate_b28.py` runs head-to-head matches between two backend
+instances on different ports with different model+YAML pairs. Per-game
+protocol: each backend creates a parallel game, the "owner" backend (the
+one whose AI plays the current color) runs `/ai-move`, and the chosen
+move is mirrored to the other backend via `/move` or `/pass`. Color
+ownership alternates per game so first-move advantage washes out.
+
+One subtle bug surfaced: the harness's first design did a follow-up
+`GET /games/{id}` to read the result, but the backend deletes the
+active-game row when `_score_game_async` runs, so the GET 404'd. Fix:
+extract the result from the response body of the call that ended the
+game — `/ai-move` surfaces it via `final_state`, `/pass` and `/move`
+inline. No more trailing GET.
+
+Phase 0 sanity (mandatory before tuning anything): 100 games at 15k 9×9,
+*both* backends running b20 + b20.yaml. Hit 55/100 = 55.0% (95% CI
+45.2-64.4%, margin +7.24). Inside the 45-55% target band; harness was
+measuring correctly.
+
+### Phase 3 — the silent stub-AI disaster
+
+First half-day of "real" calibration runs were silently invalid. The
+`backend/models/b28.bin.gz` file in the working tree had reverted to its
+134-byte git-LFS pointer (the `.gitattributes` filter on `*.bin.gz` was
+new and the working-tree file hadn't been re-smudged after a session
+break). KataGo failed to load the pointer; `engine.py`'s exception handler
+silently set `_engine = None`; `move_selector.py` fell back to
+`_pick_random_legal()`. Every "calibration" run was actually measuring
+b20-vs-random-legal-move-bot. The signature was a wildly out-of-band rate
+(10-40%) with huge margins (-32 pts/game) — all of which we'd been
+"explaining" with theories about b28's score_lead estimates being noisier.
+
+Three defenses landed in commit `c397214`:
+
+1. `STRICT_KATAGO=1` env var — in strict mode, missing/broken model files
+   and engine-start failures *raise* instead of degrading to stub AI.
+   Includes an explicit guard for files <1 MB with a "run `git lfs pull`"
+   hint.
+2. Pre-launch model-size check in `make calibrate-up*` — refuses to
+   start backends with a model file < 1 MB.
+3. Post-launch `/ai-move` smoke that verifies `score_lead` is non-null.
+   Stub AI returns `null`; real KataGo returns a number.
+
+After the hardening, every measurement was valid. Yesterday's "results"
+got discarded and the work restarted from 5×5 30k.
+
+### Phase 4 — calibration loop (the long part)
+
+13 of the original plan's 13 profiles plus 2 extras (9×9 1d and 19×19 1d
+were exposed in the picker but missed by the plan's matrix) — 15 total.
+Sample-size policy got loosened from the plan's 30/100 to 30/50 to fit a
+~25 hour total budget; CI widens from ±9.6% to ±13.4%.
+
+Two cross-cutting findings worth remembering:
+
+**Heavy-noise template.** For every profile where b28 dominated (which
+turned out to be most of the 19×19 ladder), a four-knob change pulled the
+rate down: cut `visits` 75-90%, bump `mistake_freq` 1.5-3×, bump
+`random_move_chance` to 0.10-0.20, cap `max_point_loss`. 19×19 30k went
+from 90% → 67%. 19×19 12k, 9k, 6k all landed in the strict 45-55% band
+on the first heavy-noise iteration.
+
+**`max_point_loss` matters more than expected.** At 13×13 30k the
+b20-clone was *too weak* (33%) — flipped by lowering `max_point_loss`
+35 → 22. The mechanism: b28's `score_lead` estimates are sharper, so a
+"30 pts worse" mistake on b28 really is 30 pts worse, while b20's
+noisier estimates yielded smaller real losses for the same nominal cap.
+Capping the point-loss range capped real damage. Single most impactful
+one-knob change in the whole calibration.
+
+Two profiles refused to come into band no matter what we tried.
+`13×13 15k` was tested across 5 rounds (`visits` ∈ {6,12,18,40} ×
+`mistake_freq` ∈ {0.42, 0.55} × `max_pl` ∈ {22, 30}) — every round
+landed 70-83%. Combined 115/150 = 76.7%. Locked at b20-clone with
+documented over-strength. `19×19 18k` similar story. Both will play
+~1 rank stronger than nominal. Fixable with profile-asymmetric levers
+(different visit counts on b20-side vs b28-side) but the YAML schema
+doesn't support that yet.
+
+Final results table is in `AI_CALIBRATION.md` under "b28 calibration
+outcome" — 6/16 profiles in strict band, 14/16 in sanity band, all
+functional. Per-profile iteration history is captured inline as comments
+in `data/profiles/b28.yaml`.
+
+### Phase 5 — production deploy and immediate rollback
+
+Renamed `b28_candidate.yaml` → `b28.yaml`, flipped the Dockerfile env
+defaults to b28, pushed. Render rebuilt and went live on b28. Memory was
+fine (1.39 GiB peak / 2 GB ceiling after a config-tuning pass that cut
+`numSearchThreadsPerAnalysisThread` 16 → 1 and `nnCacheSizePowerOfTwo`
+23 → 18). But user-perceived per-move latency was unacceptable on
+Render's 1 vCPU, even after the visit-count cuts the calibration applied.
+
+Reverted in `ebecef5`: Dockerfile defaults back to b20 + b20.yaml. b28
+model and YAML still ship in the image; flipping back is a runtime env-var
+override (no rebuild). Calibration work is preserved — `b28.yaml` is
+still the canonical b28 calibration, `AI_CALIBRATION.md` and the
+methodology section remain. Just the production *default* is b20 again
+until a beefier Render tier or alternative hosting is decided.
+
+### Things that bit us this session
+
+- **git-LFS smudge.** Every model file under `backend/models/*.bin.gz`
+  is tracked via LFS. After a fresh clone or a session break, the
+  working-tree file can revert to a 134-byte pointer. There is now a
+  three-layer defense (size check, STRICT_KATAGO, post-launch smoke),
+  but the lesson is: "the file looks tiny, that's the bug."
+- **Triage CIs are wide.** 30 games at p=0.5 has 95% CI ~30-70%. We saw
+  triage swing 50% → 36% on consecutive runs of the *same* profile due
+  to sampling. The 50-game confirmation was usually decisive but
+  occasionally also wide. Don't over-interpret a single 30-game run.
+- **My intuition about visits and the gap was wrong.** Predicted: deeper
+  search smooths network differences. Reality: cutting visits *widened*
+  b28's advantage because the policy net dominates at low visits, which
+  is exactly where b28's bigger network shines. The "lower visits weakens
+  b28" theory failed empirically; ended up locking 13×13 15k at b20-clone
+  after five rounds going the wrong direction.
+- **Mac native is the right local dev path.** Spent some time playtesting
+  via `make up` (Docker compose, x86 emulated on Apple Silicon) and the
+  16s/move latency was painful. Native Mac (brew KataGo + Metal) is
+  ~5-8× faster locally; use it for all daily play.
+- **The frontend caches game IDs in localStorage.** When you tear down
+  a backend mid-session and bring up a new one with a fresh DB, the
+  frontend's saved game state references IDs that no longer exist and
+  every `/move` 404s. Hard-refresh + new game fixes it. Worth
+  documenting somewhere.
+
+### What's done; what's deferred
+
+Done:
+- All 16 b28 profiles calibrated and committed (`data/profiles/b28.yaml`).
+- Calibration harness lives at `data/calibrate_b28.py` for future network
+  upgrades; methodology section in `AI_CALIBRATION.md` is the playbook.
+- LFS-pointer / silent-stub-AI footgun has three independent defenses.
+- Both b20 and b28 ship in the production image; switching is one env-var
+  flip on Render or one Dockerfile diff revert.
+- Phase 0 sanity check (b20 vs b20) is reproducible via
+  `make calibrate-up-sanity && make calibrate RANK=15k BOARD=9 GAMES=100`
+  for the next time we change networks.
+
+Deferred:
+- b28 on Render. Production stays on b20 until a beefier tier is on the
+  table or until Path C (TypeScript port of `move_selector.py`) makes
+  iPad-native calibrated play viable without a backend.
+- iPad-side b28 testing. Spike validated the model runs on M1 ANE; what
+  remains is wiring the calibrated profile selection in. Started a
+  scoping conversation at end of session — punted to a separate session.
+- Two over-strength profiles (`13×13 15k`, `19×19 18k`) sit at ~77% even
+  after iteration. Future fix is profile-asymmetric levers (different
+  visit counts on b20-side vs b28-side during calibration). YAML schema
+  doesn't support this today; not a blocker.
+
+
 
 iPad app exists. Native KataGo runs on the Neural Engine via CoreML;
 inference is no longer on Render's CPU. AI moves and score-lead are both

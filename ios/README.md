@@ -157,7 +157,7 @@ change.
 |---|---|---|
 | 2A | ✅ Done | Native bridge for AI moves + scoreLead |
 | 2B | next | (optional) Captures animation, pass/resign UI polish |
-| C  | recommended next | Port `backend/app/ai/move_selector.py` to TypeScript so iPad bots are properly rank-calibrated. Currently iPad ignores rank and plays at fixed 64 visits |
+| C  | recommended next | Port `backend/app/ai/move_selector.py` to TypeScript so iPad bots are properly rank-calibrated. Currently iPad ignores rank and plays at fixed 64 visits. The b28 calibrated profiles are now committed at `data/profiles/b28.yaml` (see `AI_CALIBRATION.md`); the TS port can consume them directly via `js-yaml` and apply the same heuristic logic as `move_selector.py` |
 | 3  | after C | Bundle frontend locally so the iPad UI works offline (no Render needed for assets). Required for App Store guideline 4.2 |
 | D  | after 3 | Port game state (board, captures, ko, scoring) to TypeScript so iPad doesn't need Render at all |
 
