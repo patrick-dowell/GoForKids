@@ -94,6 +94,13 @@ struct WebView: UIViewRepresentable {
         print("[ContentView] makeUIView — building WKWebView with bridge")
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
+        // Allow Web Audio API + audio elements to play without an explicit
+        // "user-tap-the-play-button" gesture. Stone-placement sounds still
+        // resume the AudioContext from inside the tap handler (per iOS Web
+        // Audio rules), but without this, WKWebView blocks audio entirely
+        // even when the gesture happens. Empty set = no media type requires
+        // explicit user action.
+        config.mediaTypesRequiringUserActionForPlayback = []
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
 
         // Register the custom scheme handler before creating the WKWebView.
