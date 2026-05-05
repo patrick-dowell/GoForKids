@@ -34,6 +34,7 @@ making the iPad fully offline is "Phase D" — see roadmap below.
 | Phase 2A (May 1) | JS bridge + native KataGo for AI moves and score-lead |
 | Path C (May 4) | TS port of `move_selector.py` so iPad bots are b28-calibrated, not fixed-strength |
 | Phase 3 (May 4) | Bundle React frontend into app bundle, load via custom `app://` URL scheme handler. UI no longer depends on Render |
+| Audio polish (May 4–5) | `mediaTypesRequiringUserActionForPlayback = []` so Web Audio API works in WKWebView; explicit `audio/*` MIME types in the scheme handler so the classic sound pack's `.m4a` samples decode correctly |
 
 ## Roadmap (remaining)
 
@@ -45,6 +46,15 @@ making the iPad fully offline is "Phase D" — see roadmap below.
 | Apple Pencil | future | Annotation during review mode — only relevant if traction warrants it |
 | TestFlight | when ready | Distribute to family / beta testers. Requires App Store Connect setup, screenshots, kid-app category compliance review |
 | App Store | future | Public listing. Requires kid-app category data-disclosure labels, privacy policy, etc. |
+
+### Suggested pickup order (when we come back, probably before TestFlight)
+
+1. **Phase D** — game state to TS. Biggest remaining technical work, and a prerequisite for TestFlight unless we're OK with "Render must be reachable" being a hard product requirement (which is fine, but slightly weakens the value prop). Largely mechanical port; `frontend/src/engine/Board.ts` already exists.
+2. **Smoke matrix** — real games at each rank × board on iPad. ~30 min of play. Lock-in on Path C parity before any kids touch it. Catches any heuristic-port bugs the unit-test surface doesn't cover.
+3. **Bundle ID rename** — short Xcode-side task, but re-triggers signing setup so worth doing right before TestFlight prep when you'll be in App Store Connect anyway.
+4. **TestFlight** — App Store Connect setup, screenshots, kid-app data-disclosure labels, privacy policy. First family/beta-tester install.
+
+Phase D before smoke matrix because if Phase D changes anything in the bot/board interaction, smoke testing on the post-D code is what matters.
 
 ## Architecture (current)
 
