@@ -68,6 +68,11 @@ final class WebBundleSchemeHandler: NSObject, WKURLSchemeHandler {
         case "wasm": return "application/wasm"
         case "ico": return "image/x-icon"
         case "map": return "application/json"
+        // Audio (used by the classic sound pack — placement.m4a, capture.m4a)
+        case "m4a", "aac": return "audio/mp4"
+        case "mp3": return "audio/mpeg"
+        case "wav": return "audio/wav"
+        case "ogg", "oga": return "audio/ogg"
         default: return "application/octet-stream"
         }
     }
