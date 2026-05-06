@@ -25,7 +25,7 @@ export function GameControls() {
   const pass = useGameStore((s) => s.pass);
   const resign = useGameStore((s) => s.resign);
   const undo = useGameStore((s) => s.undo);
-  const autoComplete = useGameStore((s) => s.autoComplete);
+  const finishGame = useGameStore((s) => s.finishGame);
   const lessonContext = useGameStore((s) => s.lessonContext);
   const showScoreGraph = useSettingsStore((s) => s.showScoreGraph);
 
@@ -122,7 +122,7 @@ export function GameControls() {
           )}
           {!!gameId && !isBotVsBot && moveCount >= 20 && (
             <button
-              onClick={autoComplete}
+              onClick={finishGame}
               className="btn btn-accent"
               disabled={aiThinking || autoCompleting}
             >

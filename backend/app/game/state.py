@@ -320,12 +320,19 @@ class GameManager:
         await self._save(game)
         return self._to_response(game)
 
-    async def auto_complete(
+    async def finish_move(
         self, game_id: str
-    ) -> Optional[Union[GameStateResponse, str]]:
+    ) -> Optional[Union[AIMoveResponse, str]]:
         """
-        Auto-complete the game using full-strength KataGo.
-        Both sides play best moves until two consecutive passes, then score.
+        Play ONE full-strength KataGo move (or pass) for whoever's turn it is.
+        The Finish Game flow calls this in a tight loop from the frontend so
+        each move animates and plays a sound — old auto_complete bundled the
+        whole endgame into a single request, which was both slow and silent.
+
+        If KataGo's best move is pass, we route through pass_move() so the
+        consecutive-pass counter and end-of-game scoring fire correctly. The
+        AIMoveResponse mirrors get_ai_move's shape (point, captures,
+        score_lead, plus final_state when a pass ends the game).
         """
         game = await self._load(game_id)
         if game is None:
@@ -335,74 +342,67 @@ class GameManager:
 
         engine = await get_engine()
         if not engine:
-            return "KataGo not available for auto-complete"
+            return "KataGo not available"
 
-        consecutive_passes = 0
-        max_moves = 300  # Safety limit
+        board_2d = game.board.to_2d()
+        player = "B" if game.current_color == Color.BLACK else "W"
+        try:
+            analysis = await engine.analyze(
+                board_2d, player, max_visits=500,
+                komi=game.komi, size=game.board.size,
+            )
+        except Exception as e:
+            logger.error(f"finish_move KataGo failed: {e}")
+            return "KataGo analysis failed"
 
-        for _ in range(max_moves):
-            if game.phase != "playing":
-                break
+        # KataGo wants to pass (no candidates or top candidate is pass).
+        if not analysis.candidates or analysis.candidates[0].move[0] < 0:
+            pass_response = await self.pass_move(game_id)
+            final_state = (
+                pass_response if pass_response and pass_response.phase == "finished" else None
+            )
+            return AIMoveResponse(
+                point=PointSchema(row=-1, col=-1), captures=[],
+                score_lead=pass_response.score_lead if pass_response else game.score_lead,
+                final_state=final_state,
+            )
 
-            # Full-strength KataGo analysis
-            board_2d = game.board.to_2d()
-            player = "B" if game.current_color == Color.BLACK else "W"
-            try:
-                analysis = await engine.analyze(
-                    board_2d, player, max_visits=500,
-                    komi=game.komi, size=game.board.size,
-                )
-            except Exception as e:
-                logger.error(f"Auto-complete KataGo failed: {e}")
-                break
+        best = analysis.candidates[0]
+        point = Point(best.move[0], best.move[1])
+        result, captures = game.board.try_play(game.current_color, point)
+        if result != "ok":
+            # Full-strength KataGo shouldn't suggest illegal moves, but if it
+            # does (ko, etc.), fall back to pass so the loop keeps progressing.
+            pass_response = await self.pass_move(game_id)
+            final_state = (
+                pass_response if pass_response and pass_response.phase == "finished" else None
+            )
+            return AIMoveResponse(
+                point=PointSchema(row=-1, col=-1), captures=[],
+                score_lead=pass_response.score_lead if pass_response else game.score_lead,
+                final_state=final_state,
+            )
 
-            if not analysis.candidates:
-                break
+        game.move_history.append(
+            MoveRecord(
+                color=game.current_color,
+                point=point,
+                captures=captures,
+                move_number=len(game.move_history) + 1,
+            )
+        )
+        game.consecutive_passes = 0
+        game.current_color = game.current_color.opposite()
 
-            best = analysis.candidates[0]
+        # Refresh live score graph so the playout has data points.
+        game.score_lead = await _compute_score_lead(game)
+        await self._save(game)
 
-            if best.move[0] < 0:
-                # KataGo wants to pass
-                consecutive_passes += 1
-                game.move_history.append(MoveRecord(
-                    color=game.current_color, point=None,
-                    captures=[], move_number=len(game.move_history) + 1,
-                ))
-                game.current_color = game.current_color.opposite()
-
-                if consecutive_passes >= 2:
-                    await self._score_game_async(game)
-                    break
-            else:
-                consecutive_passes = 0
-                point = Point(best.move[0], best.move[1])
-                result, captures = game.board.try_play(game.current_color, point)
-                if result == "ok":
-                    game.move_history.append(MoveRecord(
-                        color=game.current_color, point=point,
-                        captures=captures, move_number=len(game.move_history) + 1,
-                    ))
-                    game.current_color = game.current_color.opposite()
-                else:
-                    # Shouldn't happen with full-strength KataGo, but fallback to pass
-                    consecutive_passes += 1
-                    game.move_history.append(MoveRecord(
-                        color=game.current_color, point=None,
-                        captures=[], move_number=len(game.move_history) + 1,
-                    ))
-                    game.current_color = game.current_color.opposite()
-                    if consecutive_passes >= 2:
-                        await self._score_game_async(game)
-                        break
-
-        # If we hit the move limit without ending, force score
-        if game.phase == "playing":
-            await self._score_game_async(game)
-
-        # auto_complete always lands the game in "finished" — don't _save
-        # (it would re-create the active_games row that _score_game_async
-        # already cleared via _persist_finished_game).
-        return self._to_response(game)
+        return AIMoveResponse(
+            point=PointSchema(row=point.row, col=point.col),
+            captures=[PointSchema(row=c.row, col=c.col) for c in captures],
+            score_lead=game.score_lead,
+        )
 
     async def get_ai_move(
         self, game_id: str

@@ -110,8 +110,8 @@ export const api = {
     return request<AIMoveDTO>(`/games/${gameId}/ai-move`, { method: 'POST' });
   },
 
-  autoComplete: (gameId: string) =>
-    request<GameStateDTO>(`/games/${gameId}/auto-complete`, { method: 'POST' }),
+  finishMove: (gameId: string) =>
+    request<AIMoveDTO>(`/games/${gameId}/finish-move`, { method: 'POST' }),
 
   /** Score a board position using KataGo ownership analysis. Returns dead stones. */
   scorePosition: (board: number[][]) =>

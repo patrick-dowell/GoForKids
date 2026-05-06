@@ -200,7 +200,7 @@ interface GameState {
   requestBotVsBotMove: () => Promise<void>;
   setBotVsBotSpeed: (ms: number) => void;
   toggleBotVsBotPause: () => void;
-  autoComplete: () => Promise<void>;
+  finishGame: () => Promise<void>;
   getBoard: () => Board;
   /** Dismiss the bot-passed modal without taking action (player keeps playing). */
   dismissBotPassed: () => void;
@@ -783,24 +783,105 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
   },
 
-  autoComplete: async () => {
-    const { gameId, _game, phase } = get();
-    if (!gameId || phase !== 'playing') return;
-
+  finishGame: async () => {
+    const { gameId, phase, autoCompleting } = get();
+    if (!gameId || phase !== 'playing' || autoCompleting) return;
     set({ autoCompleting: true, aiThinking: true });
 
-    try {
-      const serverState = await api.autoComplete(gameId);
-      const dead = syncServerScoring(_game, serverState);
+    // Self-recursive loop calling /finish-move at full speed. Each iteration
+    // yields to the event loop via setTimeout(0) so React can render the move
+    // before the next request fires. KataGo analysis (~0.5–2s on Render with
+    // 500 visits) provides natural pacing — no artificial delay needed.
+    const stepOnce = async () => {
+      const { gameId: gid, _game, autoCompleting: stillFinishing } = get();
+      // Read phase into a local so the narrowing doesn't pin _game.phase
+      // for the rest of the closure (we mutate it via _game.pass() later).
+      const startPhase: GamePhase = _game.phase;
+      if (!gid || !stillFinishing || startPhase !== 'playing') return;
 
-      playGameEndSound();
-      set({ autoCompleting: false, aiThinking: false, deadStones: dead, ...snapshot(_game) });
-      // Use server's SGF which includes all auto-complete moves
-      autoSaveGame(get(), serverState.sgf ?? undefined);
-    } catch (e) {
-      console.warn('Auto-complete failed:', e);
-      set({ autoCompleting: false, aiThinking: false });
-    }
+      let aiMove;
+      try {
+        aiMove = await api.finishMove(gid);
+      } catch (e) {
+        console.warn('finish-move failed:', e);
+        set({ autoCompleting: false, aiThinking: false });
+        return;
+      }
+
+      // Played a move (point >= 0).
+      if (aiMove.point.row >= 0 && aiMove.point.col >= 0) {
+        const point = { row: aiMove.point.row, col: aiMove.point.col };
+        const moverColor = _game.currentColor;
+        const merged = _game.board.detectMergedGroups(moverColor, point);
+        const { result, captures } = _game.playMove(point);
+        if (result === MoveResult.Ok) {
+          playPlaceSound(point.row, point.col);
+          if (captures.length > 0) {
+            setTimeout(() => playCaptureSound(captures.length), 100);
+          }
+          const nextHistory = typeof aiMove.score_lead === 'number'
+            ? [
+                ...get().scoreHistory,
+                { move: _game.moveHistory.length, lead: aiMove.score_lead as number },
+              ]
+            : appendScorePoint(get().scoreHistory, _game);
+          set({
+            ...snapshot(_game, { lastMove: point, lastCaptures: captures }),
+            scoreHistory: nextHistory,
+            lastMerged: merged.length > 0
+              ? { color: moverColor, stones: [...merged, point] }
+              : { color: Color.Empty, stones: [] },
+          });
+        }
+        setTimeout(stepOnce, 0);
+        return;
+      }
+
+      // Pass — board unchanged, carry the prior lead forward.
+      _game.pass();
+      playPassSound();
+      const prevHistory = get().scoreHistory;
+      const lastLead = typeof aiMove.score_lead === 'number'
+        ? aiMove.score_lead
+        : (prevHistory.length > 0 ? prevHistory[prevHistory.length - 1].lead : 0);
+      const passHistory = [...prevHistory, { move: _game.moveHistory.length, lead: lastLead }];
+
+      if (_game.phase === 'finished') {
+        // Two passes ended the game — apply final_state from the inline
+        // AI-pass response (same dodge bot-vs-bot uses; the active row is
+        // deleted by _persist_finished_game right after scoring).
+        playGameEndSound();
+        const serverState = aiMove.final_state ?? null;
+        if (serverState && serverState.result) {
+          const dead = syncServerScoring(_game, serverState);
+          const finalHistory = appendFinalScore(passHistory, _game.moveHistory.length + 1, serverState.result);
+          set({
+            autoCompleting: false,
+            aiThinking: false,
+            deadStones: dead,
+            ...snapshot(_game),
+            scoreHistory: finalHistory,
+          });
+          autoSaveGame(get());
+        } else {
+          set({
+            autoCompleting: false,
+            aiThinking: false,
+            deadStones: [],
+            ...snapshot(_game),
+            scoreHistory: passHistory,
+          });
+          autoSaveGame(get());
+        }
+        return;
+      }
+
+      // Single pass — keep going.
+      set({ ...snapshot(_game), scoreHistory: passHistory });
+      setTimeout(stepOnce, 0);
+    };
+
+    setTimeout(stepOnce, 0);
   },
 
   getBoard: () => get()._game.board,

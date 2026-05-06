@@ -133,10 +133,15 @@ async def get_ai_move(game_id: str):
     return result
 
 
-@router.post("/{game_id}/auto-complete", response_model=GameStateResponse)
-async def auto_complete(game_id: str):
-    """Auto-complete the game using full-strength KataGo, then score."""
-    result = await manager.auto_complete(game_id)
+@router.post("/{game_id}/finish-move", response_model=AIMoveResponse)
+async def finish_move(game_id: str):
+    """
+    Play one full-strength KataGo move (or pass) for whoever's turn.
+    The Finish Game flow calls this in a tight loop so the player can
+    watch KataGo wrap up the game in real-time, instead of bundling 100+
+    moves into a single 30-second request like the old auto-complete did.
+    """
+    result = await manager.finish_move(game_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Game not found")
     if isinstance(result, str):
