@@ -15,11 +15,65 @@ export interface AfterSuccess {
 }
 
 /** Lesson types:
- *  - 'puzzle' : hand-built one-board puzzle with stone placement
- *  - 'game'   : launches a real game vs the bot (kind:'game' lessons)
- *  - 'quiz'   : sequential multiple-choice questions over a series of mini-boards
+ *  - 'puzzle'        : hand-built one-board puzzle with stone placement
+ *  - 'game'          : launches a real game vs the bot (kind:'game' lessons)
+ *  - 'quiz'          : sequential multiple-choice questions over a series of mini-boards
+ *  - 'puzzle-series' : sequential one-move puzzles, each with its own mini-board
  */
-export type LessonKind = 'puzzle' | 'game' | 'quiz';
+export type LessonKind = 'puzzle' | 'game' | 'quiz' | 'puzzle-series';
+
+/** One sub-puzzle in a kind:'puzzle-series' lesson. Each part is a one-move
+ *  puzzle with its own mini-board, validator, and success copy. Optional
+ *  afterSuccess plays the opponent's response to the user's move (e.g. to
+ *  demonstrate that an attack failed because the defender lives). */
+export interface PuzzlePart {
+  /** Top-of-board prompt for this part. */
+  prompt: string;
+  boardSize: number;
+  initialStones: Array<{ row: number; col: number; color: Color }>;
+  /** Color the user plays in this part. */
+  userPlays: Color;
+  highlight?: Point[];
+  defaultShowHint?: boolean;
+  validate: (args: { board: Board; point: Point; capturedCount: number }) => LessonVerdict;
+  /** Optional illegal-move success path (e.g. demonstrating suicide in a 2-eye shape). */
+  validateIllegal?: (args: { point: Point; result: MoveResult }) => LessonVerdict;
+  successMessage: string;
+  successExplanation?: string;
+  retryMessage: string;
+  /** Auto-placement after the user's correct move — used to demonstrate
+   *  the opponent's reply (e.g. defender splitting the eye-space). */
+  afterSuccess?: AfterSuccess;
+  /** Override for `afterSuccess.point` — receives the user's just-played move
+   *  and returns the auto-placement point. Lets the defender's response
+   *  adapt to where the user attacked (e.g. Two Eyes Part 3). */
+  responseFor?: (userMove: Point) => Point;
+  /** Optional sequence of moves played in the BACKGROUND after the user's
+   *  successful move (and after the part's success modal has popped up).
+   *  Plays on the board so the player can watch the capture sequence
+   *  resolve while reading the modal. Each move's `delayMs` is relative to
+   *  the previous move's completion. Cancelled if the player advances. */
+  playoutAfter?: Array<{
+    color: Color;
+    point: Point;
+    delayMs: number;
+  }>;
+  /** Trigger for the "two-eyes safe" triumphant sound effect.
+   *   - 'success'        : fire right after the user's correct move (e.g.
+   *                        Two Eyes Part 1: player's vital point makes 2 eyes).
+   *   - 'after-response' : fire after `afterSuccess` plays out (e.g. Two
+   *                        Eyes Part 3: white's reply forms the 2 eyes). */
+  triumphSound?: 'success' | 'after-response';
+  /** Override of the celebration text shown during the brief 'animating'
+   *  phase between the user's move and the auto-placement. Defaults to
+   *  successMessage / successExplanation. */
+  interimSuccessMessage?: string;
+  interimSuccessExplanation?: string;
+  /** Highlight points to show AFTER the auto-placement fires — used to
+   *  visually mark eye-regions (or other key cells) once the demo resolves.
+   *  Falls back to `highlight` if not set. */
+  successHighlight?: Point[];
+}
 
 /** One question in a kind:'quiz' lesson. Each question has its own mini-board. */
 export interface QuizQuestion {
@@ -37,6 +91,15 @@ export interface QuizQuestion {
   /** Shown in the feedback modal when the player picks a wrong answer.
    *  Lesson still advances — quizzes are a streak, not a fail-state. */
   failMessage?: string;
+  /** Optional demonstration move played automatically when the player picks
+   *  the correct answer. Used by Safe or Gone's "Gone" questions to show
+   *  the actual capture (stone placement + capture sound) before the
+   *  success modal pops up. The move is played as Black; it must result in
+   *  at least one capture for the demonstration to fire. */
+  killMove?: Point;
+  /** When true, plays the triumphant "two-eyes safe" sound effect on a
+   *  correct answer. Used by Safe or Gone's two-eye Safe question. */
+  triumphSound?: boolean;
 }
 
 export interface SecondTurn {
@@ -110,6 +173,8 @@ export interface Lesson {
    *  modal (e.g. "Black wins by 5 points!"). Defaults to the per-question
    *  count if omitted. */
   quizSummary?: string;
+  /** Puzzle-series lessons only: ordered list of one-move sub-puzzles. */
+  parts?: PuzzlePart[];
   /** When true, the success modal shows a "Try another move" button alongside
    *  Continue. The lesson stays complete; the board is reset so the player can
    *  explore alternate moves. Useful for `validateIllegal` lessons where
@@ -421,16 +486,16 @@ export const LESSONS: Lesson[] = [
   // ---------------------------------------------------------------------------
   // Lesson 8 — Two Eyes = Forever Safe (9x9 uncapturable shape)
   // Same setup as lesson 7 but now white has a wider shape with TWO eyes at
-  // (4,4) and (4,6). Filling one eye doesn't capture — the OTHER eye is still
+  // (4,3) and (4,5). Filling one eye doesn't capture — the OTHER eye is still
   // a liberty — so the black play is suicide and the engine refuses it.
   // We catch the suicide attempt via validateIllegal as the lesson's success.
   //     . . . . . . . . .
   //     . . . . . . . . .
-  //     . . B B B B B B B
-  //     . . B W W W W W B
-  //     . . B W . W . W B   <- eyes at (4,4) and (4,6)
-  //     . . B W W W W W B
-  //     . . B B B B B B B
+  //     . B B B B B B B .
+  //     . B W W W W W B .
+  //     . B W . W . W B .   <- eyes at (4,3) and (4,5)
+  //     . B W W W W W B .
+  //     . B B B B B B B .
   //     . . . . . . . . .
   //     . . . . . . . . .
   // ---------------------------------------------------------------------------
@@ -441,49 +506,49 @@ export const LESSONS: Lesson[] = [
     boardSize: 9,
     initialStones: [
       // Black surround
+      { row: 2, col: 1, color: Color.Black },
       { row: 2, col: 2, color: Color.Black },
       { row: 2, col: 3, color: Color.Black },
       { row: 2, col: 4, color: Color.Black },
       { row: 2, col: 5, color: Color.Black },
       { row: 2, col: 6, color: Color.Black },
       { row: 2, col: 7, color: Color.Black },
-      { row: 2, col: 8, color: Color.Black },
-      { row: 3, col: 2, color: Color.Black },
-      { row: 3, col: 8, color: Color.Black },
-      { row: 4, col: 2, color: Color.Black },
-      { row: 4, col: 8, color: Color.Black },
-      { row: 5, col: 2, color: Color.Black },
-      { row: 5, col: 8, color: Color.Black },
+      { row: 3, col: 1, color: Color.Black },
+      { row: 3, col: 7, color: Color.Black },
+      { row: 4, col: 1, color: Color.Black },
+      { row: 4, col: 7, color: Color.Black },
+      { row: 5, col: 1, color: Color.Black },
+      { row: 5, col: 7, color: Color.Black },
+      { row: 6, col: 1, color: Color.Black },
       { row: 6, col: 2, color: Color.Black },
       { row: 6, col: 3, color: Color.Black },
       { row: 6, col: 4, color: Color.Black },
       { row: 6, col: 5, color: Color.Black },
       { row: 6, col: 6, color: Color.Black },
       { row: 6, col: 7, color: Color.Black },
-      { row: 6, col: 8, color: Color.Black },
-      // White rabbity-six with eyes at (4,4) and (4,6)
+      // White rabbity-six with eyes at (4,3) and (4,5)
+      { row: 3, col: 2, color: Color.White },
       { row: 3, col: 3, color: Color.White },
       { row: 3, col: 4, color: Color.White },
       { row: 3, col: 5, color: Color.White },
       { row: 3, col: 6, color: Color.White },
-      { row: 3, col: 7, color: Color.White },
-      { row: 4, col: 3, color: Color.White },
-      { row: 4, col: 5, color: Color.White },
-      { row: 4, col: 7, color: Color.White },
+      { row: 4, col: 2, color: Color.White },
+      { row: 4, col: 4, color: Color.White },
+      { row: 4, col: 6, color: Color.White },
+      { row: 5, col: 2, color: Color.White },
       { row: 5, col: 3, color: Color.White },
       { row: 5, col: 4, color: Color.White },
       { row: 5, col: 5, color: Color.White },
       { row: 5, col: 6, color: Color.White },
-      { row: 5, col: 7, color: Color.White },
     ],
     userPlays: Color.Black,
-    highlight: [{ row: 4, col: 4 }, { row: 4, col: 6 }],
+    highlight: [{ row: 4, col: 3 }, { row: 4, col: 5 }],
     defaultShowHint: true,
     // Any LEGAL move is wrong (filling an eye is suicide, handled below).
     validate: () => 'retry',
     validateIllegal: ({ point, result }) => {
       if (result !== MoveResult.Suicide) return 'retry';
-      const eyes = [{ row: 4, col: 4 }, { row: 4, col: 6 }];
+      const eyes = [{ row: 4, col: 3 }, { row: 4, col: 5 }];
       return eyes.some((e) => e.row === point.row && e.col === point.col) ? 'success' : 'retry';
     },
     successMessage: "You can't! Two eyes = forever safe.",
@@ -537,6 +602,7 @@ export const LESSONS: Lesson[] = [
         ],
         successMessage: 'Yes — two eyes means safe forever!',
         failMessage: 'Look again — there are TWO empty spots fully inside the group. That makes it safe.',
+        triumphSound: true,
       },
       // Q2 — single-eye small ring (Gone), fully surrounded by black so the
       // ring's only liberty is the central eye.
@@ -572,6 +638,8 @@ export const LESSONS: Lesson[] = [
         ],
         successMessage: "Right! Only ONE eye — opponent can surround and capture.",
         failMessage: "Look again — there's only ONE empty spot inside. One eye isn't enough.",
+        // Black plays the eye (the ring's only liberty) → captures all 8 white stones.
+        killMove: { row: 2, col: 2 },
       },
       // Q3 — small T-shape with no eye potential (Gone). Surrounded by black
       // except for one remaining liberty at (1,3) — group is in atari and has
@@ -599,13 +667,227 @@ export const LESSONS: Lesson[] = [
         ],
         successMessage: 'Yep — no eyes at all. This shape is doomed.',
         failMessage: "Nope — there are no enclosed empty spots. Without eyes, the group can't survive.",
+        // Black plays the only remaining liberty (1,3) → captures all 4 white stones.
+        killMove: { row: 1, col: 3 },
       },
     ],
     retryMessage: 'Try a different answer!',
   },
 
   // ---------------------------------------------------------------------------
-  // Lesson 10 — Count Your Land (2-question territory quiz)
+  // Lesson 10 — Two Eyes (3-part puzzle series)
+  // Three sub-puzzles on the same theme. All on 9x9.
+  //   Part 1: Make Life — White ring with 1x3 internal eye-space, Black
+  //     surround. Player plays White at the vital point E4, splitting the
+  //     internal into two real eyes.
+  //   Part 2: Take Life — same board, player plays Black at the vital point
+  //     instead, denying White the chance to make two eyes.
+  //   Part 3: Too Big to Kill — White ring with 1x4 internal eye-space.
+  //     Player attacks at C4 (5,3); White auto-responds at D4 (5,4),
+  //     capturing the attacking stone and locking in two real eyes.
+  // ---------------------------------------------------------------------------
+  {
+    id: 'two-eyes-puzzles',
+    kind: 'puzzle-series',
+    title: 'Two Eyes',
+    instruction: 'Three quick puzzles about making and breaking two eyes.',
+    successMessage: 'Two-eye master!',
+    successExplanation: 'A group with two true eyes can never be captured. Without two eyes, the right move from either side decides life or death.',
+    parts: [
+      // Part 1 — Make Life. Player as Black plays vital point to make 2 eyes
+      // in their own (black) group. White surrounds. Vital point at E7 (3,4).
+      {
+        prompt: "You're Black. Play the move that gives this group two eyes!",
+        boardSize: 9,
+        userPlays: Color.Black,
+        initialStones: [
+          // Black ring (5-wide rectangle) with 1x3 internal at (3,3)(3,4)(3,5)
+          { row: 2, col: 2, color: Color.Black },
+          { row: 2, col: 3, color: Color.Black },
+          { row: 2, col: 4, color: Color.Black },
+          { row: 2, col: 5, color: Color.Black },
+          { row: 2, col: 6, color: Color.Black },
+          { row: 3, col: 2, color: Color.Black },
+          { row: 3, col: 6, color: Color.Black },
+          { row: 4, col: 2, color: Color.Black },
+          { row: 4, col: 3, color: Color.Black },
+          { row: 4, col: 4, color: Color.Black },
+          { row: 4, col: 5, color: Color.Black },
+          { row: 4, col: 6, color: Color.Black },
+          // White surround
+          { row: 1, col: 2, color: Color.White },
+          { row: 1, col: 3, color: Color.White },
+          { row: 1, col: 4, color: Color.White },
+          { row: 1, col: 5, color: Color.White },
+          { row: 1, col: 6, color: Color.White },
+          { row: 2, col: 1, color: Color.White },
+          { row: 2, col: 7, color: Color.White },
+          { row: 3, col: 1, color: Color.White },
+          { row: 3, col: 7, color: Color.White },
+          { row: 4, col: 1, color: Color.White },
+          { row: 4, col: 7, color: Color.White },
+          { row: 5, col: 2, color: Color.White },
+          { row: 5, col: 3, color: Color.White },
+          { row: 5, col: 4, color: Color.White },
+          { row: 5, col: 5, color: Color.White },
+          { row: 5, col: 6, color: Color.White },
+        ],
+        highlight: [{ row: 3, col: 4 }],
+        defaultShowHint: true,
+        validate: ({ point }) =>
+          (point.row === 3 && point.col === 4) ? 'success' : 'retry',
+        successMessage: 'Two eyes locked in!',
+        successExplanation: "Splitting the inside into two separate empty spots makes two true eyes. Your group lives forever now.",
+        retryMessage: "Look for the spot in the very middle of your empty space — splitting it makes two eyes.",
+        triumphSound: 'success',
+      },
+      // Part 2 — Take Life. Mirror of Part 1's geometry (5-wide ring, 1x3
+      // internal) but with WHITE ring and BLACK surround. Player still Black,
+      // takes the vital point to deny White the chance to make two eyes.
+      {
+        prompt: "Now this is a WHITE group. Take the vital point to stop them from making two eyes!",
+        boardSize: 9,
+        userPlays: Color.Black,
+        initialStones: [
+          // White ring (5-wide rectangle) with 1x3 internal at (3,3)(3,4)(3,5)
+          { row: 2, col: 2, color: Color.White },
+          { row: 2, col: 3, color: Color.White },
+          { row: 2, col: 4, color: Color.White },
+          { row: 2, col: 5, color: Color.White },
+          { row: 2, col: 6, color: Color.White },
+          { row: 3, col: 2, color: Color.White },
+          { row: 3, col: 6, color: Color.White },
+          { row: 4, col: 2, color: Color.White },
+          { row: 4, col: 3, color: Color.White },
+          { row: 4, col: 4, color: Color.White },
+          { row: 4, col: 5, color: Color.White },
+          { row: 4, col: 6, color: Color.White },
+          // Black surround
+          { row: 1, col: 2, color: Color.Black },
+          { row: 1, col: 3, color: Color.Black },
+          { row: 1, col: 4, color: Color.Black },
+          { row: 1, col: 5, color: Color.Black },
+          { row: 1, col: 6, color: Color.Black },
+          { row: 2, col: 1, color: Color.Black },
+          { row: 2, col: 7, color: Color.Black },
+          { row: 3, col: 1, color: Color.Black },
+          { row: 3, col: 7, color: Color.Black },
+          { row: 4, col: 1, color: Color.Black },
+          { row: 4, col: 7, color: Color.Black },
+          { row: 5, col: 2, color: Color.Black },
+          { row: 5, col: 3, color: Color.Black },
+          { row: 5, col: 4, color: Color.Black },
+          { row: 5, col: 5, color: Color.Black },
+          { row: 5, col: 6, color: Color.Black },
+        ],
+        highlight: [{ row: 3, col: 4 }],
+        defaultShowHint: true,
+        validate: ({ point }) =>
+          (point.row === 3 && point.col === 4) ? 'success' : 'retry',
+        successMessage: 'Vital point taken!',
+        successExplanation: "With the middle spot blocked, White can't split the inside into two eyes. The whole group is dead.",
+        retryMessage: "Same vital point as before — the middle of White's empty space.",
+        // Play out the capture sequence in the background while the player
+        // reads the modal: White makes a desperate extension, then Black
+        // closes the door and removes the whole group.
+        playoutAfter: [
+          { color: Color.White, point: { row: 3, col: 3 }, delayMs: 900 },
+          { color: Color.Black, point: { row: 3, col: 5 }, delayMs: 900 },
+        ],
+      },
+      // Part 3 — Too Big to Kill. White ring with 1x4 internal at row 3.
+      // Player can attack any of the 4 empty spots; White auto-responds with
+      // an inner cell chosen via responseFor (opposite parity to user's col)
+      // so that the defender always has space for two eye-regions. After the
+      // exchange the post-success highlight points at the two outer empties
+      // (3,3) and (3,6), which are the eye-regions in every attack scenario.
+      {
+        prompt: "Now try to kill THIS group. Attack any of the empty spots inside!",
+        boardSize: 9,
+        userPlays: Color.Black,
+        initialStones: [
+          // White ring with 1x4 internal at (3,3)(3,4)(3,5)(3,6)
+          { row: 2, col: 2, color: Color.White },
+          { row: 2, col: 3, color: Color.White },
+          { row: 2, col: 4, color: Color.White },
+          { row: 2, col: 5, color: Color.White },
+          { row: 2, col: 6, color: Color.White },
+          { row: 2, col: 7, color: Color.White },
+          { row: 3, col: 2, color: Color.White },
+          { row: 3, col: 7, color: Color.White },
+          { row: 4, col: 2, color: Color.White },
+          { row: 4, col: 3, color: Color.White },
+          { row: 4, col: 4, color: Color.White },
+          { row: 4, col: 5, color: Color.White },
+          { row: 4, col: 6, color: Color.White },
+          { row: 4, col: 7, color: Color.White },
+          // Black surround
+          { row: 1, col: 1, color: Color.Black },
+          { row: 1, col: 2, color: Color.Black },
+          { row: 1, col: 3, color: Color.Black },
+          { row: 1, col: 4, color: Color.Black },
+          { row: 1, col: 5, color: Color.Black },
+          { row: 1, col: 6, color: Color.Black },
+          { row: 1, col: 7, color: Color.Black },
+          { row: 1, col: 8, color: Color.Black },
+          { row: 2, col: 1, color: Color.Black },
+          { row: 2, col: 8, color: Color.Black },
+          { row: 3, col: 1, color: Color.Black },
+          { row: 3, col: 8, color: Color.Black },
+          { row: 4, col: 1, color: Color.Black },
+          { row: 4, col: 8, color: Color.Black },
+          { row: 5, col: 1, color: Color.Black },
+          { row: 5, col: 2, color: Color.Black },
+          { row: 5, col: 3, color: Color.Black },
+          { row: 5, col: 4, color: Color.Black },
+          { row: 5, col: 5, color: Color.Black },
+          { row: 5, col: 6, color: Color.Black },
+          { row: 5, col: 7, color: Color.Black },
+          { row: 5, col: 8, color: Color.Black },
+        ],
+        // No highlight — the player has to find an attack on their own.
+        defaultShowHint: false,
+        validate: ({ point }) => {
+          const targets = [3, 4, 5, 6];
+          return point.row === 3 && targets.includes(point.col) ? 'success' : 'retry';
+        },
+        interimSuccessMessage: 'Attack played!',
+        interimSuccessExplanation: "Watch what White does next.",
+        successMessage: "Couldn't kill it!",
+        successExplanation: "Four empty spots inside gives White enough room to split into two eye-regions, no matter where you attacked. Big groups like this can't be killed.",
+        retryMessage: "Click any of the empty spots inside the white group.",
+        afterSuccess: {
+          color: Color.White,
+          // point is overridden by responseFor below — but we still need a
+          // sensible fallback for type-safety. (5,4 wouldn't work post-shift,
+          // pick (3,4) which is one of the inner cells.)
+          point: { row: 3, col: 4 },
+          delayMs: 2500,
+          followUpMessage: "White splits the inside — and now there's room for two separate eye-regions.",
+        },
+        // White plays the inner cell of opposite parity to the user's column.
+        // Attack at col 3 (odd) → response col 4. Attack col 4 → col 5.
+        // Attack col 5 (odd) → col 4. Attack col 6 → col 5.
+        // This keeps the response legal (never collides with user's stone)
+        // and consistently leaves (3,3) and (3,6) as the two eye-regions.
+        responseFor: (userMove) => ({
+          row: 3,
+          col: userMove.col % 2 === 1 ? 4 : 5,
+        }),
+        // The two outer empties — (3,3) and (3,6) — are always the
+        // eye-regions after the exchange, regardless of where Black attacked.
+        successHighlight: [
+          { row: 3, col: 3 },
+          { row: 3, col: 6 },
+        ],
+        triumphSound: 'after-response',
+      },
+    ],
+    retryMessage: 'Try the highlighted spot.',
+  },
+
+  // ---------------------------------------------------------------------------
+  // Lesson 11 — Count Your Land (2-question territory quiz)
   // A finished 5x5 position with a clean horizontal split. Black walls row 2,
   // White walls row 3. Each side's territory is highlighted in turn so the
   // player can count by sight.
@@ -686,7 +968,7 @@ export const LESSONS: Lesson[] = [
   },
 
   // ---------------------------------------------------------------------------
-  // Lesson 11 — Big Board Time (live 9x9 game vs the friendliest bot)
+  // Lesson 12 — Big Board Time (live 9x9 game vs the friendliest bot)
   // The "graduation" game. Same opponent (30k Seedling), same Black-vs-White
   // setup, just a bigger board. We reuse the existing pre-game card with
   // 9x9-flavored copy.

@@ -306,6 +306,8 @@ export function GoBoard() {
   const learnLessonIndex = useLearnStore((s) => s.lessonIndex);
   const learnShowHint = useLearnStore((s) => s.showHint);
   const learnQuizIndex = useLearnStore((s) => s.quizIndex);
+  const learnPartIndex = useLearnStore((s) => s.partIndex);
+  const learnEyeHighlight = useLearnStore((s) => s.eyeHighlight);
   const learnTryMove = useLearnStore((s) => s.tryMove);
 
   const liveGrid = useGameStore((s) => s.grid);
@@ -331,8 +333,29 @@ export function GoBoard() {
     : replayActive
       ? replayCurrentMove
       : moveCount;
+  // Count Your Land's final summary screen mirrors the in-game scoring
+  // overlay: switch to 'finished' phase and compute a TerritoryMap from the
+  // quiz questions' highlights (Q1 = Black's spots, Q2 = White's spots) so
+  // the same dots/shading the scoring screen uses light up here too.
+  const learnLessonForBoard = learnActive ? LESSONS[learnLessonIndex] : null;
+  const isCountYourLandSummary =
+    learnLessonForBoard?.id === 'count-your-land' && learnStatus === 'success';
+  const learnTerritory = (() => {
+    if (!isCountYourLandSummary || !learnLessonForBoard?.questions) return null;
+    const black = new Set<number>();
+    const white = new Set<number>();
+    const qs = learnLessonForBoard.questions;
+    if (qs[0]?.highlight) {
+      for (const p of qs[0].highlight) black.add(p.row * qs[0].boardSize + p.col);
+    }
+    if (qs[1]?.highlight) {
+      for (const p of qs[1].highlight) white.add(p.row * qs[1].boardSize + p.col);
+    }
+    return { black, white, neutral: new Set<number>() };
+  })();
+
   const effectivePhase = learnActive
-    ? 'playing'
+    ? (isCountYourLandSummary ? 'finished' : 'playing')
     : replayActive
       ? (replayCurrentMove >= replayTotalMoves ? 'finished' : 'playing')
       : phase;
@@ -348,12 +371,20 @@ export function GoBoard() {
   //  - puzzle/game lessons: only when showHint is set
   //  - quiz lessons: pull from the active question (always shown — the glow
   //    is informational, e.g. marking the territory the player is counting)
+  //  - puzzle-series lessons: pull from the active part. eyeHighlight
+  //    (set after a part's auto-response fires) overrides the part highlight
+  //    so we can point at newly-formed eye-regions.
   const highlights: Point[] = (() => {
     if (!learnActive) return [];
+    if (learnEyeHighlight && learnEyeHighlight.length > 0) return learnEyeHighlight;
     const lesson = LESSONS[learnLessonIndex];
     if (!lesson) return [];
     if (lesson.kind === 'quiz' && lesson.questions) {
       return lesson.questions[learnQuizIndex]?.highlight ?? [];
+    }
+    if (lesson.kind === 'puzzle-series' && lesson.parts) {
+      const part = lesson.parts[learnPartIndex];
+      return learnShowHint ? part?.highlight ?? [] : [];
     }
     return learnShowHint ? lesson.highlight ?? [] : [];
   })();
@@ -393,7 +424,9 @@ export function GoBoard() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const activeAtari = learnActive || replayActive ? [] : atariGroups;
-    const activeTerritory = learnActive ? null : replayActive ? replayTerritory : territory;
+    const activeTerritory = learnActive
+      ? learnTerritory
+      : replayActive ? replayTerritory : territory;
     const activeDead = learnActive ? [] : replayActive ? replayDeadStones : deadStones;
     const hoverColor = learnActive
       ? (LESSONS[learnLessonIndex]?.userPlays ?? Color.Empty)
@@ -407,6 +440,7 @@ export function GoBoard() {
       atariGroups.length, deadStones.length,
       territory ? territory.black.size : -1,
       replayTerritory ? replayTerritory.black.size : -1,
+      learnTerritory ? learnTerritory.black.size : -1,
       replayDeadStones.length,
       learnActive, highlights.length, pulse,
   ]);

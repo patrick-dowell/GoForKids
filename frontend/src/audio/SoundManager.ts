@@ -241,6 +241,41 @@ function cosmicPass() {
   osc.start(now); osc.stop(now + 0.2);
 }
 
+function cosmicTwoEyes() {
+  // Two short chimes (one per eye), then a sustained major triad that
+  // resolves into a "safe forever" warmth. ~1.2s total.
+  const ctx = getContext();
+  const now = ctx.currentTime;
+
+  const chimeFreqs = [1047, 1319]; // C6, E6
+  for (let i = 0; i < chimeFreqs.length; i++) {
+    const start = now + i * 0.1;
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(chimeFreqs[i], start);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(0.12, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.4);
+    osc.connect(gain); gain.connect(getMasterGain());
+    osc.start(start); osc.stop(start + 0.4);
+  }
+
+  const chordStart = now + 0.25;
+  const chordFreqs = [523, 659, 784]; // C5, E5, G5 — major triad
+  for (const freq of chordFreqs) {
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, chordStart);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, chordStart);
+    gain.gain.linearRampToValueAtTime(0.07, chordStart + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, chordStart + 1.2);
+    osc.connect(gain); gain.connect(getMasterGain());
+    osc.start(chordStart); osc.stop(chordStart + 1.3);
+  }
+}
+
 function cosmicGameEnd() {
   const ctx = getContext();
   const now = ctx.currentTime;
@@ -375,6 +410,35 @@ function classicPass() {
   body.start(now); body.stop(now + 0.1);
 }
 
+function classicTwoEyes() {
+  // Two soft taps + a held warm tone. Same shape as cosmic but minimal.
+  const ctx = getContext();
+  const now = ctx.currentTime;
+
+  const chimeFreqs = [800, 1000];
+  for (let i = 0; i < chimeFreqs.length; i++) {
+    const start = now + i * 0.1;
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(chimeFreqs[i], start);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.1, start);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.25);
+    osc.connect(gain); gain.connect(getMasterGain());
+    osc.start(start); osc.stop(start + 0.25);
+  }
+
+  const sustainStart = now + 0.22;
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(440, sustainStart);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.06, sustainStart);
+  gain.gain.exponentialRampToValueAtTime(0.001, sustainStart + 0.8);
+  osc.connect(gain); gain.connect(getMasterGain());
+  osc.start(sustainStart); osc.stop(sustainStart + 0.8);
+}
+
 function classicGameEnd() {
   // Two soft taps in succession
   const ctx = getContext();
@@ -414,4 +478,9 @@ export function playPassSound() {
 export function playGameEndSound() {
   if (activePack() === 'classic') classicGameEnd();
   else cosmicGameEnd();
+}
+
+export function playTwoEyesSound() {
+  if (activePack() === 'classic') classicTwoEyes();
+  else cosmicTwoEyes();
 }

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { Board } from '../engine/Board';
 import { Color, MoveResult, type Point } from '../engine/types';
 import { LESSONS, type LessonVerdict } from '../learn/lessons';
-import { playPlaceSound, playCaptureSound, resumeAudio } from '../audio/SoundManager';
+import { playPlaceSound, playCaptureSound, playTwoEyesSound, resumeAudio } from '../audio/SoundManager';
 
 const STORAGE_KEY = 'goforkids-learn-progress';
 
@@ -59,6 +59,20 @@ interface LearnState {
     message: string;
     isLastQuestion: boolean;
   } | null;
+  /** Puzzle-series state — current sub-puzzle index. */
+  partIndex: number;
+  /** Set when a sub-puzzle (not the final one) just completed; the modal
+   *  surfaces a "Next puzzle →" button that calls advancePart. */
+  partFeedback: {
+    successMessage: string;
+    successExplanation: string | null;
+    isLastPart: boolean;
+  } | null;
+  /** Override highlights shown on the board after a puzzle-series part's
+   *  auto-response fires (e.g. pointing at the eye-regions formed in
+   *  Part 3 of Two Eyes). When non-null, replaces the part's `highlight`
+   *  for the rest of that part. */
+  eyeHighlight: Point[] | null;
 
   start: () => void;
   /** Re-enter the lesson view at a specific lesson without clearing progress.
@@ -80,6 +94,9 @@ interface LearnState {
   /** Quiz: dismiss the feedback modal and either move to the next question or
    *  complete the lesson if it was the last one. */
   advanceQuiz: () => void;
+  /** Puzzle-series: dismiss the part-feedback modal and rebuild the board for
+   *  the next sub-puzzle. */
+  advancePart: () => void;
   /** During an `afterSuccess` wait, fire the auto-placement immediately so
    *  Continue feels responsive instead of forcing the user to wait out the timer. */
   skipAfterSuccess: () => void;
@@ -118,6 +135,18 @@ function buildLessonBoard(index: number): Board {
   const board = new Board(size);
   for (const s of lesson.initialStones ?? []) {
     board.grid[s.row * size + s.col] = s.color;
+  }
+  return board;
+}
+
+/** Build the board for a specific sub-puzzle of a kind:'puzzle-series' lesson. */
+function buildPartBoard(lessonIndex: number, partIndex: number): Board | null {
+  const lesson = LESSONS[lessonIndex];
+  const part = lesson.parts?.[partIndex];
+  if (!part) return null;
+  const board = new Board(part.boardSize);
+  for (const s of part.initialStones) {
+    board.grid[s.row * part.boardSize + s.col] = s.color;
   }
   return board;
 }
@@ -161,6 +190,9 @@ export const useLearnStore = create<LearnState>((set, get) => ({
   quizIndex: 0,
   quizCorrect: 0,
   quizFeedback: null,
+  partIndex: 0,
+  partFeedback: null,
+  eyeHighlight: null,
   _afterSuccessTimer: null,
   _afterSuccessRun: null,
 
@@ -207,6 +239,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
         lastCaptures: [],
         lastMoveColor: Color.Empty,
         awaitingSecondMove: false,
+        eyeHighlight: null,
         _afterSuccessTimer: null,
         _afterSuccessRun: null,
       });
@@ -236,6 +269,33 @@ export const useLearnStore = create<LearnState>((set, get) => ({
         quizIndex: 0,
         quizCorrect: 0,
         quizFeedback: null,
+        eyeHighlight: null,
+        _afterSuccessTimer: null,
+        _afterSuccessRun: null,
+      });
+      return;
+    }
+
+    // Puzzle-series lessons build the board from the first part's stones.
+    if (lesson.kind === 'puzzle-series' && lesson.parts && lesson.parts.length > 0) {
+      const part = lesson.parts[0];
+      const board = buildPartBoard(index, 0)!;
+      set({
+        lessonIndex: index,
+        status: 'awaiting',
+        message: part.prompt,
+        feedback: null,
+        showHint: !!part.defaultShowHint,
+        board,
+        boardSize: board.size,
+        grid: [...board.grid],
+        lastMove: null,
+        lastCaptures: [],
+        lastMoveColor: Color.Empty,
+        awaitingSecondMove: false,
+        partIndex: 0,
+        partFeedback: null,
+        eyeHighlight: null,
         _afterSuccessTimer: null,
         _afterSuccessRun: null,
       });
@@ -256,6 +316,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
       lastCaptures: [],
       lastMoveColor: Color.Empty,
       awaitingSecondMove: false,
+      eyeHighlight: null,
       _afterSuccessTimer: null,
       _afterSuccessRun: null,
     });
@@ -268,7 +329,183 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     // Allow clicks during awaiting OR retry (so a denied click doesn't lock the board).
     if (status !== 'awaiting' && status !== 'retry') return;
     const lesson = LESSONS[get().lessonIndex];
-    if (lesson.kind === 'game' || !lesson.userPlays) return;
+    if (lesson.kind === 'game') return;
+
+    // Puzzle-series: each sub-puzzle has its own userPlays + validate, runs
+    // independently of the lesson-level fields.
+    if (lesson.kind === 'puzzle-series' && lesson.parts && lesson.parts.length > 0) {
+      const partIndex = get().partIndex;
+      const part = lesson.parts[partIndex];
+      if (!part) return;
+
+      const tentative = board.clone();
+      const { result, captures } = tentative.tryPlay(part.userPlays, point);
+      const isLastPart = partIndex >= lesson.parts.length - 1;
+      const lessonIdx = get().lessonIndex;
+
+      const finishPart = (finalBoard: Board, lastMovePoint: Point | null, lastMoveCaps: Point[], lastMoveColor: Color) => {
+        if (isLastPart) {
+          const isLastLesson = lessonIdx >= LESSONS.length - 1;
+          const completed = new Set(get().completed);
+          completed.add(lesson.id);
+          saveCompleted(completed);
+          set({
+            board: finalBoard,
+            grid: [...finalBoard.grid],
+            lastMove: lastMovePoint,
+            lastCaptures: lastMoveCaps,
+            lastMoveColor,
+            moveSeq: get().moveSeq + 1,
+            successSeq: get().successSeq + 1,
+            status: 'success',
+            feedback: isLastLesson ? "You've finished the intro!" : null,
+            showHint: false,
+            completed,
+          });
+        } else {
+          set({
+            board: finalBoard,
+            grid: [...finalBoard.grid],
+            lastMove: lastMovePoint,
+            lastCaptures: lastMoveCaps,
+            lastMoveColor,
+            moveSeq: get().moveSeq + 1,
+            successSeq: get().successSeq + 1,
+            status: 'awaiting',
+            showHint: false,
+            partFeedback: {
+              successMessage: part.successMessage,
+              successExplanation: part.successExplanation ?? null,
+              isLastPart: false,
+            },
+          });
+        }
+      };
+
+      if (result !== MoveResult.Ok) {
+        if (part.validateIllegal) {
+          const verdict = part.validateIllegal({ point, result });
+          if (verdict === 'success') {
+            finishPart(board, null, [], Color.Empty);
+            return;
+          }
+        }
+        const isOccupied = result === MoveResult.Occupied;
+        set({
+          feedback: isOccupied
+            ? "Stones can't be moved — pick an empty spot!"
+            : 'Try a different spot!',
+          deniedSeq: get().deniedSeq + 1,
+          lastDeniedPoint: point,
+        });
+        return;
+      }
+
+      const verdict = part.validate({ board: tentative, point, capturedCount: captures.length });
+      if (verdict !== 'success') {
+        const reset = buildPartBoard(lessonIdx, partIndex)!;
+        set({
+          board: reset,
+          grid: [...reset.grid],
+          lastMove: null,
+          lastCaptures: [],
+          lastMoveColor: Color.Empty,
+          status: 'retry',
+          feedback: part.retryMessage,
+        });
+        return;
+      }
+
+      // Success — commit the move (and queue an afterSuccess if defined).
+      playPlaceSound(point.row, point.col);
+      if (captures.length > 0) {
+        setTimeout(() => playCaptureSound(captures.length), 100);
+      }
+      if (part.triumphSound === 'success') {
+        // Slight delay so the place sound and triumph sound don't overlap awkwardly.
+        setTimeout(() => playTwoEyesSound(), 250);
+      }
+
+      if (part.afterSuccess) {
+        // Apply user's move; queue the auto-placement (defender's response).
+        set({
+          board: tentative,
+          grid: [...tentative.grid],
+          lastMove: point,
+          lastCaptures: captures,
+          lastMoveColor: part.userPlays,
+          moveSeq: get().moveSeq + 1,
+          status: 'animating',
+          feedback: null,
+          showHint: false,
+        });
+        const after = part.afterSuccess;
+        const partIdxAtStart = partIndex;
+        // Compute the response point now (while we still have the user's move
+        // in scope) so the closure doesn't have to look it up later.
+        const responsePoint = part.responseFor ? part.responseFor(point) : after.point;
+        const runAutoPlace = () => {
+          const cur = get();
+          if (!cur.active || cur.lessonIndex !== lessonIdx || cur.partIndex !== partIdxAtStart || cur.status !== 'animating') return;
+          const nextBoard = cur.board!.clone();
+          nextBoard.tryPlay(after.color as Color.Black | Color.White, responsePoint);
+          playPlaceSound(responsePoint.row, responsePoint.col);
+          set({
+            message: after.followUpMessage,
+            eyeHighlight: part.successHighlight ?? null,
+            _afterSuccessTimer: null,
+            _afterSuccessRun: null,
+          });
+          if (part.triumphSound === 'after-response') {
+            setTimeout(() => playTwoEyesSound(), 250);
+          }
+          finishPart(nextBoard, responsePoint, [], after.color);
+        };
+        set({ _afterSuccessTimer: null, _afterSuccessRun: runAutoPlace });
+        return;
+      }
+
+      finishPart(tentative, point, captures, part.userPlays);
+
+      // Optional background playout: chain auto-moves on the board while the
+      // success modal is up. Each move bails out if the user has navigated
+      // away (e.g. clicked Next puzzle), so leftover timers are no-ops.
+      if (part.playoutAfter && part.playoutAfter.length > 0) {
+        const moves = part.playoutAfter;
+        const partIdxAtStart = partIndex;
+        const playMove = (idx: number) => {
+          if (idx >= moves.length) return;
+          const move = moves[idx];
+          setTimeout(() => {
+            const cur = get();
+            if (!cur.active || cur.lessonIndex !== lessonIdx || cur.partIndex !== partIdxAtStart || !cur.board) return;
+            const nextBoard = cur.board.clone();
+            const r = nextBoard.tryPlay(move.color, move.point);
+            if (r.result !== MoveResult.Ok) {
+              playMove(idx + 1);
+              return;
+            }
+            playPlaceSound(move.point.row, move.point.col);
+            if (r.captures.length > 0) {
+              setTimeout(() => playCaptureSound(r.captures.length), 100);
+            }
+            set({
+              board: nextBoard,
+              grid: [...nextBoard.grid],
+              lastMove: move.point,
+              lastCaptures: r.captures,
+              lastMoveColor: move.color,
+              moveSeq: get().moveSeq + 1,
+            });
+            playMove(idx + 1);
+          }, move.delayMs);
+        };
+        playMove(0);
+      }
+      return;
+    }
+
+    if (!lesson.userPlays) return;
 
     // tryPlay mutates — work on a clone, commit only on success.
     const tentative = board.clone();
@@ -517,6 +754,33 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     if (_afterSuccessRun) _afterSuccessRun();
   },
 
+  advancePart: () => {
+    const { partIndex, partFeedback } = get();
+    const lesson = LESSONS[get().lessonIndex];
+    if (!lesson || lesson.kind !== 'puzzle-series' || !lesson.parts) return;
+    if (!partFeedback) return;
+
+    const nextIdx = partIndex + 1;
+    const part = lesson.parts[nextIdx];
+    if (!part) return;
+    const board = buildPartBoard(get().lessonIndex, nextIdx)!;
+    set({
+      partIndex: nextIdx,
+      partFeedback: null,
+      eyeHighlight: null,
+      status: 'awaiting',
+      message: part.prompt,
+      feedback: null,
+      showHint: !!part.defaultShowHint,
+      board,
+      boardSize: board.size,
+      grid: [...board.grid],
+      lastMove: null,
+      lastCaptures: [],
+      lastMoveColor: Color.Empty,
+    });
+  },
+
   exploreAgain: () => {
     const idx = get().lessonIndex;
     const lesson = LESSONS[idx];
@@ -537,7 +801,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
 
   answerQuiz: (answerIndex: number) => {
     resumeAudio();
-    const { quizIndex, quizCorrect, status } = get();
+    const { board, quizIndex, quizCorrect, status } = get();
     const lesson = LESSONS[get().lessonIndex];
     if (!lesson || lesson.kind !== 'quiz' || !lesson.questions) return;
     if (status !== 'awaiting') return;
@@ -547,6 +811,45 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     if (!answer) return;
     const isCorrect = !!answer.correct;
     const isLastQuestion = quizIndex >= lesson.questions.length - 1;
+
+    if (isCorrect && question.triumphSound) {
+      playTwoEyesSound();
+    }
+
+    // Correct answer + killMove demo: play the killing move on the board
+    // (sound + capture animation), then surface the feedback modal after a
+    // short delay so the player gets to watch the group disappear.
+    if (isCorrect && question.killMove && board) {
+      const killPoint = question.killMove;
+      const newBoard = board.clone();
+      const { result, captures } = newBoard.tryPlay(Color.Black, killPoint);
+      if (result === MoveResult.Ok && captures.length > 0) {
+        playPlaceSound(killPoint.row, killPoint.col);
+        setTimeout(() => playCaptureSound(captures.length), 100);
+        set({
+          status: 'animating',
+          board: newBoard,
+          grid: [...newBoard.grid],
+          lastMove: killPoint,
+          lastCaptures: captures,
+          lastMoveColor: Color.Black,
+          moveSeq: get().moveSeq + 1,
+          quizCorrect: quizCorrect + 1,
+        });
+        setTimeout(() => {
+          set({
+            status: 'awaiting',
+            quizFeedback: {
+              correct: true,
+              message: question.successMessage,
+              isLastQuestion,
+            },
+          });
+        }, 900);
+        return;
+      }
+    }
+
     set({
       quizCorrect: isCorrect ? quizCorrect + 1 : quizCorrect,
       quizFeedback: {

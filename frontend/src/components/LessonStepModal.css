@@ -1,11 +1,13 @@
 .lesson-step-overlay {
   position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 180;
+  /* No backdrop — keep the board fully visible. Pointer events pass through
+     so the board behind us stays interactive (tryMove rejects clicks during
+     success/animating anyway). The card itself re-enables pointer events. */
+  pointer-events: none;
   animation: lesson-step-fade 0.2s ease-out;
 }
 
@@ -19,19 +21,20 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 28px 32px;
+  padding: 24px 28px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   text-align: center;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 32px rgba(0, 0, 0, 0.3);
+  pointer-events: auto;
   animation: lesson-step-pop 0.32s cubic-bezier(0.4, 1.6, 0.6, 1);
 }
 
 @keyframes lesson-step-pop {
-  0% { opacity: 0; transform: scale(0.92) translateY(8px); }
-  100% { opacity: 1; transform: scale(1) translateY(0); }
+  0% { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 
 .lesson-step-headline {

@@ -19,14 +19,35 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
   const feedback = useLearnStore((s) => s.feedback);
   const quizFeedback = useLearnStore((s) => s.quizFeedback);
   const quizCorrect = useLearnStore((s) => s.quizCorrect);
+  const partFeedback = useLearnStore((s) => s.partFeedback);
   const next = useLearnStore((s) => s.next);
   const skipAfterSuccess = useLearnStore((s) => s.skipAfterSuccess);
   const advanceQuiz = useLearnStore((s) => s.advanceQuiz);
+  const advancePart = useLearnStore((s) => s.advancePart);
   const exploreAgain = useLearnStore((s) => s.exploreAgain);
 
   const lesson = LESSONS[lessonIndex];
   const isLast = lessonIndex >= LESSONS.length - 1;
   if (!lesson || lesson.kind === 'game') return null;
+
+  // Puzzle-series: per-part success modal between sub-puzzles. Uses the
+  // green correct-style card from the quiz feedback variants.
+  if (partFeedback) {
+    return (
+      <div className="lesson-step-overlay" role="dialog" aria-modal="true">
+        <div className="lesson-step-card lesson-step-card-quiz lesson-step-card-correct">
+          <div className="lesson-step-quiz-icon" aria-hidden>✓</div>
+          <h2 className="lesson-step-headline">{partFeedback.successMessage}</h2>
+          {partFeedback.successExplanation && (
+            <p className="lesson-step-explanation">{partFeedback.successExplanation}</p>
+          )}
+          <button className="lesson-step-btn" onClick={advancePart}>
+            Next puzzle →
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Quiz: per-question feedback modal (correct/wrong + brief message).
   if (quizFeedback) {
@@ -50,6 +71,12 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
 
   const open = status === 'success' || status === 'animating';
   if (!open) return null;
+
+  // Quiz lessons only render the modal for per-question feedback (handled
+  // above via quizFeedback) or the final success summary. The 'animating'
+  // state during a killMove demo has no modal — the player just watches the
+  // capture play out, then the quizFeedback modal pops in after the delay.
+  if (lesson.kind === 'quiz' && status !== 'success') return null;
 
   // Quiz lessons reach 'success' status after the LAST question's feedback is
   // dismissed — show a results-flavored summary modal.
