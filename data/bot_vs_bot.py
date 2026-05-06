@@ -71,8 +71,12 @@ def play_game(client: httpx.Client, black_rank: str, white_rank: str,
             passes += 1
             if verbose: print(f"  Move {move_num+1}: pass (consecutive: {passes})")
             if passes >= 2:
-                state = client.get(f"{API}/games/{gid}").json()
-                result = state.get("result")
+                # Backend's /ai-move auto-played the pass and ran scoring;
+                # _persist_finished_game cleared active_games, so a follow-up
+                # GET /games/{gid} returns 404. Read the scored result from
+                # AIMoveResponse.final_state instead.
+                final = ai.get("final_state") or {}
+                result = final.get("result")
                 break
         else:
             passes = 0
@@ -83,17 +87,27 @@ def play_game(client: httpx.Client, black_rank: str, white_rank: str,
                     who = "white" if move_num % 2 == 0 else "black"
                 print(f"  Move {move_num+1}: {who} at ({ar},{ac})")
 
-        # Check for natural game end
-        state = client.get(f"{API}/games/{gid}").json()
-        if state.get("phase") != "playing":
-            result = state.get("result")
-            break
+            # Natural game end on a non-pass move (e.g. resign): the active
+            # row may still exist, so a GET works for this path.
+            state = client.get(f"{API}/games/{gid}").json()
+            if state.get("phase") != "playing":
+                result = state.get("result")
+                break
 
         move_num += 1
 
-    # Count real moves from the game state (ignore handicap setup)
-    state = client.get(f"{API}/games/{gid}").json()
-    real_moves = state.get("move_number", move_num)
+    # Count real moves: prefer the final_state captured at game-end, fall back
+    # to a live GET (only valid if the game is still in active_games — which
+    # it isn't after a pass-finish) and finally to our local move counter.
+    final_state_blob = ai.get("final_state") if ai else None
+    if final_state_blob and final_state_blob.get("move_number") is not None:
+        real_moves = final_state_blob["move_number"]
+    else:
+        try:
+            state = client.get(f"{API}/games/{gid}").json()
+            real_moves = state.get("move_number", move_num)
+        except Exception:
+            real_moves = move_num
     winner = result.get("winner", "unknown") if result else "unknown"
 
     return {

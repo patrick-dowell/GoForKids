@@ -399,6 +399,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       whiteRank,
       botVsBotPaused: false,
       _botVsBotTimer: null,
+      autoCompleting: false,
       lessonContext: !!options?.lessonContext,
       botJustPassed: false,
       lessonGameEndDismissed: false,
