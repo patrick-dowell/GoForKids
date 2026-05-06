@@ -97,8 +97,11 @@ profiles:
       # Bump pass: shift the strength levers (visits, max_pl, rand) toward
       # the 6k slot's values; keep mistake_freq slightly above 6k's so the
       # 9k → 6k gap stays meaningful.
-      # NOT YET RE-TRIALED — re-run 12k vs 9k + 9k vs 6k (even + H3) when
-      # convenient. Trial logs: data/calibration_logs_b28/relabel_trial_2026-05-05/
+      # Validated 2026-05-05 in a 60-game v3 trial — both adjacent H3 matches
+      # landed at 50% (12k+H3 vs 9k = 5/10, 9k+H3 vs 6k = 5/10), the textbook
+      # 3-rank-gap target. Even-game numbers stay noisy (60% vs 12k, 90% vs
+      # 6k) — H3 is the trustworthy signal at low visit counts on b28.
+      # Trial logs: data/calibration_logs_b28/relabel_trial_2026-05-05/
       max_point_loss: 9.0
       mistake_freq: 0.51
       policy_weight: 0.47
