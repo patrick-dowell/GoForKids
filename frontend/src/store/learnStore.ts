@@ -339,7 +339,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
       if (!part) return;
 
       const tentative = board.clone();
-      const { result, captures } = tentative.tryPlay(part.userPlays, point);
+      const { result, captures } = tentative.tryPlay(part.userPlays as Color.Black | Color.White, point);
       const isLastPart = partIndex >= lesson.parts.length - 1;
       const lessonIdx = get().lessonIndex;
 
@@ -480,7 +480,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
             const cur = get();
             if (!cur.active || cur.lessonIndex !== lessonIdx || cur.partIndex !== partIdxAtStart || !cur.board) return;
             const nextBoard = cur.board.clone();
-            const r = nextBoard.tryPlay(move.color, move.point);
+            const r = nextBoard.tryPlay(move.color as Color.Black | Color.White, move.point);
             if (r.result !== MoveResult.Ok) {
               playMove(idx + 1);
               return;
