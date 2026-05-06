@@ -1,5 +1,106 @@
 # Development Journal
 
+## Session 15 — May 5–6, 2026
+
+Closed out the first-cut Learn-to-Play arc. Lessons 1–11 now form an
+end-to-end intro that takes a first-timer from "what's a stone" through
+two-eye life-and-death and onto a real 9×9 game. Calling this v1 done —
+more concept lessons (ladders, nets, sente/gote, endgame counting) wait
+for real playtest data to tell us where kids actually stall.
+
+### New: Lesson 10 "Two Eyes" — three-part puzzle series
+
+Needed a third lesson kind. `puzzle` and `quiz` were the existing two;
+`puzzle-series` is new — a list of one-move sub-puzzles, each with its
+own board / userPlays / validate / success copy, separated by a "Next
+puzzle →" modal between parts.
+
+Three parts, all on 9×9, player as Black throughout:
+
+1. **Make Life** — black 5-wide ring with 1×3 internal eye-space, white
+   surround. Play the vital point E7 → splits the inside into two real
+   eyes.
+2. **Take Life** — same shape but inverted colors (white ring, black
+   surround). Same vital point — but now playing it KILLS instead of
+   saving.
+3. **Too Big to Kill** — wider white ring with 1×4 internal. Player
+   attacks anywhere inside; white auto-replies with the inner cell of
+   *opposite parity to the user's column* so the response is always
+   legal AND always lands on an inner cell, leaving the two outer
+   empties (3,3) and (3,6) as the eye-regions in every scenario.
+
+The function-of-user-move response in Part 3 needed a small framework
+extension (`responseFor: (userMove) => Point` on `PuzzlePart`). Cleaner
+than wedging it into a static `afterSuccess.point`. Two more
+`PuzzlePart` fields landed at the same time:
+
+- `successHighlight` — points highlighted AFTER the auto-response fires.
+  Bug-fix in passing: GoBoard wasn't reading puzzle-series part-level
+  highlights at all. Now it does, plus an `eyeHighlight` override for
+  pointing at newly-formed eye-regions.
+- `playoutAfter` — chained background moves that resolve a sequence on
+  the board while the success modal is up. Used in lesson 10 Part 2:
+  player takes the vital point → "Vital point taken!" modal pops →
+  background plays out white's last-ditch extension + black's capture,
+  visible on the board behind the modal.
+
+### Lesson 9 "Safe or Gone?" polish
+
+Three quick wins on the existing quiz:
+
+- **Black surround on every board.** Q1 (rabbity-six, Safe) gets a black
+  wall on the row below; Q2 (single-eye ring, Gone) is fully ringed; Q3
+  (T-shape, Gone) is surrounded with one liberty left. Reads as actual
+  surrounded fights instead of floating shapes.
+- **Kill move plays automatically on "Gone" answers.** Q2's eye gets a
+  black stone, all 8 white stones come off with the capture animation +
+  sound, then the success modal pops in ~900 ms later. Same for Q3.
+  More fun than just a modal.
+- **Triumphant two-eyes sound** on Q1's correct "Safe" answer. New
+  `playTwoEyesSound()` in the SoundManager — two ascending chimes (one
+  per eye) followed by a sustained major triad (C-E-G) with a slow
+  decay. Cosmic + classic packs. Same sound also fires when the player
+  makes two eyes in lesson 10 Part 1, and when white's reply forms the
+  eye-regions in lesson 10 Part 3.
+
+### Lesson 11 "Count Your Land" — territory overlay
+
+Final summary screen now switches the board into the same territory-dot
+rendering the in-game scoring screen uses. Computed from the quiz
+questions' `highlight` arrays (Q1's points = Black's territory, Q2's =
+White's). Visual consistency with the real game — kid sees the same
+dots they'll see at the end of every match.
+
+### Modal redesign
+
+The success modal used to cover the middle of the screen with a
+darkened backdrop, blocking the board. Now it anchors at the bottom of
+the viewport with no backdrop and `pointer-events: none` on the wrapper
+(card itself re-enables them). Slide-up animation, stronger drop
+shadow. Board is fully visible behind it — necessary for the kill
+animations and `playoutAfter` sequences to actually be watchable.
+
+`tryMove` already rejected clicks during `success`/`animating` so there
+was no risk to letting clicks pass through.
+
+### Smaller polish
+
+- Lesson 8 (Two Eyes = Forever Safe) shape shifted one column left so
+  the right wall isn't pressed against the board edge.
+- Lesson 10's three boards shifted up two rows so the bottom-anchored
+  modal has breathing room over the play area.
+- "Try another move" button on lesson 8 — when the player clicks an eye
+  and gets the suicide-discovery success, they can click the OTHER eye
+  to confirm without losing completion. Opt-in via
+  `exploreAfterSuccess` on the Lesson type.
+
+### Status of feature plans after this session
+
+- 03 (Concept lessons): 🧪 Beta — first-cut arc shipped, 11 lessons live.
+  Next batch waits for real-user playtest data.
+
+---
+
 ## Session 14 — May 4, 2026 (continuation)
 
 iPad gets the rest of the way to a finished app. Path C (TypeScript port
