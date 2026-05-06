@@ -1127,3 +1127,19 @@ Not worth further tuning right now — fixing H3 exactly requires either making 
 - [ ] The 30k bot's `_select_beginner_move` function is now unused (30k uses KataGo) — clean up dead code
 - [ ] Multiple KataGo processes could spawn if the engine singleton race conditions — add a lock
 - [ ] The `game.board.hash()` function joins all 361 grid values into a string — use a proper hash for superko
+
+## Known Bugs (observed in play, 2026-05-05)
+- [x] **"New Game" doesn't fully reset prior game state** — fixed 2026-05-05: `autoCompleting` flag was the only initial-state field missing from the `newGame()` reset block; if a prior game was mid Finish-Game, the new game's Pass / Resign / Finish Game buttons stayed disabled. Repro for any future leak: audit `gameStore` reset path against the initial-state object
+- [ ] **Hard to get back to main menu** — repro unclear; one likely cause: full-viewport modal overlays (e.g. `.scoring-overlay` z-index 9500 in [ScoringInProgressModal.css](frontend/src/components/ScoringInProgressModal.css)) cover the `GoForKids` title that's the only path home, and the `request()` helper in [api/client.ts](frontend/src/api/client.ts) has no `AbortController` timeout — so a hung backend leaves the modal stuck. Real fix: timeout + manual dismiss button, or raise the title's z-index
+- [ ] **13×13 bots are too strong across the board** — confirmed via playtest 2026-05-05. The b28.yaml comments self-document this for 15k ("kids picking 13x13 15k face a ~12k-equivalent. Rank ordering is preserved"); the same drift likely applies to 30k and 6k. Calibration approach was b28-vs-b20 head-to-head at the same nominal rank, which doesn't catch inter-rank gap drift on the new network. Same fix shape as the 19×19 relabel pass
+- [ ] **Score occasionally counted incorrectly** — repro unclear; capture an example game (SGF + final score) when it next happens to debug
+- [ ] **"Finish game" mode hangs until final score appears** — the bot-vs-bot playout to fill in dame should animate move-by-move in real time so the kid can see the game complete naturally, not freeze and pop the score
+- [ ] **iPad vertical (portrait) hides a lot of UI** — layout assumes landscape; portrait clips controls. Folds into [21 iPhone support](feature_plans/21_iphone_support.md) (same responsive layout pass)
+
+> iPhone (Pro Max) support is now its own feature plan: [21_iphone_support.md](feature_plans/21_iphone_support.md)
+
+## Polish / Feature gaps (from play observation)
+- [ ] **Lessons 6–9 don't prepare the kid for 9x9** — the ramp into a real game is too steep. Likely need to refine the existing lessons and possibly add new ones bridging concept → first 9x9 game. Folds into [03 concept lessons](feature_plans/03_concept_lessons.md)
+- [ ] **Replays should show more analysis** — at minimum, surface the live score (scoreLead) graph during replay; eventual hookup to study mode / AI teacher narrative. Folds into [04 AI teacher review](feature_plans/04_ai_teacher_review.md)
+- [ ] **More animation + "make it fun" polish** — extends [12 animations & sound](feature_plans/12_animations_and_sound.md) beyond the current beta cut
+- [ ] **More + cooler avatars for bots and players** — expand the avatar set, give each bot a distinct cosmic-themed look. Ties into [11 avatars](feature_plans/11_avatars.md) and the [15 rewards loop](feature_plans/15_rewards_loop.md) (avatars as unlockables)
