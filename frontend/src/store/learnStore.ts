@@ -83,6 +83,10 @@ interface LearnState {
   /** During an `afterSuccess` wait, fire the auto-placement immediately so
    *  Continue feels responsive instead of forcing the user to wait out the timer. */
   skipAfterSuccess: () => void;
+  /** Return to the active lesson from a `success` modal without losing the
+   *  completion mark. Resets the board to its starting state so the player
+   *  can try alternate moves (used by `exploreAfterSuccess` lessons). */
+  exploreAgain: () => void;
   /** Internal: handle for the pending auto-place timer (null when nothing pending). */
   _afterSuccessTimer: ReturnType<typeof setTimeout> | null;
   /** Internal: zero-arg fn that runs the auto-placement immediately. Set when a
@@ -511,6 +515,24 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     const { _afterSuccessTimer, _afterSuccessRun } = get();
     if (_afterSuccessTimer !== null) clearTimeout(_afterSuccessTimer);
     if (_afterSuccessRun) _afterSuccessRun();
+  },
+
+  exploreAgain: () => {
+    const idx = get().lessonIndex;
+    const lesson = LESSONS[idx];
+    if (!lesson || lesson.kind === 'game' || lesson.kind === 'quiz') return;
+    const board = buildLessonBoard(idx);
+    set({
+      status: 'awaiting',
+      feedback: null,
+      showHint: !!lesson.defaultShowHint,
+      board,
+      grid: [...board.grid],
+      lastMove: null,
+      lastCaptures: [],
+      lastMoveColor: Color.Empty,
+      awaitingSecondMove: false,
+    });
   },
 
   answerQuiz: (answerIndex: number) => {

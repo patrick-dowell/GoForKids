@@ -110,6 +110,11 @@ export interface Lesson {
    *  modal (e.g. "Black wins by 5 points!"). Defaults to the per-question
    *  count if omitted. */
   quizSummary?: string;
+  /** When true, the success modal shows a "Try another move" button alongside
+   *  Continue. The lesson stays complete; the board is reset so the player can
+   *  explore alternate moves. Useful for `validateIllegal` lessons where
+   *  multiple equivalent moves (e.g. either eye) reveal the same rule. */
+  exploreAfterSuccess?: boolean;
 }
 
 export const LESSONS: Lesson[] = [
@@ -294,110 +299,223 @@ export const LESSONS: Lesson[] = [
   },
 
   // ---------------------------------------------------------------------------
-  // Lesson 6 — Who Gets Trapped? (capture race / semeai)
-  // Black at (1,2) and White at (3,2) are BOTH in atari sharing the same
-  // liberty at (2,2). Whoever plays (2,2) first captures the other. Black to
-  // move — the lesson teaches "play the capture, not the escape; speed wins
-  // the race."
-  //   . . W . .
-  //   . W B W .   <- Black (1,2) atari, only liberty (2,2)
-  //   . . . . .   <- (2,2) shared liberty
-  //   . B W B .   <- White (3,2) atari, only liberty (2,2)
-  //   . . B . .
+  // Lesson 6 — Capture Race (9x9 semeai, multi-step)
+  // Two interlocked center groups, each with exactly 2 liberties; corner walls
+  // (4+ libs each) frame the fight without participating.
+  //     . . . . . . . . .
+  //     . . . . . . . . .
+  //     . . . . . . . . .
+  //     . . . W W B B . .   <- top wall
+  //     . . . . B W . . .   <- Black B {(4,4),(5,4)} libs (4,3)(5,3)
+  //     . . . . B W . . .   <- White {(4,5),(5,5)} libs (4,6)(5,6)
+  //     . . . W W B B . .   <- bottom wall
+  //     . . . . . . . . .
+  //     . . . . . . . . .
+  // Black to move. Path: take one of white's libs (4,6) or (5,6), White
+  // auto-plays (4,3) reducing Black to 1 lib, then Black plays the remaining
+  // white liberty to capture both white stones before being captured back.
   // ---------------------------------------------------------------------------
   {
-    id: 'who-gets-trapped',
-    title: 'Who Gets Trapped?',
-    instruction: 'Black goes first — capture the white stone before it captures you!',
-    boardSize: 5,
+    id: 'capture-race-9x9',
+    title: 'Capture Race',
+    instruction: "Both groups have only 2 breathing spaces left — take one of White's away!",
+    boardSize: 9,
     initialStones: [
-      // Black stones (you)
-      { row: 1, col: 2, color: Color.Black },
-      { row: 3, col: 1, color: Color.Black },
-      { row: 3, col: 3, color: Color.Black },
-      { row: 4, col: 2, color: Color.Black },
-      // White stones
-      { row: 0, col: 2, color: Color.White },
-      { row: 1, col: 1, color: Color.White },
-      { row: 1, col: 3, color: Color.White },
-      { row: 3, col: 2, color: Color.White },
+      // Black — top wall, center column, bottom wall
+      { row: 3, col: 5, color: Color.Black },
+      { row: 3, col: 6, color: Color.Black },
+      { row: 4, col: 4, color: Color.Black },
+      { row: 5, col: 4, color: Color.Black },
+      { row: 6, col: 5, color: Color.Black },
+      { row: 6, col: 6, color: Color.Black },
+      // White — top wall, center column, bottom wall
+      { row: 3, col: 3, color: Color.White },
+      { row: 3, col: 4, color: Color.White },
+      { row: 4, col: 5, color: Color.White },
+      { row: 5, col: 5, color: Color.White },
+      { row: 6, col: 3, color: Color.White },
+      { row: 6, col: 4, color: Color.White },
     ],
     userPlays: Color.Black,
-    highlight: [{ row: 2, col: 2 }],
-    validate: ({ capturedCount }) => (capturedCount >= 1 ? 'success' : 'retry'),
-    successMessage: 'Capture race won!',
-    successExplanation: "When two groups are both about to be captured, whoever plays first wins. Players call this a capture race.",
-    retryMessage: "Almost! Look for the spot that captures White before it captures you.",
+    highlight: [{ row: 4, col: 6 }, { row: 5, col: 6 }],
+    // Step 1: Black must remove one of White's two breathing spaces.
+    validate: ({ point }) => {
+      const targets = [{ row: 4, col: 6 }, { row: 5, col: 6 }];
+      return targets.some((t) => t.row === point.row && t.col === point.col) ? 'success' : 'retry';
+    },
+    interimSuccessMessage: 'One down!',
+    interimSuccessExplanation: "White is down to one breathing space — but it's White's turn next.",
+    successMessage: 'You won the race!',
+    successExplanation: "Two groups, both running out of room. Whoever fills the other's last spot first wins. Players call this a capture race.",
+    retryMessage: "Almost! Look for a spot that takes one of White's breathing spaces away.",
+    afterSuccess: {
+      color: Color.White,
+      point: { row: 4, col: 3 },
+      delayMs: 2500,
+      followUpMessage: 'White is racing back — now your group is down to one breathing space too. Capture White before White captures you!',
+    },
+    secondTurn: {
+      // Step 2: capture White's group by playing its remaining liberty.
+      validate: ({ capturedCount }) => (capturedCount >= 1 ? 'success' : 'retry'),
+      retryMessage: "Find White's last breathing space — that's the capture.",
+    },
   },
 
   // ---------------------------------------------------------------------------
-  // Lesson 7 — Safe Eyes
-  // Demonstrates that two true eyes make a group uncapturable. White has a
-  // "rabbity-six" shape with two eyes at (1,1) and (1,3). Black plays. Any
-  // attempt to fill an eye is a suicide move and is rejected by the engine —
-  // we treat the suicide attempt as the lesson's success condition via
-  // `validateIllegal`. Other empty squares produce a "try the eyes" nudge.
-  //   . W W W .
-  //   W . W . W   <- empty cells at (1,1) and (1,3) are eyes
-  //   W W W W W
-  //   . . . . .
-  //   . . . . .
+  // Lesson 7 — One Eye Isn't Enough (9x9 capture by filling the last liberty)
+  // White ring fully surrounded by black, single empty interior at (4,4) —
+  // that's white's ONLY liberty. Black plays the eye = white captured.
+  // Sets up the contrast for lesson 8 (same shape with two eyes = uncapturable).
+  //     . . . . . . . . .
+  //     . . . . . . . . .
+  //     . . B B B B B . .
+  //     . . B W W W B . .
+  //     . . B W . W B . .   <- (4,4) is white's last liberty
+  //     . . B W W W B . .
+  //     . . B B B B B . .
+  //     . . . . . . . . .
+  //     . . . . . . . . .
   // ---------------------------------------------------------------------------
   {
-    id: 'safe-eyes',
-    title: 'Safe Eyes',
-    instruction: "White has two empty spots inside. Try to capture this group — click in one of them!",
-    boardSize: 5,
+    id: 'capture-the-eye',
+    title: "One Eye Isn't Enough",
+    instruction: "White has only one empty spot left — fill it to capture the whole group!",
+    boardSize: 9,
     initialStones: [
-      { row: 0, col: 1, color: Color.White },
-      { row: 0, col: 2, color: Color.White },
-      { row: 0, col: 3, color: Color.White },
-      { row: 1, col: 0, color: Color.White },
-      { row: 1, col: 2, color: Color.White },
-      { row: 1, col: 4, color: Color.White },
-      { row: 2, col: 0, color: Color.White },
-      { row: 2, col: 1, color: Color.White },
-      { row: 2, col: 2, color: Color.White },
-      { row: 2, col: 3, color: Color.White },
-      { row: 2, col: 4, color: Color.White },
+      // Black surround
+      { row: 2, col: 2, color: Color.Black },
+      { row: 2, col: 3, color: Color.Black },
+      { row: 2, col: 4, color: Color.Black },
+      { row: 2, col: 5, color: Color.Black },
+      { row: 2, col: 6, color: Color.Black },
+      { row: 3, col: 2, color: Color.Black },
+      { row: 3, col: 6, color: Color.Black },
+      { row: 4, col: 2, color: Color.Black },
+      { row: 4, col: 6, color: Color.Black },
+      { row: 5, col: 2, color: Color.Black },
+      { row: 5, col: 6, color: Color.Black },
+      { row: 6, col: 2, color: Color.Black },
+      { row: 6, col: 3, color: Color.Black },
+      { row: 6, col: 4, color: Color.Black },
+      { row: 6, col: 5, color: Color.Black },
+      { row: 6, col: 6, color: Color.Black },
+      // White ring with single eye at (4,4)
+      { row: 3, col: 3, color: Color.White },
+      { row: 3, col: 4, color: Color.White },
+      { row: 3, col: 5, color: Color.White },
+      { row: 4, col: 3, color: Color.White },
+      { row: 4, col: 5, color: Color.White },
+      { row: 5, col: 3, color: Color.White },
+      { row: 5, col: 4, color: Color.White },
+      { row: 5, col: 5, color: Color.White },
     ],
     userPlays: Color.Black,
-    highlight: [{ row: 1, col: 1 }, { row: 1, col: 3 }],
+    highlight: [{ row: 4, col: 4 }],
     defaultShowHint: true,
-    // Any LEGAL move is wrong (the eyes themselves are suicide and so are
-    // illegal — those are handled by validateIllegal below).
+    validate: ({ capturedCount }) => (capturedCount >= 1 ? 'success' : 'retry'),
+    successMessage: 'Whole group gone!',
+    successExplanation: "White had only one empty spot left — its last breathing space. Fill it and the entire group disappears.",
+    retryMessage: "Click the empty spot inside the white ring.",
+  },
+
+  // ---------------------------------------------------------------------------
+  // Lesson 8 — Two Eyes = Forever Safe (9x9 uncapturable shape)
+  // Same setup as lesson 7 but now white has a wider shape with TWO eyes at
+  // (4,4) and (4,6). Filling one eye doesn't capture — the OTHER eye is still
+  // a liberty — so the black play is suicide and the engine refuses it.
+  // We catch the suicide attempt via validateIllegal as the lesson's success.
+  //     . . . . . . . . .
+  //     . . . . . . . . .
+  //     . . B B B B B B B
+  //     . . B W W W W W B
+  //     . . B W . W . W B   <- eyes at (4,4) and (4,6)
+  //     . . B W W W W W B
+  //     . . B B B B B B B
+  //     . . . . . . . . .
+  //     . . . . . . . . .
+  // ---------------------------------------------------------------------------
+  {
+    id: 'two-eyes-uncapturable',
+    title: 'Two Eyes = Forever Safe',
+    instruction: "Now White has TWO empty spots inside. Try to capture — click in either one!",
+    boardSize: 9,
+    initialStones: [
+      // Black surround
+      { row: 2, col: 2, color: Color.Black },
+      { row: 2, col: 3, color: Color.Black },
+      { row: 2, col: 4, color: Color.Black },
+      { row: 2, col: 5, color: Color.Black },
+      { row: 2, col: 6, color: Color.Black },
+      { row: 2, col: 7, color: Color.Black },
+      { row: 2, col: 8, color: Color.Black },
+      { row: 3, col: 2, color: Color.Black },
+      { row: 3, col: 8, color: Color.Black },
+      { row: 4, col: 2, color: Color.Black },
+      { row: 4, col: 8, color: Color.Black },
+      { row: 5, col: 2, color: Color.Black },
+      { row: 5, col: 8, color: Color.Black },
+      { row: 6, col: 2, color: Color.Black },
+      { row: 6, col: 3, color: Color.Black },
+      { row: 6, col: 4, color: Color.Black },
+      { row: 6, col: 5, color: Color.Black },
+      { row: 6, col: 6, color: Color.Black },
+      { row: 6, col: 7, color: Color.Black },
+      { row: 6, col: 8, color: Color.Black },
+      // White rabbity-six with eyes at (4,4) and (4,6)
+      { row: 3, col: 3, color: Color.White },
+      { row: 3, col: 4, color: Color.White },
+      { row: 3, col: 5, color: Color.White },
+      { row: 3, col: 6, color: Color.White },
+      { row: 3, col: 7, color: Color.White },
+      { row: 4, col: 3, color: Color.White },
+      { row: 4, col: 5, color: Color.White },
+      { row: 4, col: 7, color: Color.White },
+      { row: 5, col: 3, color: Color.White },
+      { row: 5, col: 4, color: Color.White },
+      { row: 5, col: 5, color: Color.White },
+      { row: 5, col: 6, color: Color.White },
+      { row: 5, col: 7, color: Color.White },
+    ],
+    userPlays: Color.Black,
+    highlight: [{ row: 4, col: 4 }, { row: 4, col: 6 }],
+    defaultShowHint: true,
+    // Any LEGAL move is wrong (filling an eye is suicide, handled below).
     validate: () => 'retry',
     validateIllegal: ({ point, result }) => {
       if (result !== MoveResult.Suicide) return 'retry';
-      const eyes = [{ row: 1, col: 1 }, { row: 1, col: 3 }];
+      const eyes = [{ row: 4, col: 4 }, { row: 4, col: 6 }];
       return eyes.some((e) => e.row === point.row && e.col === point.col) ? 'success' : 'retry';
     },
-    successMessage: 'Two eyes — totally safe!',
-    successExplanation: "Each empty spot inside is an 'eye'. You can't fill one — your stone would have no breathing room and instantly disappear. Two eyes means White's group can NEVER be captured.",
+    successMessage: "You can't! Two eyes = forever safe.",
+    successExplanation: "Filling one eye doesn't capture White — the OTHER eye is still a breathing space. So your stone has no breathing room and instantly disappears. Two eyes means the group can NEVER be captured.",
     retryMessage: "Try clicking inside one of White's empty spots — see what happens!",
+    exploreAfterSuccess: true,
   },
 
   // ---------------------------------------------------------------------------
-  // Lesson 8 — Alive or Gone? (3-question life/death quiz)
+  // Lesson 9 — Alive or Gone? (3-question life/death quiz)
   // Three small white shapes. Player taps Safe / Gone for each. Two eyes =
-  // safe, anything less = gone. Spec: "Quick streak-style lesson."
+  // safe, anything less = gone. Reinforces the concept from lessons 7 + 8.
   // ---------------------------------------------------------------------------
   {
-    id: 'alive-or-gone',
+    id: 'safe-or-gone',
     kind: 'quiz',
-    title: 'Alive or Gone?',
+    title: 'Safe or Gone?',
     instruction: 'Look at the white group. Two eyes means safe. Anything less means gone!',
     successMessage: 'Eye-spotter!',
     successExplanation: "Two eyes = the group lives forever. One eye or none = the opponent can capture it. That's the heart of life and death in Go.",
     questions: [
-      // Q1 — two-eye rabbity-six (Safe).
+      // Q1 — two-eye safe shape, fully walled in by black on the south.
+      // White is enclosed on three sides by the board edge + south by black.
       {
         prompt: 'Is this white group SAFE or GONE?',
         boardSize: 5,
         initialStones: [
+          { row: 0, col: 0, color: Color.White },
           { row: 0, col: 1, color: Color.White },
           { row: 0, col: 2, color: Color.White },
           { row: 0, col: 3, color: Color.White },
+          { row: 0, col: 4, color: Color.White },
           { row: 1, col: 0, color: Color.White },
           { row: 1, col: 2, color: Color.White },
           { row: 1, col: 4, color: Color.White },
@@ -406,6 +524,12 @@ export const LESSONS: Lesson[] = [
           { row: 2, col: 2, color: Color.White },
           { row: 2, col: 3, color: Color.White },
           { row: 2, col: 4, color: Color.White },
+          // Black wall along board row 2 (engine row 3) — fully encloses White.
+          { row: 3, col: 0, color: Color.Black },
+          { row: 3, col: 1, color: Color.Black },
+          { row: 3, col: 2, color: Color.Black },
+          { row: 3, col: 3, color: Color.Black },
+          { row: 3, col: 4, color: Color.Black },
         ],
         answers: [
           { label: 'Safe', correct: true },
@@ -414,7 +538,8 @@ export const LESSONS: Lesson[] = [
         successMessage: 'Yes — two eyes means safe forever!',
         failMessage: 'Look again — there are TWO empty spots fully inside the group. That makes it safe.',
       },
-      // Q2 — single-eye small ring (Gone).
+      // Q2 — single-eye small ring (Gone), fully surrounded by black so the
+      // ring's only liberty is the central eye.
       {
         prompt: 'Is this white group SAFE or GONE?',
         boardSize: 5,
@@ -427,6 +552,19 @@ export const LESSONS: Lesson[] = [
           { row: 3, col: 1, color: Color.White },
           { row: 3, col: 2, color: Color.White },
           { row: 3, col: 3, color: Color.White },
+          // Black surround
+          { row: 0, col: 1, color: Color.Black },
+          { row: 0, col: 2, color: Color.Black },
+          { row: 0, col: 3, color: Color.Black },
+          { row: 1, col: 0, color: Color.Black },
+          { row: 1, col: 4, color: Color.Black },
+          { row: 2, col: 0, color: Color.Black },
+          { row: 2, col: 4, color: Color.Black },
+          { row: 3, col: 0, color: Color.Black },
+          { row: 3, col: 4, color: Color.Black },
+          { row: 4, col: 1, color: Color.Black },
+          { row: 4, col: 2, color: Color.Black },
+          { row: 4, col: 3, color: Color.Black },
         ],
         answers: [
           { label: 'Safe', correct: false },
@@ -435,7 +573,9 @@ export const LESSONS: Lesson[] = [
         successMessage: "Right! Only ONE eye — opponent can surround and capture.",
         failMessage: "Look again — there's only ONE empty spot inside. One eye isn't enough.",
       },
-      // Q3 — small T-shape with no eye potential (Gone).
+      // Q3 — small T-shape with no eye potential (Gone). Surrounded by black
+      // except for one remaining liberty at (1,3) — group is in atari and has
+      // no eye-making space, so it's doomed regardless.
       {
         prompt: 'Is this white group SAFE or GONE?',
         boardSize: 5,
@@ -444,6 +584,14 @@ export const LESSONS: Lesson[] = [
           { row: 2, col: 1, color: Color.White },
           { row: 2, col: 2, color: Color.White },
           { row: 3, col: 2, color: Color.White },
+          // Black surround — leaves (1,3) as White's only liberty.
+          { row: 0, col: 2, color: Color.Black },
+          { row: 1, col: 1, color: Color.Black },
+          { row: 2, col: 0, color: Color.Black },
+          { row: 2, col: 3, color: Color.Black },
+          { row: 3, col: 1, color: Color.Black },
+          { row: 3, col: 3, color: Color.Black },
+          { row: 4, col: 2, color: Color.Black },
         ],
         answers: [
           { label: 'Safe', correct: false },
@@ -457,7 +605,7 @@ export const LESSONS: Lesson[] = [
   },
 
   // ---------------------------------------------------------------------------
-  // Lesson 9 — Count Your Land (2-question territory quiz)
+  // Lesson 10 — Count Your Land (2-question territory quiz)
   // A finished 5x5 position with a clean horizontal split. Black walls row 2,
   // White walls row 3. Each side's territory is highlighted in turn so the
   // player can count by sight.
@@ -538,12 +686,10 @@ export const LESSONS: Lesson[] = [
   },
 
   // ---------------------------------------------------------------------------
-  // Lesson 10 — Big Board Time (live 9x9 game vs the friendliest bot)
+  // Lesson 11 — Big Board Time (live 9x9 game vs the friendliest bot)
   // The "graduation" game. Same opponent (30k Seedling), same Black-vs-White
   // setup, just a bigger board. We reuse the existing pre-game card with
   // 9x9-flavored copy.
-  // (Lessons 8 and 9 — Alive or Gone? quiz and Count Your Land — are reserved
-  // and will be inserted before this one once their mechanics ship.)
   // ---------------------------------------------------------------------------
   {
     id: 'big-board-time',

@@ -22,6 +22,7 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
   const next = useLearnStore((s) => s.next);
   const skipAfterSuccess = useLearnStore((s) => s.skipAfterSuccess);
   const advanceQuiz = useLearnStore((s) => s.advanceQuiz);
+  const exploreAgain = useLearnStore((s) => s.exploreAgain);
 
   const lesson = LESSONS[lessonIndex];
   const isLast = lessonIndex >= LESSONS.length - 1;
@@ -98,6 +99,8 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
     }
   };
 
+  const showExplore = lesson.exploreAfterSuccess && status === 'success';
+
   return (
     <div className="lesson-step-overlay" role="dialog" aria-modal="true">
       <div className="lesson-step-card">
@@ -106,9 +109,16 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
         {feedback && status === 'success' && (
           <p className="lesson-step-finale">{feedback}</p>
         )}
-        <button className="lesson-step-btn" onClick={onClick}>
-          {buttonLabel}
-        </button>
+        <div className="lesson-step-buttons">
+          {showExplore && (
+            <button className="lesson-step-btn lesson-step-btn-secondary" onClick={exploreAgain}>
+              Try another move
+            </button>
+          )}
+          <button className="lesson-step-btn" onClick={onClick}>
+            {buttonLabel}
+          </button>
+        </div>
       </div>
     </div>
   );

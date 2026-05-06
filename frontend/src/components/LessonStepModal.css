@@ -76,6 +76,25 @@
   box-shadow: 0 6px 24px rgba(88, 166, 255, 0.45);
 }
 
+.lesson-step-buttons {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lesson-step-btn-secondary {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+
+.lesson-step-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: none;
+}
+
 /* ---------- Quiz feedback modal variants ---------- */
 .lesson-step-card-quiz {
   border-width: 2px;
