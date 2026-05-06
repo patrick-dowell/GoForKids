@@ -31,7 +31,7 @@ const RANK_OPTIONS: RankOption[] = [
   { value: '12k', label: '12 kyu — Stream',   validated: true,  sizes: NINETEEN_ONLY },
   { value: '9k',  label: '9 kyu — Boulder',   validated: true,  sizes: NINETEEN_ONLY },
   { value: '6k',  label: '6 kyu — Ember',     validated: true,  sizes: ALL_SIZES },
-  { value: '3k',  label: '3 kyu — Storm',     validated: false, sizes: NINETEEN_ONLY },
+  { value: '3k',  label: '3 kyu — Storm',     validated: true,  sizes: NINETEEN_ONLY },
   { value: '1d',  label: '1 dan — Void',      validated: true,  sizes: NINE_AND_NINETEEN },
 ];
 

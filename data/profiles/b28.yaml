@@ -85,9 +85,36 @@ profiles:
       min_candidates: 10
       opening_moves: 22
     "9k":
-      # b28 calibration: v1 b20-clone (visits=80, mistake=0.25) -> 86.7%/+119.
+      # 2026-05-05 RELABEL — interpolated midway between 12k Stream and the
+      # old (over-strong) 9k profile. First-pass strength was too low: 8x10
+      # bot-vs-bot trial showed 12k vs new-9k at only 60/40 even (target
+      # ~85% for 3-rank gap on b28), 12k+H3 vs new-9k at 60/40 (target 50%).
+      # Strength gap to 12k was ~1 rank, not 3.
+      # Root cause: profile knobs aren't linear in strength. Visit-count →
+      # strength curve is steep around visits 10-12 (where 6k vs 3k showed
+      # 90% even), so the midway visits=9 sat much closer to 12k(visits=8)
+      # than to 6k(visits=10) in skill-space.
+      # Bump pass: shift the strength levers (visits, max_pl, rand) toward
+      # the 6k slot's values; keep mistake_freq slightly above 6k's so the
+      # 9k → 6k gap stays meaningful.
+      # NOT YET RE-TRIALED — re-run 12k vs 9k + 9k vs 6k (even + H3) when
+      # convenient. Trial logs: data/calibration_logs_b28/relabel_trial_2026-05-05/
+      max_point_loss: 9.0
+      mistake_freq: 0.51
+      policy_weight: 0.47
+      randomness: 0.41
+      random_move_chance: 0.12
+      local_bias: 0.15
+      first_line_chance: 0.0
+      visits: 10
+      min_candidates: 9
+      opening_moves: 21
+    "6k":
+      # 2026-05-05 RELABEL — was 19x19 9k. Original calibration:
+      # v1 b20-clone (visits=80, mistake=0.25) -> 86.7%/+119.
       # v2 heavy-noise: visits 80->10, mistake 0.25->0.50, rand 0.02->0.12,
-      # max_pl 10->8 (already low).
+      # max_pl 10->8. Playtested as ~6k strength against humans, hence the
+      # ladder shift.
       max_point_loss: 8.0
       mistake_freq: 0.50
       policy_weight: 0.50
@@ -98,10 +125,12 @@ profiles:
       visits: 10
       min_candidates: 8
       opening_moves: 20
-    "6k":
-      # b28 calibration: v1 b20-clone (visits=120, mistake=0.22) -> 86.7%/+80.
+    "3k":
+      # 2026-05-05 RELABEL — was 19x19 6k. Original calibration:
+      # v1 b20-clone (visits=120, mistake=0.22) -> 86.7%/+80.
       # v2 heavy-noise: visits 120->12, mistake 0.22->0.45, rand 0.02->0.10,
-      # max_pl 9->7.
+      # max_pl 9->7. Playtested as ~3k strength against humans, hence the
+      # ladder shift. Replaces the old interpolated 3k placeholder.
       max_point_loss: 7.0
       mistake_freq: 0.45
       policy_weight: 0.50
@@ -112,17 +141,6 @@ profiles:
       visits: 12
       min_candidates: 8
       opening_moves: 18
-    "3k":
-      max_point_loss: 4.0
-      mistake_freq: 0.10
-      policy_weight: 0.75
-      randomness: 0.18
-      random_move_chance: 0.0
-      local_bias: 0.03
-      first_line_chance: 0.0
-      visits: 200
-      min_candidates: 6
-      opening_moves: 10
     "1d":
       # b28 calibration: v1 b20-clone (visits=300, mistake=0.06) -> 83.3%/+57.
       # v2 moderate noise (1d profile starts tight; less aggressive than mid ranks):

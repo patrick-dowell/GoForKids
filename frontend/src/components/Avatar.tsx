@@ -17,8 +17,8 @@ export const BOT_AVATARS: Record<string, { type: BotAvatarType; name: string; va
   '12k': { type: 'stream', name: 'Stream', validated: true },
   '9k':  { type: 'boulder', name: 'Boulder', validated: true },
   '6k':  { type: 'ember', name: 'Ember', validated: true },
-  '3k':  { type: 'storm', name: 'Storm', validated: false },
-  '1d':  { type: 'void', name: 'Void', validated: false },
+  '3k':  { type: 'storm', name: 'Storm', validated: true },
+  '1d':  { type: 'void', name: 'Void', validated: true },
 };
 
 export const PLAYER_AVATARS: { type: PlayerAvatarType; name: string }[] = [
