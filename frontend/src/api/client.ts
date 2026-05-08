@@ -58,16 +58,54 @@ interface AIMoveDTO {
   final_state?: GameStateDTO | null;
 }
 
+/**
+ * Number of *additional* retries on network-level fetch failure
+ * (`TypeError: Load failed` in WebKit, `TypeError: Failed to fetch` in
+ * Chromium). Total attempts = MAX_RETRIES + 1.
+ *
+ * Why retry only TypeErrors and not HTTP errors:
+ *   - TypeError from fetch() means the request never reached the
+ *     server (or the response never came back). The server state can't
+ *     have changed, so a duplicate POST can't double-play a move —
+ *     retrying is safe even for /move and /pass.
+ *   - HTTP errors (4xx/5xx) come back as a non-OK response that we
+ *     wrap in `new Error(...)`. The server saw the request — retrying
+ *     a 400 spams a real bug; retrying a 500 hammers a struggling
+ *     server. Surface those to the caller.
+ *
+ * Surfaces in the iPad WKWebView console as the previously-fatal
+ * "AI move failed: TypeError: Load failed" — those should now be
+ * preceded by `[api] retrying ... after TypeError` lines.
+ */
+const MAX_RETRIES = 2;
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || `API error: ${res.status}`);
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options,
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(error.detail || `API error: ${res.status}`);
+      }
+      return res.json();
+    } catch (e) {
+      lastError = e;
+      // Only TypeErrors retry (network leg failed, request didn't land).
+      // Errors we threw ourselves (HTTP non-OK) are real responses; bail.
+      const isNetworkError = e instanceof TypeError;
+      if (!isNetworkError || attempt === MAX_RETRIES) {
+        throw e;
+      }
+      const delayMs = 300 * Math.pow(3, attempt); // 300ms, 900ms
+      console.warn(`[api] retrying ${path} after TypeError (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`, e);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
   }
-  return res.json();
+  throw lastError;
 }
 
 export const api = {
