@@ -76,8 +76,13 @@ function drawBoard(
   /** When set, the hover preview takes a tint that reflects this color (e.g. white in
    *  lessons where the user plays White). Empty falls back to the theme default. */
   hoverColor: Color = Color.Empty,
+  /** True when a finger / mouse button is actively pressed on the board.
+   *  Drives the red crosshair lines through the hover point — without them
+   *  the player's finger covers the ghost stone and they can't tell where
+   *  it'll land, especially on dense 19×19 boards on phone-sized screens. */
+  pressing: boolean = false,
 ) {
-  const { cellSize, stoneRadius, toScreen } = geometry(size);
+  const { padding, cellSize, stoneRadius, toScreen } = geometry(size);
   const starPoints = STAR_POINTS[size] ?? [];
 
   // Canvas background
@@ -261,6 +266,32 @@ function drawBoard(
   if (hoverPoint && phase === 'playing') {
     const { x, y } = toScreen(hoverPoint.row, hoverPoint.col);
     const occupied = grid[hoverPoint.row * size + hoverPoint.col] !== Color.Empty;
+
+    // Press crosshair: when the player is actively pressing (finger or
+    // mouse held down), draw thin lines along the full row + column of
+    // the target intersection so the placement target stays visible
+    // even when the fingertip covers the ghost stone. Drawn BEFORE the
+    // ghost so the stone reads as the focal element on top.
+    if (pressing) {
+      const gridStart = padding;
+      const gridEnd = CANVAS_SIZE - padding;
+      ctx.save();
+      ctx.strokeStyle = occupied
+        ? 'rgba(255, 90, 90, 0.55)'   // dimmer when target is invalid
+        : 'rgba(255, 70, 70, 0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      // Vertical line through the column
+      ctx.moveTo(x, gridStart);
+      ctx.lineTo(x, gridEnd);
+      // Horizontal line through the row
+      ctx.moveTo(gridStart, y);
+      ctx.lineTo(gridEnd, y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     if (!occupied) {
       ctx.beginPath(); ctx.arc(x, y, stoneRadius, 0, Math.PI * 2);
       // White-color hover (used in lessons where the user plays White) needs a
@@ -277,6 +308,10 @@ export function GoBoard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animManagerRef = useRef(new AnimationManager());
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
+  // True while a finger / mouse button is held down on the canvas. Drives
+  // the red crosshair through the hover point so the target intersection
+  // remains visible when a fingertip covers the ghost stone.
+  const [pressing, setPressing] = useState(false);
 
   const themeId = useSettingsStore((s) => s.themeId);
   const density = useSettingsStore((s) => s.density);
@@ -434,9 +469,10 @@ export function GoBoard() {
     drawBoard(
       ctx, theme, size, grid, lastMove, lastMoveNumber, activeAtari, hoverPoint,
       effectivePhase, activeTerritory, activeDead, highlights, pulse, hoverColor,
+      pressing,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grid, size, lastMove, lastMoveNumber, hoverPoint, effectivePhase, moveCount, replayCurrentMove, themeId,
+  }, [grid, size, lastMove, lastMoveNumber, hoverPoint, pressing, effectivePhase, moveCount, replayCurrentMove, themeId,
       atariGroups.length, deadStones.length,
       territory ? territory.black.size : -1,
       replayTerritory ? replayTerritory.black.size : -1,
@@ -635,6 +671,7 @@ export function GoBoard() {
         try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
         activePointerIdRef.current = e.pointerId;
         setHoverPoint(p);
+        setPressing(true);
       }}
       onPointerMove={(e) => {
         if (!canClick) { setHoverPoint(null); return; }
@@ -647,6 +684,7 @@ export function GoBoard() {
       onPointerUp={(e) => {
         if (activePointerIdRef.current !== e.pointerId) return;
         activePointerIdRef.current = null;
+        setPressing(false);
         const p = pointToBoardOrNull(e);
         if (p) commitMove(p);
         // Touch: clear ghost on release (fingertip is gone). Mouse: the
@@ -655,6 +693,7 @@ export function GoBoard() {
       }}
       onPointerCancel={() => {
         activePointerIdRef.current = null;
+        setPressing(false);
         setHoverPoint(null);
       }}
       onPointerLeave={(e) => {
