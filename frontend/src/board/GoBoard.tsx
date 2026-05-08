@@ -613,10 +613,13 @@ export function GoBoard() {
         setHoverPoint(toBoard(e.clientX, e.clientY, canvasRef.current!, size));
       }}
       onMouseLeave={() => setHoverPoint(null)}
+      // Canvas display sizing lives in App.css under .go-board-canvas so
+      // media queries can swap between width-bound (most viewports) and
+      // height-bound (phone landscape) without us hacking !important.
+      // toBoard() already converts rect coords → canvas-internal coords,
+      // so hit-testing follows whatever display size CSS picks.
+      className="go-board-canvas"
       style={{
-        width: CANVAS_SIZE,
-        height: CANVAS_SIZE,
-        borderRadius: 8,
         cursor: canClick ? 'pointer' : aiThinking ? 'wait' : 'default',
       }}
     />

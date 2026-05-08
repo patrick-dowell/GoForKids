@@ -33,7 +33,7 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 | 18 | [Rules refresher (returning adults)](18_rules_refresher.md) | 📝 Planned | Low | 03, 05 |
 | 19 | [What-if exploration (interactive review)](19_whatif_exploration.md) | 📝 Planned | Medium | 04 |
 | 20 | [b28 bot calibration harness](20_b28_calibration.md) | 📝 Planned | High | — |
-| 21 | [iPhone (Pro Max) support](21_iphone_support.md) | 📝 Planned | Medium | 10 |
+| 21 | [iPhone (Pro Max) support](21_iphone_support.md) | 🟡 Beta | Medium | 10 |
 
 ## Suggested sequencing
 

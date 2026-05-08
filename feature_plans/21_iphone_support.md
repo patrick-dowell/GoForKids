@@ -1,8 +1,32 @@
 # 21 — iPhone (Pro Max) support
 
-**Status:** 📝 Planned
+**Status:** 🟡 Beta — frontend responsive pass landed 2026-05-08; native re-test on iPhone hardware still pending
 **Priority:** Medium
 **Depends on:** 10 (iPad app — same WKWebView shell)
+
+## What landed (2026-05-08)
+- **Three-tier responsive layout** in `frontend/src/App.css`:
+  - Wide (≥ 1100px): existing iPad-landscape three-column layout, unchanged.
+  - Medium (700–1099px): avatars become a horizontal strip above the board; board + side panel sit side-by-side underneath. Covers iPad portrait + iPhone Pro Max landscape.
+  - Narrow (< 700px): everything stacks vertically. Pass / Resign etc. become a horizontal row. Covers iPhone Pro Max portrait.
+  - Phone landscape (height ≤ 500px AND landscape): forces row layout with `.app { height: 100dvh; overflow: hidden }` so the board is height-bound and the canvas's `height: 100%` has something definite to lock onto. Avatar strip becomes a thin 90px column on the left.
+- **Board canvas is display-size responsive.** `CANVAS_SIZE = 700` stays as the internal resolution; the rendered display rectangle is now CSS-driven via `.go-board-canvas { width: 100%; max-width: 700px; aspect-ratio: 1 }`. `toBoard()` already converts rect coords → canvas-internal coords, so hit-testing carries over for free.
+- **Per-screen responsive passes**: HomePage (title scales, action buttons stack on phone, bot strip scrolls horizontally), LearnView (compact header, smaller progress dots, scrollable dot strip), and the existing dialog system (NewGame, Settings, Library, Replay, ScoringInProgress, BotPassed, LessonStepModal, LessonGameEnd, PrivacyTerms, AccessGate) all already used `width: min(X, 92vw)` patterns and adapt naturally — verified visually at iPad-portrait + iPhone-portrait + iPhone-landscape.
+- **Touch targets** on medium and narrow: `.btn { min-height: 44px }` (Apple HIG); replay buttons are 44×44.
+- **Safe-area-inset** plumbing: `viewport-fit=cover` + `apple-mobile-web-app-capable` meta tags in `index.html`; `var(--safe-top|bottom|left|right)` CSS variables threaded through `.app`, `.app-header`, `.settings-gear`, `.feedback-button`. Notch and home-indicator stop clipping content.
+- **Touch behavior**: canvas gets `touch-action: manipulation` to stop iOS from interpreting a stone-place tap as pinch-zoom or scroll. `user-scalable=no` in the viewport meta keeps the page from rubber-banding.
+- **iOS targeting**: `TARGETED_DEVICE_FAMILY = "1,2"` (universal binary) and Info.plist orientation keys for both iPhone and iPad were already set in the iPad project — no Xcode work required to land the iPhone path. The next iPad build automatically becomes a universal binary.
+
+## Action item to ship to iPhone
+- Rebuild the iOS app in Xcode → "Bundle React frontend" Run Script picks up the responsive frontend → install on an iPhone Pro Max for native verification of (a) CoreML inference parity vs iPad and (b) layout on real device pixels (browser-resize verification only checks viewport, not safe-area-inset values which are 0 on web but real on hardware).
+
+## What's still open
+- **CoreML on iPhone Neural Engines (A17 Pro / A18 Pro).** Current ANE config (`numNNServerThreadsPerModel = 1`, `coremlDeviceToUse = 100`) was tuned for M-series; may need re-tuning per [iPad gotcha #14](../DEVJOURNAL.md). Re-test on first iPhone install.
+- **Smaller iPhones (mini, regular).** `< 700px` narrow rules already cover them but no explicit testing yet.
+- **Bundle Identifier** still `ccy.KataGo-iOS` from the upstream fork; rename before TestFlight.
+- **TestFlight + App Store** — gated on the rebuild + iPhone hardware sanity pass.
+
+## Original plan (preserved for reference)
 
 ## What
 Make the GoForKids iOS app run well on an iPhone — initial target the iPhone Pro Max form factor (largest current iPhone, the most playable Go board on a phone). Cover both the WKWebView-bundled UI layout and the native KataGo bridge on iPhone hardware.

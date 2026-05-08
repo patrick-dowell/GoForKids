@@ -14,7 +14,25 @@
   --border: #30363d;
   --stone-black: #1a1a2e;
   --stone-white: #d4d4e8;
+
+  /* Safe-area insets — non-zero on iOS (notch, home indicator). Zero on web. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
 }
+
+/*
+ * Responsive breakpoints (width-based, but we also key off orientation
+ * indirectly via the viewport shape):
+ *   - Wide   (>= 1100px):  iPad landscape, desktop. Three-column layout.
+ *   - Medium (700-1099px): iPad portrait, iPhone Pro Max landscape.
+ *                          Avatar strip on top, board + side panel below.
+ *   - Narrow (< 700px):    iPhone portrait. Fully stacked.
+ *
+ * Existing rules (above) target wide. Overrides for medium / narrow live
+ * at the bottom of this file in clearly-marked blocks.
+ */
 
 * {
   margin: 0;
@@ -30,8 +48,15 @@ body {
 
 .app {
   min-height: 100vh;
+  /* Use 100dvh on browsers that support it — keeps the layout from shifting
+     when iOS Safari hides/shows its toolbar. Falls back to vh otherwise. */
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  /* Respect iPhone notch / home indicator. The header + bottom row pick up
+     these insets via padding so floating action bars don't sit under hardware. */
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
 }
 
 /* Header */
@@ -40,6 +65,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 12px 24px;
+  padding-top: calc(12px + var(--safe-top));
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
 }
@@ -84,6 +110,29 @@ body {
 
 .board-container {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/*
+ * Board canvas display sizing. Internal canvas resolution stays at
+ * CANVAS_SIZE × devicePixelRatio (set by the draw effect in GoBoard.tsx);
+ * this only governs the rendered display rectangle. Media queries below
+ * swap between width-bound (most viewports) and height-bound (phone
+ * landscape) sizing.
+ */
+.go-board-canvas {
+  width: 100%;
+  max-width: 700px;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  /* Stop iOS from interpreting a stone-place tap as pinch-zoom / scroll */
+  touch-action: manipulation;
+  /* On wide layouts the side panels constrain horizontal space, so the
+     board picks up max-width 700 naturally. Cap the height to the row's
+     available space for the (rare) very-tall narrow viewport. */
+  max-height: 100%;
 }
 
 .side-panel {
@@ -1199,4 +1248,303 @@ body {
   flex: 1;
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+/* ============================================================
+ * Responsive overrides — medium (≤ 1099px) and narrow (≤ 699px).
+ *
+ * Wide rules (everything above) target ≥ 1100px desktop / iPad-landscape.
+ * The blocks below transform that fixed three-column game layout into:
+ *   medium → avatars become a horizontal strip above the board,
+ *            board + side panel sit side-by-side below.
+ *   narrow → everything stacks vertically.
+ *
+ * Touched: .game-layout, .avatar-panel, .player-card-*, .board-container,
+ *          .side-panel, .game-info, .control-buttons, .btn (touch targets),
+ *          .dialog (sizes to viewport), .settings-gear (avoids notch).
+ * ============================================================ */
+
+@media (max-width: 1099px) {
+  /* --------- MEDIUM (iPad portrait, iPhone Pro Max landscape) --------- */
+
+  .app-header {
+    padding: 10px 16px;
+    padding-top: calc(10px + var(--safe-top));
+  }
+
+  .game-layout {
+    padding: 12px;
+    gap: 12px;
+    /* Wrap so avatars can take a full row at the top, then board + side
+       panel sit side-by-side underneath. align-content: flex-start so
+       wrap rows size to content instead of dividing the parent's height
+       (which made the avatar strip balloon to ~300px tall on tall iPads). */
+    flex-wrap: wrap;
+    align-items: flex-start;
+    align-content: flex-start;
+  }
+
+  /* Avatar panel becomes a horizontal strip above the board */
+  .avatar-panel {
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    gap: 12px;
+    flex-shrink: 1;
+  }
+
+  .player-card {
+    flex: 1;
+    min-width: 0;
+    padding: 10px;
+    gap: 6px;
+  }
+
+  /* Cancel the wide-layout "push to bottom" — they're side-by-side now */
+  .player-card-bottom {
+    margin-top: 0;
+  }
+
+  /* Compact internals — drop the prisoner grid in this layout to keep
+     the strip short. The capture count is already shown in .game-info. */
+  .avatar-panel .prisoner-tray,
+  .avatar-panel .komi-tray {
+    display: none;
+  }
+
+  /* Board container expands; canvas style now uses min(700px, 100%) */
+  .board-container {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    justify-content: center;
+  }
+
+  /* Side panel narrows but stays inline with the board */
+  .side-panel {
+    width: 220px;
+    flex-shrink: 0;
+  }
+
+  .game-info {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  /* Touch targets — 44px is Apple HIG for fingertip-sized targets */
+  .btn {
+    padding: 11px 16px;
+    font-size: 15px;
+    min-height: 44px;
+  }
+
+  .replay-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 16px;
+  }
+
+  /* Dialog: cap to viewport width with a bit of breathing room */
+  .dialog {
+    width: min(360px, calc(100vw - 24px));
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+
+  /* Settings gear: clear the bottom safe-area */
+  .settings-gear {
+    bottom: calc(14px + var(--safe-bottom));
+    right: calc(14px + var(--safe-right));
+  }
+}
+
+@media (max-width: 699px) {
+  /* --------- NARROW (iPhone portrait) --------- */
+
+  .app-header {
+    padding: 8px 12px;
+    padding-top: calc(8px + var(--safe-top));
+  }
+
+  .app-title {
+    font-size: 18px;
+  }
+
+  .game-layout {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    padding: 8px;
+    gap: 8px;
+    align-items: stretch;
+    align-content: stretch;
+    /* Wide layout uses justify-content: center to horizontally center the
+       three columns. In narrow column mode that centers VERTICALLY and
+       pushes content to the middle of the viewport, leaving big gaps at
+       top and bottom. Reset to flex-start. */
+    justify-content: flex-start;
+  }
+
+  /* Avatar strip stays a row, but cards collapse further */
+  .avatar-panel {
+    width: 100%;
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .player-card {
+    padding: 8px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .player-card-name {
+    font-size: 12px;
+  }
+
+  .player-card-status {
+    font-size: 10px;
+  }
+
+  /* Board centers, max-width fills the screen */
+  .board-container {
+    width: 100%;
+    flex: 0 0 auto;
+  }
+
+  /* Side panel becomes a full-width strip below the board */
+  .side-panel {
+    width: 100%;
+    flex: 0 0 auto;
+  }
+
+  .game-info {
+    padding: 10px;
+    gap: 6px;
+  }
+
+  /* Pass / Resign / Finish Game — horizontal row on phone, easier to thumb */
+  .control-buttons {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .control-buttons .btn {
+    flex: 1 1 auto;
+    min-width: 80px;
+  }
+
+  /* Captures display: keep but compact */
+  .captures-display {
+    flex-direction: row;
+    gap: 12px;
+  }
+
+  .turn-indicator {
+    font-size: 14px;
+  }
+
+  /* Dialog: use full screen with margin */
+  .dialog {
+    width: calc(100vw - 16px);
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .dialog h2 {
+    font-size: 16px;
+  }
+}
+
+/* Phone landscape: short height, want the board + controls to coexist
+   on one screen without scrolling. Lets the board height-bind. */
+@media (max-height: 500px) and (orientation: landscape) {
+  /* Cap the app to viewport height so the board's `height: 100%` has
+     something definite to lock to. Without this, content can overflow
+     and the canvas grows to its intrinsic 700×700. */
+  .app {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-header {
+    padding: 6px 12px;
+    padding-top: calc(6px + var(--safe-top));
+    flex-shrink: 0;
+  }
+
+  .app-title {
+    font-size: 16px;
+  }
+
+  .game-layout {
+    padding: 6px;
+    gap: 8px;
+    /* Force horizontal layout on phone landscape — stacking would push
+       the board off-screen vertically. Also override the medium rule's
+       align-items: flex-start so the board-container stretches to fill
+       the row's height (which the canvas's height: 100% locks onto). */
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    align-content: stretch;
+    min-height: 0;
+  }
+
+  /* Avatar strip becomes a thin column on the left */
+  .avatar-panel {
+    width: 90px;
+    flex-direction: column;
+    height: auto;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .player-card-bottom {
+    margin-top: 0;
+  }
+
+  .player-card {
+    padding: 6px;
+    gap: 4px;
+  }
+
+  /* Hide the avatar status text on phone landscape — board needs the room */
+  .avatar-panel .player-card-status {
+    display: none;
+  }
+
+  .side-panel {
+    width: 180px;
+  }
+
+  .control-buttons {
+    flex-direction: column;
+  }
+
+  /* Phone landscape: viewport height is the constraint, not width.
+     Height-bind the canvas so it never overflows below the controls. */
+  .board-container {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .go-board-canvas {
+    width: auto;
+    height: 100%;
+    max-height: 100%;
+    /* No max-width on this branch — keep aspect-ratio in charge of width */
+    max-width: none;
+  }
+
+  /* Drop the score graph and capture rows on phone landscape — there's
+     no room and it's secondary info during play. */
+  .side-panel .score-graph,
+  .side-panel .score-graph-empty,
+  .side-panel .matchup,
+  .side-panel .move-counter {
+    display: none;
+  }
 }

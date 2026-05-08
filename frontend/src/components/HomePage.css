@@ -261,3 +261,101 @@
 .home-privacy-link:hover {
   color: rgba(255, 255, 255, 0.7);
 }
+
+/* ============================================================
+ * Responsive overrides — match the breakpoints in App.css.
+ * ============================================================ */
+
+@media (max-width: 1099px) {
+  .home-content {
+    padding: 32px 24px;
+    gap: 28px;
+  }
+
+  .home-title {
+    font-size: 44px;
+  }
+}
+
+@media (max-width: 699px) {
+  .home-content {
+    padding: 24px 16px;
+    gap: 20px;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .home-title {
+    font-size: 36px;
+    letter-spacing: 1px;
+  }
+
+  .home-tagline {
+    font-size: 14px;
+  }
+
+  /* Action buttons stack vertically with full width on phone — easier to
+     thumb than a cramped horizontal row that overflows the viewport. */
+  .home-actions {
+    flex-direction: column;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .home-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 14px 24px;
+    font-size: 16px;
+    min-height: 48px;
+  }
+
+  /* Bot roster: keep on one line but scroll horizontally so all 8 are
+     reachable. Float the names below for legibility. */
+  .home-bots-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 4px 8px 8px;
+    /* Hide scrollbar for cleaner look on iOS; still scrollable. */
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .home-bots-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .home-bot-preview {
+    flex-shrink: 0;
+  }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  /* Phone landscape: short height, give the home page some breathing room
+     and keep buttons in a horizontal row so the bot strip stays visible. */
+  .home-content {
+    padding: 16px 24px;
+    gap: 16px;
+  }
+
+  .home-title {
+    font-size: 32px;
+  }
+
+  .home-tagline {
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .home-btn {
+    padding: 10px 20px;
+    font-size: 14px;
+  }
+
+  .home-bots-label {
+    display: none;
+  }
+}
