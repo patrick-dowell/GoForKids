@@ -595,24 +595,76 @@ export function GoBoard() {
     return () => cancelAnimationFrame(raf);
   }, [learnDeniedSeq]);
 
+  /*
+   * Stone placement uses pointer events (not onClick) for a "hold-to-hover,
+   * release-to-place" interaction:
+   *   - pointerdown: ghost stone appears at the touched intersection.
+   *   - pointermove: ghost follows. If the user drags off the canvas the
+   *     ghost can disappear; coming back keeps tracking because we capture
+   *     the pointer in pointerdown.
+   *   - pointerup ON the canvas: commit the move at the current ghost
+   *     position. A sub-100ms tap is also a release-on-canvas, so
+   *     "tap to place" still works for confident users.
+   *   - pointerup OFF the canvas (or pointercancel): clear ghost, no
+   *     placement. Lets the player abort a fat-fingered tap by dragging
+   *     away before lifting.
+   * Same flow for touch and mouse — mouse users also get the abort-by-drag
+   * escape hatch. Mouse hover (no button held) still updates the ghost
+   * since pointermove fires for mouse without a press.
+   */
+  const activePointerIdRef = useRef<number | null>(null);
+
+  function pointToBoardOrNull(e: React.PointerEvent<HTMLCanvasElement>) {
+    return toBoard(e.clientX, e.clientY, canvasRef.current!, size);
+  }
+
+  function commitMove(p: Point) {
+    if (learnActive) learnTryMove(p);
+    else playMove(p);
+  }
+
   return (
     <canvas
       ref={canvasRef}
-      onClick={(e) => {
+      onPointerDown={(e) => {
         if (!canClick) return;
-        const p = toBoard(e.clientX, e.clientY, canvasRef.current!, size);
+        const p = pointToBoardOrNull(e);
         if (!p) return;
-        if (learnActive) {
-          learnTryMove(p);
-        } else {
-          playMove(p);
+        // Capture so we still get pointermove/up if the finger drags off
+        // the canvas (lets the abort-by-drag-away escape hatch work).
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+        activePointerIdRef.current = e.pointerId;
+        setHoverPoint(p);
+      }}
+      onPointerMove={(e) => {
+        if (!canClick) { setHoverPoint(null); return; }
+        // For touch, only update during an active press (touch has no
+        // hover-without-press); for mouse, update on any move so the
+        // hover ghost still tracks the cursor between clicks.
+        if (e.pointerType === 'touch' && activePointerIdRef.current !== e.pointerId) return;
+        setHoverPoint(pointToBoardOrNull(e));
+      }}
+      onPointerUp={(e) => {
+        if (activePointerIdRef.current !== e.pointerId) return;
+        activePointerIdRef.current = null;
+        const p = pointToBoardOrNull(e);
+        if (p) commitMove(p);
+        // Touch: clear ghost on release (fingertip is gone). Mouse: the
+        // next pointermove will refresh it from the cursor position.
+        if (e.pointerType === 'touch') setHoverPoint(null);
+      }}
+      onPointerCancel={() => {
+        activePointerIdRef.current = null;
+        setHoverPoint(null);
+      }}
+      onPointerLeave={(e) => {
+        // Mouse leaving the canvas (no press) clears the hover ghost.
+        // During a captured press (active pointer set), keep the ghost so
+        // the player can drag away and back without losing position.
+        if (activePointerIdRef.current === null && e.pointerType !== 'touch') {
+          setHoverPoint(null);
         }
       }}
-      onMouseMove={(e) => {
-        if (!canClick) { setHoverPoint(null); return; }
-        setHoverPoint(toBoard(e.clientX, e.clientY, canvasRef.current!, size));
-      }}
-      onMouseLeave={() => setHoverPoint(null)}
       // Canvas display sizing lives in App.css under .go-board-canvas so
       // media queries can swap between width-bound (most viewports) and
       // height-bound (phone landscape) without us hacking !important.
