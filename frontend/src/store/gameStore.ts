@@ -443,6 +443,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       // estimate; for backend games we'll replace that with KataGo's estimate
       // once the server response arrives.
       const localScored = !gameId;
+      // Set aiThinking synchronously when we know the AI is about to be
+      // asked for a move. This gates Pass / further taps starting the
+      // instant the local stone lands, instead of leaving a ~400ms +
+      // network-RTT window where the player can fire off off-turn actions
+      // (rapidly tapping Pass during that window used to flip the bot to
+      // playing the player's color).
+      const willTriggerAI = !!gameId && _game.phase === 'playing';
       set({
         ...snapshot(_game, { lastMove: point, lastCaptures: captures }),
         ...(localScored ? { scoreHistory: appendScorePoint(get().scoreHistory, _game) } : {}),
@@ -451,13 +458,14 @@ export const useGameStore = create<GameState>((set, get) => ({
           : { color: Color.Empty, stones: [] },
         // Player chose to keep playing — clear any leftover bot-passed flag.
         botJustPassed: false,
+        ...(willTriggerAI ? { aiThinking: true } : {}),
       });
 
       // Sync with backend, then request AI response. The two calls MUST be
       // sequenced — firing them in parallel races the backend's persistence
       // layer (the AI handler can read the game from disk before /move has
       // saved the user's stone, and end up analyzing an empty board).
-      if (gameId && _game.phase === 'playing') {
+      if (willTriggerAI) {
         api.playMove(gameId, point.row, point.col)
           .then((serverState) => {
             // Replace local scoreTerritory-based estimate with KataGo's.
@@ -472,15 +480,24 @@ export const useGameStore = create<GameState>((set, get) => ({
             // Small delay so the player sees their stone land before AI responds.
             setTimeout(() => get().requestAIMove(), 400);
           })
-          .catch(console.warn);
+          .catch((e) => {
+            console.warn('playMove sync failed:', e);
+            // Unstick the UI — without this aiThinking would stay true forever.
+            set({ aiThinking: false });
+          });
       }
     }
     return result;
   },
 
   pass: () => {
-    const { _game, gameId, aiThinking } = get();
+    const { _game, gameId, aiThinking, playerColor, currentColor } = get();
     if (aiThinking) return;
+    // In AI games, only the player should pass via this action — guard
+    // against off-turn calls (e.g. the player rapidly taps Pass right after
+    // playing a stone, before aiThinking has been set). Mirrors the same
+    // check in playMove().
+    if (gameId && currentColor !== playerColor) return;
 
     _game.pass();
     playPassSound();
@@ -541,7 +558,14 @@ export const useGameStore = create<GameState>((set, get) => ({
         autoSaveGame(get());
       }
     } else {
-      set({ ...snapshot(_game), scoreHistory: passHistory });
+      // Same gating story as playMove(): set aiThinking synchronously so
+      // that subsequent input is blocked while /pass is in flight.
+      const willTriggerAI = !!gameId && _game.phase === 'playing';
+      set({
+        ...snapshot(_game),
+        scoreHistory: passHistory,
+        ...(willTriggerAI ? { aiThinking: true } : {}),
+      });
       // Sequence the pass + AI response the same way as playMove — firing
       // /pass and /ai-move in parallel races the backend's persistence,
       // letting the AI analyze the pre-pass game state.
@@ -550,9 +574,16 @@ export const useGameStore = create<GameState>((set, get) => ({
           .then(() => {
             if (_game.phase === 'playing') {
               setTimeout(() => get().requestAIMove(), 400);
+            } else {
+              // Server-side pass ended the game in some path we didn't
+              // detect locally; clear aiThinking so the UI isn't stuck.
+              set({ aiThinking: false });
             }
           })
-          .catch(console.warn);
+          .catch((e) => {
+            console.warn('pass sync failed:', e);
+            set({ aiThinking: false });
+          });
       } else if (_game.phase === 'playing') {
         setTimeout(() => get().requestAIMove(), 400);
       }
@@ -560,8 +591,15 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   resign: () => {
-    const { _game, gameId } = get();
-    _game.resign();
+    const { _game, gameId, gameMode, playerColor } = get();
+    // In AI games, the only side that can click Resign is the human.
+    // Pass playerColor explicitly — the previous heuristic of
+    // oppositeColor(currentColor) credited the wrong side as winner whenever
+    // the player resigned during the bot's turn (~5s think time on iPad
+    // makes that the common case). Bot-vs-bot doesn't expose Resign in the
+    // UI; local hot-seat falls back to "current color resigns".
+    const isAIGame = !!gameId && gameMode === 'ai';
+    _game.resign(isAIGame ? playerColor : undefined);
     playGameEndSound();
     set(snapshot(_game));
     autoSaveGame(get());

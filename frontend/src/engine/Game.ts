@@ -85,11 +85,15 @@ export class Game {
     }
   }
 
-  /** Resign — the other player wins */
-  resign(): void {
+  /** Resign — the other player wins. Pass `loser` to specify which side
+   *  is resigning; omit to fall back to "current color resigns" (correct for
+   *  local hot-seat games). In AI games the caller must pass `playerColor`,
+   *  because the AI may be the side currentColor is pointing at. */
+  resign(loser?: Color): void {
     if (this.phase !== 'playing') return;
 
-    const winner = oppositeColor(this.currentColor);
+    const losingColor = loser ?? this.currentColor;
+    const winner = oppositeColor(losingColor);
     this.phase = 'finished';
     this.result = {
       winner,

@@ -68,6 +68,19 @@ describe('Game', () => {
       expect(game.phase).toBe('finished');
       expect(game.result!.winner).toBe(Color.White);
     });
+
+    it('credits the winner correctly when an explicit loser is passed, even mid-bot-turn', () => {
+      // Repro for the iPad resign bug: player (Black) clicks Resign while
+      // the bot is mid-think — locally currentColor is White (already
+      // flipped by the player's move). Without the explicit loser arg,
+      // resign() would credit Black (the player) as the winner.
+      const game = new Game();
+      game.playMove({ row: 3, col: 3 }); // Black plays — currentColor flips to White
+      expect(game.currentColor).toBe(Color.White);
+      game.resign(Color.Black); // The player (Black) resigns — White should win
+      expect(game.phase).toBe('finished');
+      expect(game.result!.winner).toBe(Color.White);
+    });
   });
 
   describe('scoring', () => {

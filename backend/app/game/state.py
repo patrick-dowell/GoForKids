@@ -277,7 +277,15 @@ class GameManager:
         if game.phase != "playing":
             return self._to_response(game)
 
-        winner = game.current_color.opposite()
+        # In AI games the resigner is always the human player — the bot
+        # doesn't expose a resign action. Using current_color.opposite()
+        # would credit the wrong side as winner whenever the player
+        # resigned during the bot's turn. Bot-vs-bot doesn't have a
+        # resign UI either; if /resign is ever hit on one, fall back to
+        # "current side resigns".
+        is_bot_vs_bot = bool(game.black_rank and game.white_rank)
+        loser = game.current_color if is_bot_vs_bot else game.player_color
+        winner = loser.opposite()
         game.phase = "finished"
         game.result = {
             "winner": "black" if winner == Color.BLACK else "white",

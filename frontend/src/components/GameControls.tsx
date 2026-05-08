@@ -129,7 +129,7 @@ export function GameControls() {
               {autoCompleting ? 'Finishing...' : 'Finish Game'}
             </button>
           )}
-          <button onClick={resign} className="btn btn-danger" disabled={autoCompleting}>
+          <button onClick={resign} className="btn btn-danger" disabled={autoCompleting || aiThinking}>
             Resign
           </button>
         </div>
