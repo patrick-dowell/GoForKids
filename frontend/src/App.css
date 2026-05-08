@@ -1505,14 +1505,53 @@ body {
     min-width: 80px;
   }
 
-  /* Captures display: keep but compact */
-  .captures-display {
-    flex-direction: row;
-    gap: 12px;
+  /* The avatar strip already shows whose turn it is (glow + status text +
+     pulsing dot) and the captures count (count badge in each card). The
+     row below the board duplicates all of it — drop the redundant bits
+     and keep only the score graph (real new info) on phone portrait. */
+  .game-info > .turn-indicator,
+  .game-info > .matchup,
+  .game-info > .captures-display,
+  .game-info > .move-counter {
+    display: none;
   }
 
-  .turn-indicator {
-    font-size: 14px;
+  /* If only score-graph is left, the chrome (background, padding, border)
+     is more visual weight than the graph itself — strip it. */
+  .game-info {
+    padding: 6px 8px;
+    background: transparent;
+    border: none;
+  }
+
+  /* Player cards: aggressive compaction. Header still shows avatar +
+     name + status; trays collapse to a single label line, no stones,
+     no background. Card height drops from ~180px to ~70px. */
+  .player-card {
+    padding: 8px;
+    gap: 4px;
+  }
+
+  .avatar-panel .prisoner-tray,
+  .avatar-panel .komi-tray {
+    padding: 0;
+    background: transparent;
+    border: none;
+  }
+
+  .avatar-panel .prisoner-stones,
+  .avatar-panel .prisoner-empty {
+    display: none;
+  }
+
+  .avatar-panel .prisoner-label {
+    font-size: 11px;
+    margin-bottom: 0;
+  }
+
+  .player-card-white .komi-tray {
+    background: transparent;
+    border: none;
   }
 
   /* Dialog: use full screen with margin */
@@ -1634,12 +1673,21 @@ body {
     max-width: none;
   }
 
-  /* Drop the score graph and capture rows on phone landscape — there's
-     no room and it's secondary info during play. */
-  .side-panel .score-graph,
-  .side-panel .score-graph-empty,
+  /* Phone landscape: keep the score graph visible — there's vertical
+     room in the side panel for the 70px-tall chart, and "who's winning"
+     is genuinely useful info that the avatar cards don't convey.
+     The other game-info rows (turn, matchup, captures, move counter)
+     are still redundant with the avatar cards, so drop them. */
+  .side-panel .turn-indicator,
   .side-panel .matchup,
+  .side-panel .captures-display,
   .side-panel .move-counter {
     display: none;
+  }
+
+  .side-panel .game-info {
+    padding: 6px 8px;
+    background: transparent;
+    border: none;
   }
 }
