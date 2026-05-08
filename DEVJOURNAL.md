@@ -1,5 +1,160 @@
 # Development Journal
 
+## Session 16 — May 7–8, 2026
+
+iPad/iPhone playtest pass. Started with four bugs from the 2026-05-07
+session (Resign winner, rapid-tap turn flip, Finish Game on iPad, sound
+death) and finished with a full responsive layout shipping iPhone
+support alongside the iPad portrait fix.
+
+### iPad bugs from playtest — fixed
+- **Resign credited the wrong winner.** Resign button was clickable
+  during the bot's turn, and `Game.resign()` computed
+  `winner = oppositeColor(currentColor)` — which gives the *player* the
+  win when they click while it's the AI's turn (the common case on iPad
+  where bots take ~5s). Disabled the button on `aiThinking`, added an
+  optional explicit `loser` arg to `Game.resign()`, and fixed the
+  matching backend `state.py:resign` to use `game.player_color` instead
+  of the `currentColor`-based heuristic. Unit test in `Game.test.ts`
+  locks the contract. (commit `ccd2afe`)
+- **Rapid clicks during the bot's turn flipped the bot to playing as
+  Black.** `aiThinking` wasn't set true synchronously when the player
+  tapped a stone — only after `/move` POST resolved + a 400 ms timeout
+  fired. In that window, `pass()` (which only checked `aiThinking`, no
+  color guard) would record a *White* pass, then `requestAIMove`
+  fetched the now-Black-to-move server state and posted a Black stone
+  via `/move`. Set `aiThinking: true` synchronously in `playMove()`
+  the moment the local stone lands; added `currentColor !== playerColor`
+  guard to `pass()` for belt-and-suspenders. (commit `ccd2afe`)
+- **Finish Game on iPad** — was already fixed in `origin/main` commit
+  `d34ab1b` from the previous session; local was just behind. Replaces
+  the server-side batch `auto_complete` (one POST → 100+ analyses →
+  final state, hits iPad URLSession timeout) with a per-move
+  `/finish-move` endpoint driven by a self-recursive frontend loop.
+  Each move animates and plays a sound. **Update from playtest 2026-05-08:
+  this is *still not working* on iPad — see Known Bugs.**
+- **Sound dies after several games.** Likely-fix-plus-diagnostics
+  shipped: `resumeAudio()` now triggers on any non-running
+  `AudioContext.state` (was `=== 'suspended'` only — missed the
+  iOS-specific `'interrupted'` state that follows notifications, lock
+  screen, Siri, etc.) and logs the prior state on every resume attempt.
+  Awaiting playtest confirmation — if the bug recurs the Xcode console
+  will show which state we couldn't recover from. (commit `219aaca`)
+
+### iPhone Pro Max support + iPad portrait responsive pass
+The iPad portrait clipping bug and iPhone Pro Max support were the
+same problem (the layout was fixed-shape ~1208 px wide; everything
+narrower clipped). Single responsive pass shipped both:
+- **Three-tier layout** in `App.css`:
+  wide (≥ 1100 px, current iPad-landscape three-column) /
+  medium (700–1099 px, avatar strip on top + board+controls below — covers
+  iPad portrait + iPhone Pro Max landscape) /
+  narrow (< 700 px, stacked vertical — iPhone Pro Max portrait) /
+  phone-landscape (max-height: 500 + landscape, forces row layout
+  with `.app { height: 100dvh; overflow: hidden }` so the board can
+  height-bind via the canvas's `height: 100%`).
+- **Board canvas display-responsive.** `CANVAS_SIZE = 700` stays as
+  internal resolution; display rectangle CSS-driven via a new
+  `.go-board-canvas` class with `width: 100%; max-width: 700px;
+  aspect-ratio: 1`. `toBoard()` already converts rect coords → canvas
+  coords, so hit-testing carries over. Phone-landscape branch flips to
+  height-bound (`width: auto; height: 100%; max-width: none`).
+- **iOS-side: zero work.** `TARGETED_DEVICE_FAMILY = "1,2"` and the
+  Info.plist orientation keys for iPhone+iPad were already set in the
+  iPad target — next Xcode rebuild produces a universal binary.
+- Per-screen passes: HomePage (title scales, action buttons stack on
+  phone, bot strip scrolls horizontally), LearnView (compact header,
+  scrollable progress dots). All dialogs already used `min(X, 92vw)`
+  patterns and adapted naturally.
+- Touch + safe-area: `viewport-fit=cover` + safe-area-inset CSS vars
+  threaded through app shell, header, settings gear, feedback button.
+  Canvas gets `touch-action: manipulation`. `.btn` bumps to 44px
+  min-height on medium/narrow per Apple HIG. (commit `2ae8526`)
+
+### iPad/iPhone polish from real-device playtest (2026-05-08)
+- **Lesson canvas stretched non-square** in both iPad orientations.
+  My new `.go-board-canvas { max-width: 700px }` capped lesson canvas
+  width at 700 while LearnView's `width/height: 100% !important`
+  overrode width-but-not-max-width and let height fill the (larger)
+  parent. Override `max-width: none` in `.learn-board-square canvas`
+  so the lesson container's `min(100cqi, 100cqb)` stays in charge.
+  (commit `d381c7b`)
+- **Captures + komi were hidden** on medium/narrow viewports (the
+  responsive pass collapsed them to keep the avatar strip thin). Back
+  in place, compacted: medium gets a single horizontal row of mini
+  stones inside the existing tray; phone landscape shows just the
+  count badge (90 px column too tight for stones); phone portrait
+  collapses each tray to a single thin label line ("Captures 1" /
+  "Komi 6.5") with no stones, no background. (commits `d381c7b`, `03f64e6`)
+- **Active-player indicator was too subtle.** Border 1 → 2 px,
+  layered glow (2 px ring + 22 px + 44 px bloom replaces the single
+  12 px / 0.15 glow), status text "Playing"/"Thinking" 11 → 13 px,
+  weight 500 → 700, new pulsing `::before` dot. Inactive card fades to
+  0.55 opacity via `:has(.player-card-active)` so the active one pops
+  by contrast. iOS Safari 15.4+ supports `:has()` so the WKWebView is
+  fine. (commit `d381c7b`)
+- **Phone portrait pushed Pass/Resign off-screen** when the score
+  graph was on. The `.game-info` row below the board was rendering
+  *everything* — turn indicator, matchup, captures, move counter,
+  score graph — even though the avatar strip already shows whose turn
+  it is (active glow), the names, the matchup, and the captures
+  (count badges in each card). All redundant on phone. Hide the
+  redundant bits on `max-width: 699px`; only the score graph stays.
+  Strip the `.game-info` chrome (background/padding/border) when
+  only the graph is left. Player cards also tightened: tray padding
+  + background go transparent, mini-stones drop, just thin label
+  lines remain. Card height roughly halves. (commit `03f64e6`)
+- **Phone landscape was hiding the score graph** despite plenty of
+  vertical room in the 180 px side panel. Earlier responsive pass
+  dropped it preemptively; brought it back. The 70 px-tall chart sits
+  above the Pass / Undo / Resign buttons. (commit `03f64e6`)
+
+### Mid-game AI stall fix
+Bug surfaced in iPad logs: bridge analyzed fine but the follow-up POST
+`/move` failed with `TypeError: Load failed` (WebKit's network-leg-
+never-completed error), leaving the game stuck because the catch in
+`requestAIMove` only cleared `aiThinking` without retrying. The fetch
+helper in `api/client.ts` now retries up to 2 times on `TypeError`
+only (300 ms + 900 ms backoff). HTTP errors don't retry — those are
+real responses where the server saw the request. Why duplicate POST
+`/move` retries can't double-play: TypeError specifically means the
+request never reached the server, so server state hasn't changed.
+Verified the retry path with injected fetch failures (3 attempts,
+1206 ms elapsed, HTTP errors after retries succeed don't retry).
+(commit `d9aaf4e`)
+
+### Lesson worth keeping
+The iPad and iPhone responsive bugs were structurally the same
+problem (fixed-shape layout overflowing narrower viewports), so a
+single pass handled both. Whenever a layout-clip bug shows up, check
+whether other narrower viewports have the *same* bug before jumping
+to a viewport-specific fix.
+
+### Status of feature plans after this session
+- **21 (iPhone Pro Max support)** — bumped Planned → Beta. Frontend
+  is responsive at all four target viewports; iOS rebuild produces a
+  universal binary automatically. CoreML on iPhone Neural Engine
+  re-test still pending (A17 Pro / A18 Pro vs M-series tuning).
+- **iPad portrait Known Bug** — closed.
+- **Finish Game iPad-only Known Bug** — was thought closed; reopened
+  after 2026-05-08 playtest, see Known Bugs.
+
+### Deferred to next session
+- **Finish Game on iPad still broken.** Hypothesis from playtest:
+  full-strength KataGo at 500 visits on Render b20 takes ~5 s per
+  call; over a 50-move endgame, individual calls can hit cold-start
+  contention or transient slowness > 60 s URLSession timeout. Proposal
+  parked: drop visits 500 → 150, add loop-level retry, add
+  `[finishGame]` diagnostic logs. Will pick up next session with the
+  user driving repro.
+- **Audio interrupted-state fix verification** — shipped + diagnostic
+  logs, awaiting next iPad repro of "sound dies" to confirm the fix
+  worked or surface a different state to handle.
+- **Real-iPhone CoreML inference re-test.** Native ANE config was
+  tuned for M-series (`numNNServerThreadsPerModel = 1`,
+  `coremlDeviceToUse = 100`); A17/A18 Pro may want different tuning
+  (per [iPad gotcha #14](#)). Test after first iPhone install.
+
 ## Session 15 — May 5–6, 2026
 
 Closed out the first-cut Learn-to-Play arc. Lessons 1–11 now form an
@@ -1238,7 +1393,7 @@ Not worth further tuning right now — fixing H3 exactly requires either making 
 - [x] **iPad vertical (portrait) hides a lot of UI** — fixed 2026-05-08 as part of the [21 iPhone support](feature_plans/21_iphone_support.md) responsive pass. Three-tier breakpoints in App.css (wide ≥1100px, medium 700–1099px, narrow <700px) plus a phone-landscape height-bound branch. iPad portrait now uses an avatar strip across the top with board+controls underneath; iPhone portrait stacks vertically; iPhone landscape keeps the board height-bound with a thin avatar column. Same viewport pass also handles all dialogs, lessons, replay, library
 - [x] **Resign button shows "You win" / wrong winner** — fixed 2026-05-07. Two layers: (1) Resign button now `disabled={autoCompleting || aiThinking}` so the player can't click during the bot's turn; (2) `Game.resign()` accepts an optional explicit `loser` color, and `gameStore.resign()` passes `playerColor` for AI games — so even if the click somehow lands during a wrong-current-color state, the right side is credited. Backend [resign()](backend/app/game/state.py:273) updated to use `game.player_color` (with bot-vs-bot fallback to current_color) so the persisted record matches. New unit test in `Game.test.ts` locks in the explicit-loser contract
 - [x] **Rapid clicks during bot turn flip the bot to playing as Black** — fixed 2026-05-07. `playMove()` now sets `aiThinking: true` synchronously the moment the local stone lands (when `gameId && _game.phase === 'playing'`), so Pass / further taps are gated immediately instead of having a ~400ms + RTT window of false-`aiThinking`. `pass()` got the matching `currentColor !== playerColor` guard for belt-and-suspenders. Both branches also reset `aiThinking` on api-call failure so the UI doesn't soft-lock if a /move or /pass POST rejects
-- [x] **"Finish game" doesn't work on iPad (works on web)** — superseded by the same fix as the "hangs until final score" entry above (commit d34ab1b). The new per-move `/finish-move` endpoint makes each fetch short, so iPad's URLSession timeout no longer matters. **Action item: rebuild the iPad app in Xcode to bundle the updated React frontend** — the iPad's WKWebView loads from the bundle, not Render
+- [ ] **"Finish game" doesn't work on iPad** — REOPENED 2026-05-08. The d34ab1b per-move loop fix shipped to iPad and the symptom persists. Hypothesis from playtest: full-strength KataGo at 500 visits on Render b20 takes ~5s per call (state.py:359) plus a follow-up `_compute_score_lead` analyze; over a 50-move endgame, individual calls can hit cold-start contention or transient slowness past iPad WKWebView's 60s URLSession timeout. The frontend loop also gives up on the first error (gameStore.ts:806) — single transient failure kills the whole playout. **Proposal parked for next session:** drop visits 500 → 150 in `state.py:finish_move`, add 2-retry layer to `gameStore.finishGame` loop, add `[finishGame]` diagnostic console.log on each step so the next iPad repro gives us a real trace
 - [ ] **Sound stops working after several games (restart fixes)** — observed 2026-05-07, iPad-only so far. Likely-fix-plus-diagnostics shipped 2026-05-08 (commit 219aaca): [`resumeAudio()`](frontend/src/audio/SoundManager.ts:104) now triggers on any non-running `AudioContext.state` (was `=== 'suspended'` only — missed the iOS-specific `'interrupted'` state that follows notifications, lock screen, Siri, etc.) and logs the prior state on every resume attempt, plus the result of the `resume()` promise. Next iPad repro: check Xcode console for `[Audio] resuming AudioContext, state was: <X>` — the value of X tells us where to look next. If still broken: secondary hypothesis is AudioNode accumulation (cosmic pack creates 4–5 OscillatorNodes per capture, no `disconnect()` on any) hitting a WebKit ceiling; fix shape would be `osc.onended = () => osc.disconnect()` on each node, or pooling. Fallback if `state === 'closed'` after interruption: recreate the `AudioContext` instead of trying to resume
 
 > Three of the four iPad-specific bugs from the 2026-05-07 playtest pass are closed in code. The audio-death bug (#1) ships with a likely fix + diagnostic logs in commit 219aaca — open until a repro confirms either that sound recovers (close it) or that the logs reveal a different root cause. iPad must be rebuilt from Xcode to pick up the bundled frontend changes (Finish Game, Resign disable, rapid-click gate, audio resume).
