@@ -103,7 +103,20 @@ function activePack(): 'cosmic' | 'classic' {
 
 export function resumeAudio() {
   const ctx = getContext();
-  if (ctx.state === 'suspended') ctx.resume();
+  // iOS WKWebView puts the AudioContext into 'interrupted' (not 'suspended')
+  // when the audio session is interrupted by a notification, lock screen,
+  // Control Center swipe, Siri, etc. The previous check only handled
+  // 'suspended', so an interruption killed sound until app restart.
+  // Resume on any non-running state and log what we saw — if sound still
+  // dies, the Xcode console (KataGoBridge forwards JS logs) will show the
+  // state we couldn't recover from.
+  if (ctx.state !== 'running') {
+    const before = ctx.state;
+    console.log('[Audio] resuming AudioContext, state was:', before);
+    ctx.resume()
+      .then(() => console.log('[Audio] resume done, state now:', ctx.state))
+      .catch((e) => console.warn('[Audio] resume failed from', before, e));
+  }
 }
 
 // ============================================================
