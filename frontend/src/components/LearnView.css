@@ -191,11 +191,18 @@
   justify-content: center;
 }
 
-/* Override the canvas's inline 700px width/height — fill the square. */
+/* Override the canvas's inline 700px width/height — fill the square.
+   Also override the App.css `.go-board-canvas { max-width: 700px }`: the
+   lesson container is already a true square (via `min(100cqi, 100cqb)`),
+   so it can grow past 700 on big iPad-landscape viewports. Without this
+   override, width caps at 700 while height fills the parent — the canvas
+   stretches non-square and the board grid distorts. */
 .learn-board-square canvas {
   display: block;
   width: 100% !important;
   height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
 }
 
 .learn-footer {

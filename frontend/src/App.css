@@ -143,13 +143,20 @@ body {
 /* Player Card */
 .player-card {
   background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  border: 2px solid var(--border);
   border-radius: 12px;
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  transition: border-color 0.3s, box-shadow 0.3s;
+  transition: border-color 0.3s, box-shadow 0.3s, opacity 0.3s;
+}
+
+/* Inactive card de-emphasis — fades back so the active one pops by
+   contrast. Only applies when there's any active card on screen
+   (the `:has()` test); otherwise both render full-opacity. */
+.avatar-panel:has(.player-card-active) .player-card:not(.player-card-active) {
+  opacity: 0.55;
 }
 
 .player-card-white {
@@ -181,12 +188,19 @@ body {
 }
 
 .player-card-active {
-  border-color: rgba(88, 166, 255, 0.4);
-  box-shadow: 0 0 12px rgba(88, 166, 255, 0.15);
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 2px rgba(88, 166, 255, 0.25),
+    0 0 22px rgba(88, 166, 255, 0.45),
+    0 0 44px rgba(88, 166, 255, 0.18);
 }
 
 .player-card-white.player-card-active {
-  border-color: rgba(88, 166, 255, 0.5);
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 2px rgba(88, 166, 255, 0.35),
+    0 0 22px rgba(88, 166, 255, 0.55),
+    0 0 44px rgba(88, 166, 255, 0.22);
 }
 
 .player-card-top {
@@ -218,9 +232,32 @@ body {
 }
 
 .player-card-status {
-  font-size: 11px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   color: var(--accent);
-  min-height: 14px;
+  min-height: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Live "•" before the status text on the active card — small visual cue
+   that pulses to draw the eye. Hidden when card is inactive (status text
+   becomes transparent anyway). */
+.player-card-active .player-card-status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(88, 166, 255, 0.9);
+  animation: status-dot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes status-dot-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
 }
 
 .player-card:not(.player-card-active) .player-card-status {
@@ -1305,10 +1342,44 @@ body {
     margin-top: 0;
   }
 
-  /* Compact internals — drop the prisoner grid in this layout to keep
-     the strip short. The capture count is already shown in .game-info. */
+  /* Compact captures + komi — show as a single horizontal row of mini
+     stones inside each player-card. Originally a 10-column grid that
+     could be 5 rows tall; in the strip layout we keep just one row's
+     worth, anything past the visible width gets clipped (count badge
+     in the label still shows the true number). */
   .avatar-panel .prisoner-tray,
   .avatar-panel .komi-tray {
+    padding: 6px 8px;
+    min-height: 0;
+  }
+
+  .avatar-panel .prisoner-label {
+    font-size: 10px;
+    margin-bottom: 4px;
+    gap: 4px;
+  }
+
+  .avatar-panel .prisoner-stones {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 2px;
+    min-height: 11px;
+    overflow: hidden;
+  }
+
+  .avatar-panel .prisoner-stone {
+    width: 11px;
+    height: 11px;
+    flex-shrink: 0;
+  }
+
+  .avatar-panel .prisoner-empty {
+    font-size: 10px;
+    /* No captures yet: collapse to a thin line, don't take a row */
+    flex: 1;
+  }
+
+  .avatar-panel .prisoner-overflow {
     display: none;
   }
 
@@ -1510,9 +1581,33 @@ body {
     gap: 4px;
   }
 
-  /* Hide the avatar status text on phone landscape — board needs the room */
+  /* Phone landscape: keep the status text but shrink it; the active glow
+     does most of the work for "whose turn it is" but the text reinforces
+     it (esp. for "Thinking..." vs "Playing"). */
   .avatar-panel .player-card-status {
+    font-size: 10px;
+    min-height: 12px;
+  }
+
+  .avatar-panel .player-card-active .player-card-status::before {
+    width: 6px;
+    height: 6px;
+  }
+
+  /* Phone landscape avatar column is only 90px wide — captures stones
+     would barely fit. Hide stones, keep just the count badge. */
+  .avatar-panel .prisoner-stones {
     display: none;
+  }
+
+  .avatar-panel .prisoner-tray,
+  .avatar-panel .komi-tray {
+    padding: 4px 6px;
+  }
+
+  .avatar-panel .prisoner-label {
+    font-size: 9px;
+    margin-bottom: 0;
   }
 
   .side-panel {
