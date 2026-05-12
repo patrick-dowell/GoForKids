@@ -41,7 +41,17 @@ import {
   type GameResult,
   type Point,
 } from '../engine/types';
+import { boardToMoves, getKataGoBridge } from './nativeKataGo';
 import type { CreateGameOptions, GameStateDTO, PointDTO } from './types';
+
+/** KataGo ownership threshold for "this stone is dead": opposite-side
+ *  ownership exceeds 0.3. Matches the backend's score-position threshold
+ *  (backend/app/routers/games.py:score_position). */
+const DEAD_STONE_OWNERSHIP_THRESHOLD = 0.3;
+/** Visit budget for end-of-game ownership analysis. Higher than mid-game
+ *  search because we want a confident dead/alive read. Mirrors
+ *  KATAGO_OWNERSHIP_VISITS in backend/app/game/state.py. */
+const OWNERSHIP_VISITS = 200;
 
 const STORAGE_PREFIX = 'goforkids:game:';
 
@@ -400,34 +410,46 @@ export const localGameRouter = {
   },
 
   async pass(gameId: string): Promise<GameStateDTO | { error: string }> {
+    console.log(`[localGameRouter] pass(${gameId})`);
     const lg = getOrLoad(gameId);
-    if (!lg) return { error: 'Game not found' };
+    if (!lg) {
+      console.warn(`[localGameRouter] pass: game ${gameId} not found`);
+      return { error: 'Game not found' };
+    }
     const wasPlaying = lg.game.phase === 'playing';
+    const cpBefore = lg.game.consecutivePasses;
     lg.game.pass();
-    // If this pass just ended the game (two consecutive passes), Game.pass()
-    // has already scored the position using raw territory — but that
-    // over-counts because dead stones still occupy intersections. Ask Render
-    // for KataGo ownership analysis, remove dead stones, re-score.
-    // (Commit 2 will move this on-device via bridge ownership mode.)
-    if (wasPlaying && lg.game.phase === 'finished' && renderScorePosition) {
-      try {
-        const { dead_stones } = await renderScorePosition(boardTo2d(lg.game.board));
-        if (dead_stones.length > 0) {
-          for (const ds of dead_stones) {
-            const point = { row: ds.row, col: ds.col };
-            const stone = lg.game.board.get(point);
-            if (stone === Color.Empty) continue;
-            lg.game.board.grid[pointToIndex(point, lg.game.board.size)] = Color.Empty;
-            // Dead-stone captures attribute to the OPPONENT of the dead color.
-            const captor = stone === Color.Black ? Color.White : Color.Black;
-            lg.game.board.captures[captor] += 1;
-          }
-          // Game.score() recomputes from current board state and overwrites
-          // result/phase. Phase is already 'finished'; calling again is safe.
-          lg.game.score();
+    const cpAfter = lg.game.consecutivePasses;
+    const gameJustEnded = wasPlaying && lg.game.phase === 'finished';
+    console.log(
+      `[localGameRouter] pass: consecutivePasses ${cpBefore}→${cpAfter} phase=${lg.game.phase} gameJustEnded=${gameJustEnded}`,
+    );
+    // Two passes — Game.pass() already scored the position using raw
+    // territory, but raw territory over-counts because dead stones still
+    // occupy intersections. Get ownership analysis (from KataGo via the
+    // bridge if available, falling back to Render), use it to mark stones
+    // dead, then re-score.
+    if (gameJustEnded) {
+      const deadStones = await deadStonesViaOwnership(lg);
+      if (deadStones.length > 0) {
+        console.log(`[localGameRouter] removing ${deadStones.length} dead stones, rescoring`);
+        for (const ds of deadStones) {
+          const stone = lg.game.board.get(ds);
+          if (stone === Color.Empty) continue;
+          lg.game.board.grid[pointToIndex(ds, lg.game.board.size)] = Color.Empty;
+          const captor = stone === Color.Black ? Color.White : Color.Black;
+          lg.game.board.captures[captor] += 1;
         }
-      } catch (e) {
-        console.warn('[localGameRouter] dead-stone analysis failed; using raw territory', e);
+        // Game.score() recomputes from current board state and overwrites
+        // result/phase. Phase is already 'finished'; calling again is safe.
+        lg.game.score();
+        console.log(
+          `[localGameRouter] rescored: winner=${
+            lg.game.result?.winner === Color.Black ? 'black' : 'white'
+          } black=${lg.game.result?.blackScore} white=${lg.game.result?.whiteScore}`,
+        );
+      } else {
+        console.log(`[localGameRouter] no dead stones removed; keeping raw-territory score`);
       }
     }
     persist(lg);
@@ -491,3 +513,107 @@ export const localGameRouter = {
 let renderScorePosition:
   | ((board: number[][]) => Promise<{ dead_stones: { row: number; col: number; color: string }[] }>)
   | null = null;
+
+/**
+ * End-of-game dead-stone detection. Primary path: ask the local KataGo
+ * bridge for ownership values, threshold each stone against the
+ * opposite-side ownership cutoff. Fallback: Render's `/score-position`
+ * (kept for web users and as a safety net if the bridge call throws —
+ * which would surface in the Xcode console with [perf-js] / [Bridge]
+ * lines).
+ *
+ * Returns an array of Points whose stones should be removed before
+ * final scoring.
+ */
+async function deadStonesViaOwnership(lg: LocalActiveGame): Promise<Point[]> {
+  const size = lg.game.board.size;
+  const bridge = getKataGoBridge();
+  if (bridge) {
+    try {
+      const t0 = performance.now();
+      // KataGo expects the move list in its native format. We don't have
+      // move history with captures preserved (Game.moveHistory has it but
+      // we can simplify by sending the current board as setup stones —
+      // which is what boardToMoves does).
+      const moves = boardToMoves(boardTo2d(lg.game.board), size);
+      const colorChar: 'B' | 'W' = lg.game.currentColor === Color.Black ? 'B' : 'W';
+      console.log(
+        `[localGameRouter] calling bridge.analyze ownership=true visits=${OWNERSHIP_VISITS} moves=${moves.length}`,
+      );
+      const result = await bridge.analyze({
+        boardSize: size,
+        komi: lg.game.komi,
+        rules: 'tromp-taylor',
+        moves,
+        color: colorChar,
+        maxVisits: OWNERSHIP_VISITS,
+        ownership: true,
+      });
+      const elapsedMs = Math.round(performance.now() - t0);
+      if (!result.ownership) {
+        console.warn(`[localGameRouter] bridge returned no ownership in ${elapsedMs}ms — check Swift bridge build`);
+      } else {
+        console.log(`[localGameRouter] bridge ownership received in ${elapsedMs}ms (${result.ownership.length} values)`);
+        return dedupeDead(applyOwnership(lg.game.board, result.ownership));
+      }
+    } catch (e) {
+      console.warn('[localGameRouter] bridge ownership failed, falling back to Render:', e);
+    }
+  }
+  if (renderScorePosition) {
+    try {
+      const t0 = performance.now();
+      const { dead_stones } = await renderScorePosition(boardTo2d(lg.game.board));
+      const elapsedMs = Math.round(performance.now() - t0);
+      console.log(`[localGameRouter] Render /score-position returned ${dead_stones.length} dead stones in ${elapsedMs}ms`);
+      return dead_stones.map((d) => ({ row: d.row, col: d.col }));
+    } catch (e) {
+      console.warn('[localGameRouter] Render /score-position failed:', e);
+    }
+  } else {
+    console.warn('[localGameRouter] no ownership source available (no bridge, no renderScorePosition)');
+  }
+  return [];
+}
+
+/** Walk every stone on the board, compare to the matching ownership cell,
+ *  return the points whose stones are dead. Ownership is in [-1,+1] from
+ *  Black's perspective; positive = Black controls, negative = White
+ *  controls. A stone is dead if its color is opposite of the side that
+ *  controls its intersection past the threshold. */
+function applyOwnership(board: Board, ownership: number[]): Point[] {
+  const size = board.size;
+  if (ownership.length !== size * size) {
+    console.warn(
+      `[localGameRouter] ownership size mismatch: expected ${size * size}, got ${ownership.length}`,
+    );
+    return [];
+  }
+  const dead: Point[] = [];
+  for (let row = 0; row < size; row++) {
+    for (let col = 0; col < size; col++) {
+      const idx = row * size + col;
+      const stone = board.grid[idx];
+      if (stone === Color.Empty) continue;
+      const own = ownership[idx];
+      if (stone === Color.Black && own < -DEAD_STONE_OWNERSHIP_THRESHOLD) {
+        dead.push({ row, col });
+      } else if (stone === Color.White && own > DEAD_STONE_OWNERSHIP_THRESHOLD) {
+        dead.push({ row, col });
+      }
+    }
+  }
+  return dead;
+}
+
+function dedupeDead(pts: Point[]): Point[] {
+  const seen = new Set<number>();
+  const out: Point[] = [];
+  for (const p of pts) {
+    const k = p.row * 31 + p.col;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(p);
+  }
+  return out;
+}

@@ -82,6 +82,12 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
             throw BridgeError.invalidParams
         }
         let rules = (params["rules"] as? String) ?? "tromp-taylor"
+        // Phase D commit 2: optional ownership mode for end-of-game scoring.
+        // When true, append `ownership true` to kata-genmove_analyze and
+        // parse the ownership floats from the trailing tokens of each info
+        // line. KataGo emits them in row-major order, value in [-1,+1] from
+        // Black's perspective (positive = Black controls).
+        let includeOwnership = (params["ownership"] as? Bool) ?? false
         analyzeCallCount += 1
         let callId = analyzeCallCount
         print("[Bridge] analyze: boardSize=\(boardSize) komi=\(komi) rules=\(rules) moves=\(moves.count) color=\(color) maxVisits=\(maxVisits)")
@@ -112,7 +118,10 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
 
         // kata-genmove_analyze streams `info` lines (one per candidate) then
         // ends with `play <move>`. Parse every info line into a candidate dict.
-        KataGoHelper.sendCommand("kata-genmove_analyze \(color)")
+        let analyzeCmd = includeOwnership
+            ? "kata-genmove_analyze \(color) ownership true"
+            : "kata-genmove_analyze \(color)"
+        KataGoHelper.sendCommand(analyzeCmd)
         var playedMove: String? = nil
         // Keep the LAST info line per move (KataGo emits multiple as the search
         // progresses; later lines have the final visit counts).
@@ -122,6 +131,11 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
         var moveOrder: [String] = []
         var rawLines = 0
         var tFirstInfo: Date? = nil
+        // Last-seen ownership row-major flat list. Same data repeats in every
+        // info line (root-ownership, computed once per search), so we just
+        // overwrite as we go — the final assignment captures the deepest
+        // search's ownership estimate.
+        var ownershipFlat: [Double]? = nil
         while true {
             let line = KataGoHelper.getMessageLine()
             rawLines += 1
@@ -134,6 +148,9 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
                         moveOrder.append(parsed["move"] as! String)
                     }
                     candidatesByMove[parsed["move"] as! String] = parsed
+                }
+                if includeOwnership, let extracted = parseOwnership(line, expectedCount: boardSize * boardSize) {
+                    ownershipFlat = extracted
                 }
             } else if playedMove != nil && line.isEmpty {
                 break
@@ -187,11 +204,40 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
         let totalMs = ms(tStart, tEnd)
         print("[perf] call#\(callId) board=\(boardSize) movesReplayed=\(moves.count) visits=\(maxVisits) setup=\(setupMs)ms replay=\(replayMs)ms setParam=\(setParamMs)ms ttfi=\(ttfiMs)ms search=\(searchMs)ms parse=\(parseMs)ms total=\(totalMs)ms")
 
-        return [
+        var out: [String: Any] = [
             "candidates": candidatesOut,
             "rootVisits": maxVisits,
             "kataGoPlayedMove": playedMove ?? "",
         ]
+        if let ownership = ownershipFlat {
+            out["ownership"] = ownership
+            print("[Bridge] ownership returned (\(ownership.count) values, first 4: \(ownership.prefix(4)))")
+        } else if includeOwnership {
+            print("[Bridge] ownership requested but NOT FOUND in info lines — check kata-genmove_analyze syntax")
+        }
+        return out
+    }
+
+    /// Find the trailing `ownership <f0> <f1> ... <fN>` block in an info
+    /// line and return the parsed floats. KataGo appends ownership after
+    /// `pv` (which has variable-length value), so we can't rely on key/value
+    /// pairs — locate the literal " ownership " marker and parse from there.
+    /// Returns nil if the marker is absent or float-count != expectedCount.
+    private func parseOwnership(_ line: String, expectedCount: Int) -> [Double]? {
+        guard let range = line.range(of: " ownership ") else { return nil }
+        let tail = line[range.upperBound...]
+        let tokens = tail.split(separator: " ", omittingEmptySubsequences: true)
+        // Parse contiguous floats from the start of `tail`; stop at the first
+        // non-numeric token (in case KataGo appends more fields after).
+        var values: [Double] = []
+        for tok in tokens {
+            guard let v = Double(tok) else { break }
+            values.append(v)
+        }
+        // KataGo emits boardSize² floats. If we got fewer (truncated line)
+        // or wildly more, treat as malformed.
+        if values.count == expectedCount { return values }
+        return nil
     }
 
     /// Parse a `kata-genmove_analyze` info line like

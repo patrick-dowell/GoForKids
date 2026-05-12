@@ -30,6 +30,11 @@ export interface BridgeAnalysis {
   /** The move KataGo would have picked (best candidate per its own logic).
    *  Useful only for diagnostics; the selector ignores it. */
   kataGoPlayedMove: string;
+  /** Per-intersection ownership in [-1, +1] from Black's perspective
+   *  (positive = Black controls). Row-major, length = boardSize²; only
+   *  present when the caller passed `ownership: true`. Used for end-of-game
+   *  dead-stone detection in localGameRouter.pass. */
+  ownership?: number[];
 }
 
 export interface KataGoBridge {
@@ -41,6 +46,9 @@ export interface KataGoBridge {
     moves: Array<{ color: 'B' | 'W'; point: string }>;
     color: 'B' | 'W';
     maxVisits: number;
+    /** When true, KataGo emits per-intersection ownership values; bridge
+     *  parses them and returns them on `BridgeAnalysis.ownership`. */
+    ownership?: boolean;
   }): Promise<BridgeAnalysis>;
 }
 

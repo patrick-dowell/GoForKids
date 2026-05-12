@@ -109,6 +109,104 @@ describe('localGameRouter — persistence', () => {
   });
 });
 
+describe('localGameRouter — bridge ownership for end-of-game scoring', () => {
+  beforeEach(freshRouter);
+  afterEach(() => {
+    freshRouter();
+    // Tear down the bridge stub between tests.
+    delete (globalThis as { window?: { kataGo?: unknown } }).window?.kataGo;
+  });
+
+  // Sets up a fake `window.kataGo` whose analyze() returns a canned ownership
+  // grid. Mirrors what the Swift bridge returns when ownership:true is set.
+  function stubBridge(ownership: number[]) {
+    if (typeof (globalThis as { window?: unknown }).window === 'undefined') {
+      (globalThis as { window: object }).window = {};
+    }
+    (globalThis as { window: { kataGo?: unknown } }).window.kataGo = {
+      ping: () => Promise.resolve({ pong: true }),
+      analyze: () =>
+        Promise.resolve({
+          candidates: [],
+          rootVisits: 200,
+          kataGoPlayedMove: 'pass',
+          ownership,
+        }),
+    };
+  }
+
+  it('removes dead stones using bridge ownership when two passes end the game', async () => {
+    // 5×5 board where we'll play a white stone deep in black territory.
+    // After two passes, the white stone should be marked dead and Black
+    // should win territory + 1 captured stone.
+    const { game_id } = localGameRouter.createGame({ board_size: 5 });
+    // Build the position: Black surrounds, White isolated.
+    //   . . . . .
+    //   . B B B .
+    //   . B W B .
+    //   . B B B .
+    //   . . . . .
+    localGameRouter.playMove(game_id, 1, 1); // B
+    localGameRouter.playMove(game_id, 2, 2); // W
+    localGameRouter.playMove(game_id, 1, 2); // B
+    localGameRouter.playMove(game_id, 0, 0); // W far away
+    localGameRouter.playMove(game_id, 1, 3); // B
+    localGameRouter.playMove(game_id, 0, 1); // W
+    localGameRouter.playMove(game_id, 2, 1); // B
+    localGameRouter.playMove(game_id, 0, 2); // W
+    localGameRouter.playMove(game_id, 2, 3); // B
+    localGameRouter.playMove(game_id, 0, 3); // W
+    localGameRouter.playMove(game_id, 3, 1); // B
+    localGameRouter.playMove(game_id, 0, 4); // W
+    localGameRouter.playMove(game_id, 3, 2); // B
+    localGameRouter.playMove(game_id, 4, 4); // W
+    localGameRouter.playMove(game_id, 3, 3); // B
+    // 5×5 = 25 ownership values, row-major. White's stones all sit in
+    // strongly Black-controlled cells (+1.0); the lone trapped white at
+    // (2,2) is the most dead. The top-row whites along Black's wall edge
+    // get less strong values (~0.4) but still cross the 0.3 threshold.
+    const own = new Array(25).fill(0);
+    // Black's controlled cells (rows 1-3 area + most of board)
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < 5; c++) {
+        own[r * 5 + c] = 0.9; // Black-controlled everywhere
+      }
+    }
+    stubBridge(own);
+
+    // Two consecutive passes triggers scoring.
+    await localGameRouter.pass(game_id);
+    const final = (await localGameRouter.pass(game_id)) as Exclude<
+      Awaited<ReturnType<typeof localGameRouter.pass>>,
+      { error: string }
+    >;
+    expect(final.phase).toBe('finished');
+    // All white stones should be marked dead — none left on board.
+    const whiteLeft = final.board.flat().filter((c) => c === 2).length;
+    expect(whiteLeft).toBe(0);
+    // Captures should reflect the killed whites (6 white stones on board
+    // before scoring, all dead).
+    expect(final.captures.black).toBeGreaterThanOrEqual(6);
+  });
+
+  it('keeps raw-territory score when bridge returns no ownership', async () => {
+    stubBridge([]); // empty → length mismatch → applyOwnership returns []
+    const { game_id } = localGameRouter.createGame({ board_size: 5 });
+    localGameRouter.playMove(game_id, 2, 2); // B
+    localGameRouter.playMove(game_id, 0, 0); // W
+    await localGameRouter.pass(game_id);
+    const final = (await localGameRouter.pass(game_id)) as Exclude<
+      Awaited<ReturnType<typeof localGameRouter.pass>>,
+      { error: string }
+    >;
+    expect(final.phase).toBe('finished');
+    // White stone still present — no dead-stone removal because ownership
+    // size mismatched and there's no Render fallback in tests.
+    const whiteLeft = final.board.flat().filter((c) => c === 2).length;
+    expect(whiteLeft).toBe(1);
+  });
+});
+
 describe('localGameRouter — handicap', () => {
   beforeEach(freshRouter);
   afterEach(freshRouter);
