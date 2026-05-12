@@ -177,7 +177,12 @@ async function getAIMoveViaBridge(
   bridge: KataGoBridge,
   targetRank: string,
 ): Promise<AIMoveDTO> {
+  // [perf-js] Outer envelope — sums GET state + selector + analyze(s) +
+  // commit POST. Compare against the Swift [perf] total to isolate the
+  // non-engine cost of an AI move.
+  const tOuterStart = performance.now();
   const state = await api.getGame(gameId);
+  const tAfterGet = performance.now();
   const board = boardFromGrid(state.board, state.board_size);
   const color: Stone = state.current_color === 'black' ? Color.Black : Color.White;
   const colorChar: 'B' | 'W' = color === Color.Black ? 'B' : 'W';
@@ -192,6 +197,9 @@ async function getAIMoveViaBridge(
   let cachedScoreLead: number | null = null;
 
   const analyze = async (visits: number): Promise<PositionAnalysis> => {
+    // [perf-js] Measure JS-perceived bridge round-trip. Difference vs the
+    // Swift-side [perf] total = pure bridge marshaling cost. Should be <20ms.
+    const tAnalyzeStart = performance.now();
     const result = await bridge.analyze({
       boardSize: state.board_size,
       // GameStateDTO doesn't expose komi; backend default is 7.5, handicap is
@@ -203,6 +211,8 @@ async function getAIMoveViaBridge(
       color: colorChar,
       maxVisits: visits,
     });
+    const analyzeMs = Math.round(performance.now() - tAnalyzeStart);
+    console.log(`[perf-js] bridge.analyze visits=${visits} jsRT=${analyzeMs}ms`);
 
     const candidates: MoveCandidate[] = result.candidates.map((c, idx) => {
       const decoded = fromGtp(c.move, state.board_size);
@@ -234,11 +244,20 @@ async function getAIMoveViaBridge(
     };
   };
 
+  const tBeforeSelect = performance.now();
   const chosen = await selectAiMove(board, color, targetRank, lastOpponentMove, analyze);
+  const tAfterSelect = performance.now();
 
   if (chosen === null) {
     // Selector returned pass.
     const newState = await api.pass(gameId);
+    const tEnd = performance.now();
+    console.log(
+      `[perf-js] aiMove(pass) get=${Math.round(tAfterGet - tOuterStart)}ms ` +
+      `select=${Math.round(tAfterSelect - tBeforeSelect)}ms ` +
+      `commit=${Math.round(tEnd - tAfterSelect)}ms ` +
+      `total=${Math.round(tEnd - tOuterStart)}ms`
+    );
     return {
       point: { row: -1, col: -1 },
       captures: [],
@@ -248,6 +267,13 @@ async function getAIMoveViaBridge(
   }
 
   const newState = await api.playMove(gameId, chosen.row, chosen.col);
+  const tEnd = performance.now();
+  console.log(
+    `[perf-js] aiMove get=${Math.round(tAfterGet - tOuterStart)}ms ` +
+    `select=${Math.round(tAfterSelect - tBeforeSelect)}ms ` +
+    `commit=${Math.round(tEnd - tAfterSelect)}ms ` +
+    `total=${Math.round(tEnd - tOuterStart)}ms`
+  );
   return {
     point: chosen,
     captures: [],

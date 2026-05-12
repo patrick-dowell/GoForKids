@@ -7,6 +7,9 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
     private weak var webView: WKWebView?
     private let workQueue = DispatchQueue(label: "com.goforkids.katago.bridge")
     private var enginePumpStarted = false
+    /// Monotonic counter so [perf] log lines can be cross-referenced with JS
+    /// and grepped per-call. Reset on engine restart (not on new game).
+    private var analyzeCallCount = 0
 
     func attach(to webView: WKWebView) {
         print("[Bridge] attach() called — registering 'katago' handler + starting engine")
@@ -79,20 +82,33 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
             throw BridgeError.invalidParams
         }
         let rules = (params["rules"] as? String) ?? "tromp-taylor"
+        analyzeCallCount += 1
+        let callId = analyzeCallCount
         print("[Bridge] analyze: boardSize=\(boardSize) komi=\(komi) rules=\(rules) moves=\(moves.count) color=\(color) maxVisits=\(maxVisits)")
 
-        let startTime = Date()
+        // [perf] Granular timing — see DEVJOURNAL for what each segment means.
+        // setup = clear_board + boardsize + komi + set-rules (fixed cost)
+        // replay = per-move `play X Y` loop (scales with moves.count)
+        // setParam = kata-set-param maxVisits + maxTime
+        // ttfi = send `kata-genmove_analyze` → first `info` line back (per-call
+        //        engine spin-up: tree init, weight paging, ANE handoff)
+        // search = first info line → `play` line (the actual visits)
+        // parse = result sorting + score flip after engine returns
+        let tStart = Date()
         gtp("clear_board")
         gtp("boardsize \(boardSize)")
         gtp("komi \(komi)")
         gtp("kata-set-rules \(rules)")
+        let tAfterSetup = Date()
         for move in moves {
             guard let mc = move["color"], let mp = move["point"] else { continue }
             gtp("play \(mc) \(mp)")
         }
+        let tAfterReplay = Date()
         gtp("kata-set-param maxVisits \(maxVisits)")
         // Override the cfg's maxTime cap so we actually use all the visits
         gtp("kata-set-param maxTime 60")
+        let tAfterSetParam = Date()
 
         // kata-genmove_analyze streams `info` lines (one per candidate) then
         // ends with `play <move>`. Parse every info line into a candidate dict.
@@ -105,12 +121,14 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
         // it with the explicit `order N` field if present.
         var moveOrder: [String] = []
         var rawLines = 0
+        var tFirstInfo: Date? = nil
         while true {
             let line = KataGoHelper.getMessageLine()
             rawLines += 1
             if line.hasPrefix("play ") {
                 playedMove = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
             } else if line.hasPrefix("info ") {
+                if tFirstInfo == nil { tFirstInfo = Date() }
                 if let parsed = parseInfoLine(line) {
                     if candidatesByMove[parsed["move"] as! String] == nil {
                         moveOrder.append(parsed["move"] as! String)
@@ -123,7 +141,8 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
                 break  // safety: never spin forever
             }
         }
-        let elapsed = Date().timeIntervalSince(startTime)
+        let tAfterGenmove = Date()
+        let elapsed = tAfterGenmove.timeIntervalSince(tStart)
 
         // Sort candidates by their explicit `order` field (KataGo's preference,
         // 0 = best). Pass this on so the frontend's selector treats array
@@ -146,6 +165,7 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
             candidatesOut.append(cand)
         }
 
+        let tEnd = Date()
         let bestPreview: String = {
             guard let first = candidatesOut.first else { return "—" }
             let mv = (first["move"] as? String) ?? "?"
@@ -154,6 +174,18 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
             return "\(mv) sl=\(sl) v=\(v)"
         }()
         print("[Bridge] analyze returned \(candidatesOut.count) candidates (best: \(bestPreview)) in \(String(format: "%.2f", elapsed))s")
+
+        // [perf] one-line CSV-ish summary, easy to grep + paste into a sheet.
+        // ttfi is "—" if no info lines arrived (shouldn't happen for non-pass).
+        func ms(_ a: Date, _ b: Date) -> Int { Int((b.timeIntervalSince(a)) * 1000) }
+        let setupMs = ms(tStart, tAfterSetup)
+        let replayMs = ms(tAfterSetup, tAfterReplay)
+        let setParamMs = ms(tAfterReplay, tAfterSetParam)
+        let ttfiMs: String = tFirstInfo.map { String(ms(tAfterSetParam, $0)) } ?? "—"
+        let searchMs: String = tFirstInfo.map { String(ms($0, tAfterGenmove)) } ?? String(ms(tAfterSetParam, tAfterGenmove))
+        let parseMs = ms(tAfterGenmove, tEnd)
+        let totalMs = ms(tStart, tEnd)
+        print("[perf] call#\(callId) board=\(boardSize) movesReplayed=\(moves.count) visits=\(maxVisits) setup=\(setupMs)ms replay=\(replayMs)ms setParam=\(setParamMs)ms ttfi=\(ttfiMs)ms search=\(searchMs)ms parse=\(parseMs)ms total=\(totalMs)ms")
 
         return [
             "candidates": candidatesOut,
