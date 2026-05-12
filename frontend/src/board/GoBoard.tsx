@@ -632,23 +632,90 @@ export function GoBoard() {
   }, [learnDeniedSeq]);
 
   /*
-   * Stone placement uses pointer events (not onClick) for a "hold-to-hover,
-   * release-to-place" interaction:
-   *   - pointerdown: ghost stone appears at the touched intersection.
-   *   - pointermove: ghost follows. If the user drags off the canvas the
-   *     ghost can disappear; coming back keeps tracking because we capture
-   *     the pointer in pointerdown.
-   *   - pointerup ON the canvas: commit the move at the current ghost
-   *     position. A sub-100ms tap is also a release-on-canvas, so
-   *     "tap to place" still works for confident users.
-   *   - pointerup OFF the canvas (or pointercancel): clear ghost, no
-   *     placement. Lets the player abort a fat-fingered tap by dragging
-   *     away before lifting.
-   * Same flow for touch and mouse — mouse users also get the abort-by-drag
-   * escape hatch. Mouse hover (no button held) still updates the ghost
-   * since pointermove fires for mouse without a press.
+   * Pointer interaction layers (single canvas handles all of these):
+   *
+   * 1. Hold-to-hover-then-place (single finger / mouse button).
+   *      pointerdown → ghost stone + red crosshair at touched intersection
+   *      pointermove → ghost follows, crosshair tracks
+   *      pointerup ON canvas → commit at current ghost position
+   *      pointerup OFF canvas / pointercancel → clear ghost, no placement
+   *    The pointer is captured so a finger that drags off the canvas still
+   *    feeds events back, enabling the abort-by-drag-away escape hatch.
+   *
+   * 2. Pinch-to-zoom (two fingers).
+   *      When a second pointer goes down while one is already active, we
+   *      cancel the placement flow and switch to gesture mode. The
+   *      transform (scale, tx, ty) updates so the midpoint between the
+   *      fingers stays anchored as the user pinches. Scale clamped to
+   *      [1, 3]; pan clamped so the board can't be dragged off-screen.
+   *      The transform is applied as a CSS transform on the displayed
+   *      canvas (no canvas-internal redraws — crosshair + ghost scale up
+   *      naturally with the zoom).
+   *
+   * 3. Double-tap to reset zoom.
+   *      When `scale > 1`, single-tap commits are deferred by 200ms so a
+   *      second tap arriving inside that window can cancel the commit and
+   *      reset the transform to identity. When `scale === 1`, no delay —
+   *      taps commit immediately (normal play stays snappy).
+   *
+   * `toBoard()` works for any transform unchanged: it uses
+   * getBoundingClientRect, which already returns the *displayed* rect
+   * including any CSS transform, so the rect.width-based scale factor in
+   * the existing math automatically inverts the zoom.
    */
   const activePointerIdRef = useRef<number | null>(null);
+  // Track every active pointer so we can detect "second finger down" for
+  // pinch. The single-touch path uses activePointerIdRef separately so the
+  // crosshair-and-hover state machine doesn't have to peek at this map.
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+
+  type Transform = { scale: number; tx: number; ty: number };
+  const [transform, setTransform] = useState<Transform>({ scale: 1, tx: 0, ty: 0 });
+  const transformRef = useRef<Transform>(transform);
+  transformRef.current = transform;
+
+  // Snapshot taken when the user touches with a second finger — pinch math
+  // is ratio-based against this initial state so it doesn't jitter.
+  const gestureStartRef = useRef<{
+    transform: Transform;
+    midpoint: { x: number; y: number };
+    distance: number;
+  } | null>(null);
+
+  // Most recent committed-ish tap, used for double-tap detection.
+  const lastTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
+  // setTimeout id for the deferred-commit-when-zoomed path; canceled when a
+  // second tap arrives inside the double-tap window.
+  const pendingCommitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const ZOOM_MIN = 1;
+  const ZOOM_MAX = 3;
+  const DOUBLE_TAP_MS = 280;
+  const DOUBLE_TAP_PX = 30;
+  const COMMIT_DELAY_WHEN_ZOOMED_MS = 200;
+
+  function pointDist(a: { x: number; y: number }, b: { x: number; y: number }) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+  function midpoint(a: { x: number; y: number }, b: { x: number; y: number }) {
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+  function clampTransform(t: Transform): Transform {
+    const scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, t.scale));
+    if (scale === ZOOM_MIN) return { scale, tx: 0, ty: 0 };
+    // Use the canvas's *layout* size (offsetWidth) — getBoundingClientRect
+    // returns the transformed rect which would feedback-loop the math.
+    const canvas = canvasRef.current;
+    const W = canvas?.offsetWidth ?? 0;
+    const H = canvas?.offsetHeight ?? 0;
+    // With transform-origin: 0 0 + `translate(tx, ty) scale(s)`, the canvas
+    // top-left lands at (tx, ty) and bottom-right at (tx + W*s, ty + H*s).
+    // Constrain so the *visible* canvas always covers the original display
+    // rect (0,0)-(W,H) — i.e. tx ∈ [W(1-s), 0] and ty ∈ [H(1-s), 0].
+    const tx = Math.max(W * (1 - scale), Math.min(0, t.tx));
+    const ty = Math.max(H * (1 - scale), Math.min(0, t.ty));
+    return { scale, tx, ty };
+  }
 
   function pointToBoardOrNull(e: React.PointerEvent<HTMLCanvasElement>) {
     return toBoard(e.clientX, e.clientY, canvasRef.current!, size);
@@ -659,21 +726,94 @@ export function GoBoard() {
     else playMove(p);
   }
 
+  // Reset transform on game change (new game flips size, lesson change,
+  // replay toggled) so the player doesn't carry zoom across boards.
+  useEffect(() => {
+    setTransform({ scale: 1, tx: 0, ty: 0 });
+  }, [size, learnLessonIndex, replayActive]);
+
   return (
     <canvas
       ref={canvasRef}
       onPointerDown={(e) => {
+        activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+
+        // Second finger down → switch from placement to pinch gesture.
+        if (activePointersRef.current.size === 2) {
+          // Cancel the single-touch placement that may already be in flight
+          if (pendingCommitRef.current) {
+            clearTimeout(pendingCommitRef.current);
+            pendingCommitRef.current = null;
+          }
+          activePointerIdRef.current = null;
+          setPressing(false);
+          setHoverPoint(null);
+          const pts = Array.from(activePointersRef.current.values());
+          gestureStartRef.current = {
+            transform: transformRef.current,
+            midpoint: midpoint(pts[0], pts[1]),
+            distance: pointDist(pts[0], pts[1]),
+          };
+          return;
+        }
+
+        // Third+ finger → ignore (still in gesture mode)
+        if (activePointersRef.current.size > 2) return;
+
+        // Single finger: check for double-tap-while-zoomed BEFORE starting
+        // a new placement. If detected, cancel any pending deferred commit
+        // and reset the transform — no new ghost is shown.
+        const now = performance.now();
+        const lt = lastTapRef.current;
+        if (
+          lt &&
+          transformRef.current.scale > 1 &&
+          now - lt.time < DOUBLE_TAP_MS &&
+          pointDist({ x: e.clientX, y: e.clientY }, lt) < DOUBLE_TAP_PX
+        ) {
+          if (pendingCommitRef.current) {
+            clearTimeout(pendingCommitRef.current);
+            pendingCommitRef.current = null;
+          }
+          setTransform({ scale: 1, tx: 0, ty: 0 });
+          lastTapRef.current = null;
+          // Treat this pointerdown as "consumed" — pointermove won't update
+          // hover (activePointerIdRef stays null) and pointerup won't commit.
+          return;
+        }
+
         if (!canClick) return;
         const p = pointToBoardOrNull(e);
         if (!p) return;
-        // Capture so we still get pointermove/up if the finger drags off
-        // the canvas (lets the abort-by-drag-away escape hatch work).
-        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
         activePointerIdRef.current = e.pointerId;
         setHoverPoint(p);
         setPressing(true);
       }}
       onPointerMove={(e) => {
+        if (activePointersRef.current.has(e.pointerId)) {
+          activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        }
+
+        // Pinch in progress: recompute scale + translate so the focal
+        // point (initial midpoint) stays anchored under the fingers.
+        if (gestureStartRef.current && activePointersRef.current.size === 2) {
+          const pts = Array.from(activePointersRef.current.values());
+          const m1 = midpoint(pts[0], pts[1]);
+          const d1 = pointDist(pts[0], pts[1]);
+          const start = gestureStartRef.current;
+          const newScale = start.transform.scale * (d1 / start.distance);
+          // Math: at gesture start the focal-point-in-canvas-coord c
+          // satisfies m0 = start.transform.translate + start.scale * c.
+          // After: m1 = newTranslate + newScale * c. Eliminate c:
+          //   newTranslate = m1 - (newScale / start.scale) * (m0 - start.translate)
+          const ratio = newScale / start.transform.scale;
+          const newTx = m1.x - ratio * (start.midpoint.x - start.transform.tx);
+          const newTy = m1.y - ratio * (start.midpoint.y - start.transform.ty);
+          setTransform(clampTransform({ scale: newScale, tx: newTx, ty: newTy }));
+          return;
+        }
+
         if (!canClick) { setHoverPoint(null); return; }
         // For touch, only update during an active press (touch has no
         // hover-without-press); for mouse, update on any move so the
@@ -682,19 +822,57 @@ export function GoBoard() {
         setHoverPoint(pointToBoardOrNull(e));
       }}
       onPointerUp={(e) => {
+        activePointersRef.current.delete(e.pointerId);
+
+        // Was in pinch mode — end gesture, suppress commit. A second
+        // finger lift after a 1-finger remains would technically re-enter
+        // single-finger mode, but in practice both fingers lift within a
+        // few ms; treating the rest as "no commit" is fine.
+        if (gestureStartRef.current) {
+          if (activePointersRef.current.size === 0) {
+            gestureStartRef.current = null;
+          }
+          return;
+        }
+
         if (activePointerIdRef.current !== e.pointerId) return;
         activePointerIdRef.current = null;
         setPressing(false);
         const p = pointToBoardOrNull(e);
-        if (p) commitMove(p);
-        // Touch: clear ghost on release (fingertip is gone). Mouse: the
-        // next pointermove will refresh it from the cursor position.
+
+        // Update last-tap for double-tap detection (always, even on
+        // off-canvas releases — the next pointerdown's distance check
+        // will reject if it's too far).
+        lastTapRef.current = { time: performance.now(), x: e.clientX, y: e.clientY };
+
+        if (p) {
+          if (transformRef.current.scale > 1) {
+            // Deferred commit while zoomed: gives a 200ms window for a
+            // second tap to arrive (which would cancel this commit + reset
+            // zoom). Without the delay, double-tap reset would always
+            // place a stone on the first tap.
+            if (pendingCommitRef.current) clearTimeout(pendingCommitRef.current);
+            pendingCommitRef.current = setTimeout(() => {
+              commitMove(p);
+              pendingCommitRef.current = null;
+            }, COMMIT_DELAY_WHEN_ZOOMED_MS);
+          } else {
+            commitMove(p);
+          }
+        }
+
         if (e.pointerType === 'touch') setHoverPoint(null);
       }}
-      onPointerCancel={() => {
-        activePointerIdRef.current = null;
-        setPressing(false);
-        setHoverPoint(null);
+      onPointerCancel={(e) => {
+        activePointersRef.current.delete(e.pointerId);
+        if (gestureStartRef.current && activePointersRef.current.size === 0) {
+          gestureStartRef.current = null;
+        }
+        if (activePointerIdRef.current === e.pointerId) {
+          activePointerIdRef.current = null;
+          setPressing(false);
+          setHoverPoint(null);
+        }
       }}
       onPointerLeave={(e) => {
         // Mouse leaving the canvas (no press) clears the hover ghost.
@@ -709,9 +887,17 @@ export function GoBoard() {
       // height-bound (phone landscape) without us hacking !important.
       // toBoard() already converts rect coords → canvas-internal coords,
       // so hit-testing follows whatever display size CSS picks.
+      // We override touch-action to 'none' here (App.css has 'manipulation')
+      // so the browser doesn't grab pinch gestures for its own page zoom.
       className="go-board-canvas"
       style={{
         cursor: canClick ? 'pointer' : aiThinking ? 'wait' : 'default',
+        transform: `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`,
+        transformOrigin: '0 0',
+        // Smooth transitions on programmatic resets; mid-gesture updates
+        // happen too fast for this transition to be perceptible.
+        transition: gestureStartRef.current ? 'none' : 'transform 0.2s ease-out',
+        touchAction: 'none',
       }}
     />
   );
