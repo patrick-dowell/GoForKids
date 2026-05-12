@@ -118,14 +118,21 @@ function drawBoard(
   // Coordinates — bolder + slightly larger so labels stay readable on
   // 19x19 boards (where cell spacing is tightest) and on phone-landscape
   // viewports (where the canvas display size is small).
+  // Label position offset: the board rectangle starts at 10px in from
+  // the canvas edge, so a label centered at y=15 with a 12px font has
+  // its top at y=9 — *outside* the board surface, making the ascenders
+  // of letters / numbers look clipped. 24px keeps the full glyph
+  // (top + bottom) inside the board background and leaves a clear gap
+  // between label and first grid line.
   const labels = 'ABCDEFGHJKLMNOPQRST';
   ctx.fillStyle = theme.coordinateColor;
   ctx.font = '700 12px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  const labelOffset = 24;
   for (let i = 0; i < size; i++) {
-    ctx.fillText(labels[i], toScreen(0, i).x, 15);
-    ctx.fillText(String(size - i), 15, toScreen(i, 0).y);
+    ctx.fillText(labels[i], toScreen(0, i).x, labelOffset);
+    ctx.fillText(String(size - i), labelOffset, toScreen(i, 0).y);
   }
 
   // Atari glow
