@@ -1,6 +1,13 @@
 /**
  * Backend API client for GoForKids.
  * Communicates with the FastAPI backend for game management and AI moves.
+ *
+ * iPad path (Phase D, May 2026): when `window.kataGo` is injected by the
+ * WKWebView bridge, the move-loop endpoints (create / get / play / pass /
+ * resign / undo) route through `localGameRouter.ts` instead of hitting
+ * Render. Moves drop from ~1.5 s of network round-trip to a localStorage
+ * write. See localGameRouter.ts for what stays on Render (scoring with
+ * dead stones, finishMove, study mode).
  */
 
 import { boardToMoves, fromGtp, getKataGoBridge, type KataGoBridge } from './nativeKataGo';
@@ -11,52 +18,15 @@ import {
   type MoveCandidate,
 } from '../ai/moveSelector';
 import { Color, type Stone, type Point } from '../engine/types';
+import { localGameRouter } from './localGameRouter';
+import type {
+  AIMoveDTO,
+  CreateGameOptions,
+  GameStateDTO,
+  PointDTO,
+} from './types';
 
 const API_BASE = `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'}/api`;
-
-interface CreateGameOptions {
-  target_rank?: string;
-  mode?: 'ranked' | 'casual';
-  komi?: number;
-  player_color?: 'black' | 'white';
-  handicap?: number;
-  black_rank?: string;
-  white_rank?: string;
-  board_size?: number;
-}
-
-interface PointDTO {
-  row: number;
-  col: number;
-}
-
-interface GameStateDTO {
-  game_id: string;
-  board: number[][];
-  board_size: number;
-  current_color: 'black' | 'white';
-  move_number: number;
-  captures: { black: number; white: number };
-  phase: string;
-  last_move: PointDTO | null;
-  ko_point: PointDTO | null;
-  result: Record<string, unknown> | null;
-  sgf: string | null;
-  /** KataGo's point-margin estimate from Black's perspective. Null when KataGo
-   *  isn't available. Drives the live score graph in the sidebar. */
-  score_lead: number | null;
-}
-
-interface AIMoveDTO {
-  point: PointDTO;
-  captures: PointDTO[];
-  debug?: Record<string, unknown>;
-  score_lead?: number | null;
-  /** Set when the AI's pass ended the game. Carries the scored final state
-   *  inline so the frontend doesn't need a follow-up GET (which would 404,
-   *  since the active game is deleted post-scoring). */
-  final_state?: GameStateDTO | null;
-}
 
 /**
  * Number of *additional* retries on network-level fetch failure
@@ -108,9 +78,35 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   throw lastError;
 }
 
+/** True when the iPad's native KataGo bridge is injected; we then run game
+ *  state on-device. Recomputed on every call (cheap) so a developer can
+ *  toggle the bridge without restarting. */
+function useLocal(): boolean {
+  return getKataGoBridge() !== null;
+}
+
+/** Wrap the local-router's `{ error }` discriminated union to match the
+ *  HTTP client's "throw on failure" contract. Keeps callers oblivious. */
+function unwrap<T>(r: T | { error: string } | null, notFoundMsg = 'Game not found'): T {
+  if (r === null) throw new Error(notFoundMsg);
+  if (typeof r === 'object' && r !== null && 'error' in r) throw new Error((r as { error: string }).error);
+  return r as T;
+}
+
+// Hand the local router a way to call Render's /score-position for end-of-
+// game dead-stone analysis (without circling imports). Commit 2 replaces
+// this with bridge ownership mode.
+localGameRouter.setRenderScorePositionFn((board) =>
+  request<{ dead_stones: { row: number; col: number; color: string }[] }>(
+    '/games/score-position',
+    { method: 'POST', body: JSON.stringify({ board }) },
+  ),
+);
+
 export const api = {
-  createGame: (options: CreateGameOptions = {}) =>
-    request<GameStateDTO>('/games', {
+  createGame: async (options: CreateGameOptions = {}): Promise<GameStateDTO> => {
+    if (useLocal()) return localGameRouter.createGame(options);
+    return request<GameStateDTO>('/games', {
       method: 'POST',
       body: JSON.stringify({
         target_rank: options.target_rank ?? '15k',
@@ -122,25 +118,42 @@ export const api = {
         white_rank: options.white_rank ?? null,
         board_size: options.board_size ?? 19,
       }),
-    }),
+    });
+  },
 
-  getGame: (gameId: string) =>
-    request<GameStateDTO>(`/games/${gameId}`),
+  getGame: async (gameId: string): Promise<GameStateDTO> => {
+    if (useLocal()) {
+      const local = localGameRouter.getGame(gameId);
+      if (local) return local;
+      // Not in local storage — game might predate this commit, or was created
+      // on the web and the user is opening it on iPad. Fall back to Render.
+      return request<GameStateDTO>(`/games/${gameId}`);
+    }
+    return request<GameStateDTO>(`/games/${gameId}`);
+  },
 
-  playMove: (gameId: string, row: number, col: number) =>
-    request<GameStateDTO>(`/games/${gameId}/move`, {
+  playMove: async (gameId: string, row: number, col: number): Promise<GameStateDTO> => {
+    if (useLocal()) return unwrap(localGameRouter.playMove(gameId, row, col));
+    return request<GameStateDTO>(`/games/${gameId}/move`, {
       method: 'POST',
       body: JSON.stringify({ row, col }),
-    }),
+    });
+  },
 
-  pass: (gameId: string) =>
-    request<GameStateDTO>(`/games/${gameId}/pass`, { method: 'POST' }),
+  pass: async (gameId: string): Promise<GameStateDTO> => {
+    if (useLocal()) return unwrap(await localGameRouter.pass(gameId));
+    return request<GameStateDTO>(`/games/${gameId}/pass`, { method: 'POST' });
+  },
 
-  resign: (gameId: string) =>
-    request<GameStateDTO>(`/games/${gameId}/resign`, { method: 'POST' }),
+  resign: async (gameId: string): Promise<GameStateDTO> => {
+    if (useLocal()) return unwrap(localGameRouter.resign(gameId));
+    return request<GameStateDTO>(`/games/${gameId}/resign`, { method: 'POST' });
+  },
 
-  undo: (gameId: string) =>
-    request<GameStateDTO>(`/games/${gameId}/undo`, { method: 'POST' }),
+  undo: async (gameId: string): Promise<GameStateDTO> => {
+    if (useLocal()) return unwrap(localGameRouter.undo(gameId));
+    return request<GameStateDTO>(`/games/${gameId}/undo`, { method: 'POST' });
+  },
 
   getAIMove: async (gameId: string, targetRank?: string): Promise<AIMoveDTO> => {
     const bridge = getKataGoBridge();
@@ -148,10 +161,15 @@ export const api = {
     return request<AIMoveDTO>(`/games/${gameId}/ai-move`, { method: 'POST' });
   },
 
+  // Still hits Render even on iPad — commit 2 will move auto-finish on-device
+  // via the bridge so the Session 16 "Finish Game iPad-only" bug gets fixed
+  // for free along the way.
   finishMove: (gameId: string) =>
     request<AIMoveDTO>(`/games/${gameId}/finish-move`, { method: 'POST' }),
 
-  /** Score a board position using KataGo ownership analysis. Returns dead stones. */
+  /** Score a board position using KataGo ownership analysis. Returns dead
+   *  stones. Used by replayStore for post-game analysis (one-shot, not a
+   *  per-move call) and by the local router's pass→scoring path. */
   scorePosition: (board: number[][]) =>
     request<{ dead_stones: { row: number; col: number; color: string }[] }>(
       '/games/score-position',
