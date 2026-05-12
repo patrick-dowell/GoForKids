@@ -115,10 +115,12 @@ function drawBoard(
     ctx.beginPath(); ctx.arc(x, y, starRadius, 0, Math.PI * 2); ctx.fill();
   }
 
-  // Coordinates
+  // Coordinates — bolder + slightly larger so labels stay readable on
+  // 19x19 boards (where cell spacing is tightest) and on phone-landscape
+  // viewports (where the canvas display size is small).
   const labels = 'ABCDEFGHJKLMNOPQRST';
   ctx.fillStyle = theme.coordinateColor;
-  ctx.font = '10px monospace';
+  ctx.font = '700 12px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   for (let i = 0; i < size; i++) {

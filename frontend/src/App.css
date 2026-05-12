@@ -1578,18 +1578,39 @@ body {
     overflow: hidden;
   }
 
+  /* Phone landscape pulls the header out of layout flow so the board
+     can extend edge-to-edge vertically. Title hides (it's not useful
+     info on phone), buttons float in the top-right corner above the
+     side panel. The side panel gets padding-top so its content
+     (score graph / result block) doesn't sit under the float. */
   .app-header {
-    padding: 6px 12px;
-    padding-top: calc(6px + var(--safe-top));
-    flex-shrink: 0;
+    position: absolute;
+    top: var(--safe-top);
+    right: calc(8px + var(--safe-right));
+    padding: 0;
+    background: transparent;
+    border: none;
+    z-index: 60;
   }
 
   .app-title {
-    font-size: 16px;
+    display: none;
+  }
+
+  .header-controls {
+    gap: 4px;
+  }
+
+  .header-controls .btn {
+    padding: 5px 10px;
+    font-size: 11px;
+    min-height: 28px;        /* override the 44px touch-target bump */
+    border-radius: 6px;
   }
 
   .game-layout {
     padding: 6px;
+    padding-top: 6px;          /* board can reach the top edge of viewport now */
     gap: 8px;
     /* Force horizontal layout on phone landscape — stacking would push
        the board off-screen vertically. Also override the medium rule's
@@ -1602,13 +1623,44 @@ body {
     min-height: 0;
   }
 
-  /* Avatar strip becomes a thin column on the left */
+  /* Avatar strip becomes a thin column on the left.
+     Stack avatar above name + status inside each card — at 90px wide
+     a horizontal layout left only ~12px for the name text after the
+     56px avatar, causing wrap-overflow ("Seedling" → "Seed", "(30k)"
+     on its own line clipped). Vertical stacking lets the name span
+     the full card width legibly. */
   .avatar-panel {
     width: 90px;
     flex-direction: column;
     height: auto;
     gap: 6px;
     flex-shrink: 0;
+  }
+
+  .avatar-panel .player-card-header {
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    text-align: center;
+  }
+
+  .avatar-panel .player-card-info {
+    align-items: center;
+    text-align: center;
+    width: 100%;
+  }
+
+  .avatar-panel .player-card-name {
+    font-size: 11px;
+    line-height: 1.15;
+  }
+
+  /* Shrink the avatar bubble — 56px is the prop default but with
+     vertical stacking we don't need it that large; 40px keeps the
+     character distinct without dominating the card. */
+  .avatar-panel .avatar {
+    width: 40px !important;
+    height: 40px !important;
   }
 
   .player-card-bottom {
@@ -1651,6 +1703,7 @@ body {
 
   .side-panel {
     width: 180px;
+    padding-top: 32px;     /* clear the floating header buttons up top */
   }
 
   .control-buttons {
