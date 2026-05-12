@@ -123,6 +123,69 @@ Verified the retry path with injected fetch failures (3 attempts,
 1206 ms elapsed, HTTP errors after retries succeed don't retry).
 (commit `d9aaf4e`)
 
+### Placement accessibility on small viewports
+Real-device test of 19×19 on iPhone Pro Max showed that mis-placing
+stones is a real problem — finger-sized targets on small intersections,
+no preview before commit, no way to magnify a region. Three-layer
+solution shipped:
+
+1. **Hold-to-hover-then-place** (commit `bbb1176`). Switched the canvas
+   from `onClick` + `onMouseMove` + `onMouseLeave` to unified pointer
+   events with `setPointerCapture`. A tap-and-immediately-release still
+   commits at the touched intersection (preserves the "tap to place"
+   muscle memory for confident users), but a press-and-drag lets the
+   player slide a ghost stone around until they're happy and release.
+   Releasing OFF the canvas (or via pointercancel) aborts — the fat-
+   finger escape hatch. Same flow for touch and mouse, so desktop
+   users also get the click-and-drag-away-to-abort behavior.
+2. **Red crosshair through the hover point during press** (commit
+   `17fcd6b`). The ghost alone wasn't enough — a fingertip covered it.
+   Thin red lines spanning the full row + column of the target
+   intersection extend past the fingertip on every side, so the
+   placement target stays visible. Crosshair color dims (`rgba(255,90,
+   90,0.55)`) when pressing on an occupied intersection so "won't
+   place here" reads without yelling.
+3. **Pinch-to-zoom + double-tap reset** (commit `fbdd0c7`). Two-pointer
+   pinch scales [1, 3] and keeps the midpoint between fingers anchored
+   under them as the user zooms; pan clamped so the board can't be
+   slid off-screen. Transform applied as CSS on the canvas element —
+   no canvas-internal redraws, browser composites the zoom smoothly,
+   and `toBoard()` works unchanged because `getBoundingClientRect`
+   already returns the transformed rect. Double-tap detection (within
+   280 ms / 30 px of previous tap) resets the transform AND cancels
+   the pending commit — only works when zoomed, so non-zoomed play
+   stays instant. When zoomed, single-tap commits defer 200 ms so the
+   double-tap window can intercept. `touch-action: none` on the
+   canvas overrides the wider `manipulation` so iOS doesn't grab the
+   pinch for its own page-zoom. Transform auto-resets on game / lesson
+   / replay changes.
+
+### Phone-landscape polish (2026-05-08)
+On-device test of the phone-landscape layout surfaced three issues, all
+fixed in commit `b0dc91b`:
+- **Player card text overflowed** the 90 px avatar column — a 56 px
+  avatar + horizontal layout left only ~12 px for the name, so
+  "Seedling (30k)" wrapped messily. Switched `.player-card-header`
+  inside `.avatar-panel` to column flex on phone landscape: avatar
+  (shrunk to 40 px) sits centered above the name + status which now
+  span the full card width.
+- **Top header bar ate ~57 px** of the 430 px viewport height.
+  `.app-header` now `position: absolute` in the top-right corner on
+  phone landscape; title hidden (not informative), buttons compacted
+  to 28 px tall × 11 px font. Board can now extend edge-to-edge
+  vertically. Side panel picks up `padding-top: 32px` so its score-
+  graph / result content doesn't sit under the floating buttons.
+- **Coordinate labels** were a thin 10 px monospace, washed out on
+  19×19 and on small phone-landscape displays. Bumped to
+  `'700 12px monospace'` everywhere.
+
+Followup: coordinate labels needed clearance from the board edge
+(commit `a393488`). They were drawn at x/y=15 inside a board rectangle
+that starts at 10 px in, so glyph tops at y=9 sat on the dark canvas
+background outside the board — reading as visual clipping on letters
+with ascenders. Moved to 24 px so the full glyph sits inside the
+warm board surface with a clean gap to the first grid line.
+
 ### Lesson worth keeping
 The iPad and iPhone responsive bugs were structurally the same
 problem (fixed-shape layout overflowing narrower viewports), so a
@@ -140,13 +203,15 @@ to a viewport-specific fix.
   after 2026-05-08 playtest, see Known Bugs.
 
 ### Deferred to next session
-- **Finish Game on iPad still broken.** Hypothesis from playtest:
+- **Finish Game on iPad still broken.** Same hypothesis as before:
   full-strength KataGo at 500 visits on Render b20 takes ~5 s per
   call; over a 50-move endgame, individual calls can hit cold-start
-  contention or transient slowness > 60 s URLSession timeout. Proposal
-  parked: drop visits 500 → 150, add loop-level retry, add
-  `[finishGame]` diagnostic logs. Will pick up next session with the
-  user driving repro.
+  contention or transient slowness > 60 s URLSession timeout. **Held
+  off on the parked frontend/backend fix** (drop visits 500 → 150,
+  add loop-level retry, add `[finishGame]` diagnostic logs) — the
+  user is doing parallel performance work that may speed KataGo
+  enough to make finish-game work as-is. If finish-game still fails
+  after the perf work lands, revisit with the parked proposal.
 - **Audio interrupted-state fix verification** — shipped + diagnostic
   logs, awaiting next iPad repro of "sound dies" to confirm the fix
   worked or surface a different state to handle.
@@ -1393,7 +1458,7 @@ Not worth further tuning right now — fixing H3 exactly requires either making 
 - [x] **iPad vertical (portrait) hides a lot of UI** — fixed 2026-05-08 as part of the [21 iPhone support](feature_plans/21_iphone_support.md) responsive pass. Three-tier breakpoints in App.css (wide ≥1100px, medium 700–1099px, narrow <700px) plus a phone-landscape height-bound branch. iPad portrait now uses an avatar strip across the top with board+controls underneath; iPhone portrait stacks vertically; iPhone landscape keeps the board height-bound with a thin avatar column. Same viewport pass also handles all dialogs, lessons, replay, library
 - [x] **Resign button shows "You win" / wrong winner** — fixed 2026-05-07. Two layers: (1) Resign button now `disabled={autoCompleting || aiThinking}` so the player can't click during the bot's turn; (2) `Game.resign()` accepts an optional explicit `loser` color, and `gameStore.resign()` passes `playerColor` for AI games — so even if the click somehow lands during a wrong-current-color state, the right side is credited. Backend [resign()](backend/app/game/state.py:273) updated to use `game.player_color` (with bot-vs-bot fallback to current_color) so the persisted record matches. New unit test in `Game.test.ts` locks in the explicit-loser contract
 - [x] **Rapid clicks during bot turn flip the bot to playing as Black** — fixed 2026-05-07. `playMove()` now sets `aiThinking: true` synchronously the moment the local stone lands (when `gameId && _game.phase === 'playing'`), so Pass / further taps are gated immediately instead of having a ~400ms + RTT window of false-`aiThinking`. `pass()` got the matching `currentColor !== playerColor` guard for belt-and-suspenders. Both branches also reset `aiThinking` on api-call failure so the UI doesn't soft-lock if a /move or /pass POST rejects
-- [ ] **"Finish game" doesn't work on iPad** — REOPENED 2026-05-08. The d34ab1b per-move loop fix shipped to iPad and the symptom persists. Hypothesis from playtest: full-strength KataGo at 500 visits on Render b20 takes ~5s per call (state.py:359) plus a follow-up `_compute_score_lead` analyze; over a 50-move endgame, individual calls can hit cold-start contention or transient slowness past iPad WKWebView's 60s URLSession timeout. The frontend loop also gives up on the first error (gameStore.ts:806) — single transient failure kills the whole playout. **Proposal parked for next session:** drop visits 500 → 150 in `state.py:finish_move`, add 2-retry layer to `gameStore.finishGame` loop, add `[finishGame]` diagnostic console.log on each step so the next iPad repro gives us a real trace
+- [ ] **"Finish game" doesn't work on iPad** — REOPENED 2026-05-08. The d34ab1b per-move loop fix shipped to iPad and the symptom persists. Hypothesis from playtest: full-strength KataGo at 500 visits on Render b20 takes ~5s per call (state.py:359) plus a follow-up `_compute_score_lead` analyze; over a 50-move endgame, individual calls can hit cold-start contention or transient slowness past iPad WKWebView's 60s URLSession timeout. The frontend loop also gives up on the first error (gameStore.ts:806) — single transient failure kills the whole playout. **Pending parallel perf work:** the user is doing performance work on KataGo throughput that may make finish-game work as-is. If still broken after perf lands, parked proposal is: drop visits 500 → 150 in `state.py:finish_move`, add 2-retry layer to `gameStore.finishGame` loop, add `[finishGame]` diagnostic console.log on each step so the next iPad repro gives us a real trace
 - [ ] **Sound stops working after several games (restart fixes)** — observed 2026-05-07, iPad-only so far. Likely-fix-plus-diagnostics shipped 2026-05-08 (commit 219aaca): [`resumeAudio()`](frontend/src/audio/SoundManager.ts:104) now triggers on any non-running `AudioContext.state` (was `=== 'suspended'` only — missed the iOS-specific `'interrupted'` state that follows notifications, lock screen, Siri, etc.) and logs the prior state on every resume attempt, plus the result of the `resume()` promise. Next iPad repro: check Xcode console for `[Audio] resuming AudioContext, state was: <X>` — the value of X tells us where to look next. If still broken: secondary hypothesis is AudioNode accumulation (cosmic pack creates 4–5 OscillatorNodes per capture, no `disconnect()` on any) hitting a WebKit ceiling; fix shape would be `osc.onended = () => osc.disconnect()` on each node, or pooling. Fallback if `state === 'closed'` after interruption: recreate the `AudioContext` instead of trying to resume
 
 > Three of the four iPad-specific bugs from the 2026-05-07 playtest pass are closed in code. The audio-death bug (#1) ships with a likely fix + diagnostic logs in commit 219aaca — open until a repro confirms either that sound recovers (close it) or that the logs reveal a different root cause. iPad must be rebuilt from Xcode to pick up the bundled frontend changes (Finish Game, Resign disable, rapid-click gate, audio resume).
