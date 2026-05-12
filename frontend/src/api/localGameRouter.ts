@@ -553,8 +553,31 @@ async function deadStonesViaOwnership(lg: LocalActiveGame): Promise<Point[]> {
       if (!result.ownership) {
         console.warn(`[localGameRouter] bridge returned no ownership in ${elapsedMs}ms — check Swift bridge build`);
       } else {
-        console.log(`[localGameRouter] bridge ownership received in ${elapsedMs}ms (${result.ownership.length} values)`);
-        return dedupeDead(applyOwnership(lg.game.board, result.ownership));
+        // KataGo's GTP `kata-genmove_analyze` emits ownership values whose
+        // sign convention differs from the JSON analysis engine the Python
+        // backend uses:
+        //
+        //   JSON engine:  +1 = black, -1 = white   (what we want)
+        //   GTP analyze:  output = -raw when pla == BLACK and perspective
+        //                 is unset (the default cfg). Net effect: positive
+        //                 in the output means White controls.
+        //
+        // After two passes the current-to-move cycles to Black in the
+        // typical kid-vs-AI game (player passed, AI passed, currentColor
+        // is now Black). We sent `color: 'B'` to match — so we hit the
+        // negated branch every time. Negate at the JS boundary to restore
+        // the +1=black convention.
+        //
+        // Source: ios/KataGo/cpp/command/gtp.cpp:983 — the conditional
+        // negation of ownership[pos]. Empirically verified 2026-05-12
+        // after the first iPad playtest of commit 2 showed all Black
+        // stones marked dead in a Black-winning position.
+        const flipped = result.ownership.map((v) => -v);
+        console.log(
+          `[localGameRouter] bridge ownership received in ${elapsedMs}ms ` +
+            `(${flipped.length} values, sample[0..3]=${flipped.slice(0, 4).map((v) => v.toFixed(2)).join(',')})`,
+        );
+        return dedupeDead(applyOwnership(lg.game.board, flipped));
       }
     } catch (e) {
       console.warn('[localGameRouter] bridge ownership failed, falling back to Render:', e);

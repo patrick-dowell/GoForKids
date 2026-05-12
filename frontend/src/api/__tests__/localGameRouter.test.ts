@@ -161,17 +161,12 @@ describe('localGameRouter — bridge ownership for end-of-game scoring', () => {
     localGameRouter.playMove(game_id, 3, 2); // B
     localGameRouter.playMove(game_id, 4, 4); // W
     localGameRouter.playMove(game_id, 3, 3); // B
-    // 5×5 = 25 ownership values, row-major. White's stones all sit in
-    // strongly Black-controlled cells (+1.0); the lone trapped white at
-    // (2,2) is the most dead. The top-row whites along Black's wall edge
-    // get less strong values (~0.4) but still cross the 0.3 threshold.
-    const own = new Array(25).fill(0);
-    // Black's controlled cells (rows 1-3 area + most of board)
-    for (let r = 0; r < 5; r++) {
-      for (let c = 0; c < 5; c++) {
-        own[r * 5 + c] = 0.9; // Black-controlled everywhere
-      }
-    }
+    // 5×5 = 25 ownership values, row-major. Bridge emits in GTP convention
+    // (NEGATIVE = Black controls — see comment in localGameRouter.ts's
+    // deadStonesViaOwnership). The router negates internally before
+    // thresholding. So to simulate a Black-dominant board the stub returns
+    // all -0.9 values.
+    const own = new Array(25).fill(-0.9); // Black-controlled everywhere (GTP sign)
     stubBridge(own);
 
     // Two consecutive passes triggers scoring.
