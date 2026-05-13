@@ -762,18 +762,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       // from the active-game record.
       //
       // neverPass keeps the bot playing as long as the kid is still
-      // placing stones. Applied in two cases:
-      //   1. lessonContext (the tutorial first-game flow), and
-      //   2. any 5x5 game — these settle very quickly and KataGo at low
-      //      visit counts almost always wants to pass; the kid wants to
-      //      keep playing.
+      // placing stones — only applied in tutorial games (5x5 is reachable
+      // only via lesson 5, so lessonContext is sufficient scope).
       // Gated on `consecutivePasses === 0` so that once the player passes
       // (cons=1), the bot reverts to its normal pass-logic and can pass
       // back to end the game — matches the user's spec "should pass if
       // the player passes assuming it thinks the game is in fact over."
-      const isSmallTutorialBoard = _game.board.size === 5;
-      const neverPass =
-        (lessonContext || isSmallTutorialBoard) && _game.consecutivePasses === 0;
+      const neverPass = lessonContext && _game.consecutivePasses === 0;
       const aiMove = await api.getAIMove(gameId, targetRank, { neverPass });
       // Re-check state hasn't changed (e.g., user resigned while AI was thinking)
       if (get().phase !== 'playing') {

@@ -196,11 +196,11 @@ export async function selectAiMove(
       const alt = await selectAiMoveInner(board, color, targetRank, lastOpponentMove, analyze, options);
       if (alt && !isEyeFill(board, color, alt)) return alt;
     }
-    // 5 attempts all filled eyes — pass. (If neverPass is set, the inner
-    // function would have already returned a non-pass move, so we'd never
-    // get here unless every candidate filled an eye, which on tiny tutorial
-    // boards effectively means "no useful moves left" — passing is OK.)
-    return null;
+    // 5 attempts all filled eyes. In neverPass mode the user explicitly
+    // prefers a bad move (eye-fill) over the bot quitting, so return the
+    // last attempted move instead of passing. Outside neverPass, passing
+    // is the right call — filling your own eye kills the group.
+    return options.neverPass ? move : null;
   }
 
   return move;
@@ -327,7 +327,14 @@ function selectWithKataGo(
     // we explicitly forbid passing. Look for the best non-pass candidate.
     const nonPassBest = candidates.find((c) => c.move.row >= 0);
     if (!nonPassBest) {
-      // No legal non-pass move exists — even neverPass has to give up here.
+      // No legal non-pass in KataGo's analysis (rare — usually means the
+      // search was so narrow it only visited pass). In neverPass mode try
+      // a random legal move ourselves before giving up; this catches the
+      // 5x5 case where KataGo's 8-visit search converged on pass alone.
+      if (options.neverPass) {
+        const fallback = pickRandomLegal(board, color);
+        if (fallback) return fallback;
+      }
       return null;
     }
     best = nonPassBest;
@@ -443,13 +450,21 @@ function selectWithKataGo(
   }
 
   if (filtered.length === 0) {
-    // All non-pass candidates fill our own territory — passing IS the
-    // correct move, even with neverPass set. The semantics of neverPass
-    // are "don't quit while there are useful moves," not "play garbage
-    // forever."
+    // No non-pass candidate survived the max-point-loss filter, or KataGo
+    // only returned pass.
     const c = candidates[0];
-    if (c.move.row < 0) return null;
-    return { row: c.move.row, col: c.move.col };
+    if (c.move.row >= 0) return { row: c.move.row, col: c.move.col };
+    // Top is pass. In neverPass mode try harder before giving up:
+    // search the WHOLE candidate list for any non-pass, then fall back
+    // to a random legal move on the board. Only return null (pass) if
+    // there's literally nothing to play.
+    if (options.neverPass) {
+      const anyNonPass = candidates.find((cand) => cand.move.row >= 0);
+      if (anyNonPass) return { row: anyNonPass.move.row, col: anyNonPass.move.col };
+      const fallback = pickRandomLegal(board, color);
+      if (fallback) return fallback;
+    }
+    return null;
   }
 
   // Build selection weights.
