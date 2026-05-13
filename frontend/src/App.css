@@ -1449,13 +1449,12 @@ body {
 
   .go-board-canvas {
     /* Lift the 700px cap — iPad portrait has ~1000px of width to give
-       the board. max-height leaves room for the rest of the layout
-       (header + avatar strip + side panel + paddings) so Pass/Resign
-       at the bottom stay visible without scroll. Buffer tuned to the
-       slimmer side panel below (turn indicator etc hidden as redundant
-       with the avatar cards' active-glow). */
+       the board. max-height leaves room for header (~65) + avatar
+       strip (~150) + side panel (~235 with score graph capped at
+       70px tall) + Pass/Resign + paddings/gaps ≈ 490, so Resign
+       stays in-viewport without scroll. */
     max-width: none;
-    max-height: calc(100dvh - 420px);
+    max-height: calc(100dvh - 520px);
   }
 
   /* The avatar strip up top already shows whose turn it is (active
@@ -1475,6 +1474,16 @@ body {
     padding: 6px 8px;
     background: transparent;
     border: none;
+  }
+
+  /* The score-graph SVG declares width="100%" without a height, so the
+     intrinsic-sizing algorithm scales its 200×70 viewBox proportionally —
+     on a full-width side panel in iPad portrait (~1000px) that means a
+     ~350px-tall graph, way more than intended. Cap to the design height. */
+  .side-panel .score-graph svg,
+  .side-panel .score-graph-empty svg {
+    height: 70px;
+    width: 100%;
   }
 }
 

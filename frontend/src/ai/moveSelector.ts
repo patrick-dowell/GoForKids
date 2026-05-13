@@ -428,11 +428,17 @@ function selectWithKataGo(
 
   // Drop candidates strictly worse than passing (when pass has enough
   // visits to trust). Prevents endgame moves that fill own territory.
-  // Applies even in neverPass mode — the point of neverPass is to keep
-  // playing CONSTRUCTIVE moves, not to play self-destructive fillers
-  // just to avoid a pass. If every candidate is worse than pass, we
-  // fall through and pass below.
-  if (passCand !== null && passCand.visits >= minPassVisits) {
+  //
+  // Skip this filter entirely in neverPass mode. On small tutorial
+  // boards (5x5) at low visit counts (~6) KataGo's scoreLead estimates
+  // are noisy — any tighter threshold ends up dropping every non-pass
+  // candidate and the bot quits despite being told not to. The
+  // wrapping `selectAiMove` still rejects literal eye-fills via
+  // `isEyeFill` (5 retries before giving up), and beyond eyes a 30k
+  // bot playing "slightly suboptimal" closing moves is fine — the
+  // user's priority is "bot keeps playing while the kid is playing,"
+  // not "bot plays optimal endgame."
+  if (!options.neverPass && passCand !== null && passCand.visits >= minPassVisits) {
     filtered = filtered.filter((f) => f.c.scoreLead >= passCand!.scoreLead - passThreshold);
   }
 
