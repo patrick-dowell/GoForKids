@@ -1448,13 +1448,33 @@ body {
   }
 
   .go-board-canvas {
-    /* Lift the 700px cap — iPad portrait has ~1000px of width to give
-       the board. max-height leaves room for header (~65) + avatar
-       strip (~150) + side panel (~235 with score graph capped at
-       70px tall) + Pass/Resign + paddings/gaps ≈ 490, so Resign
-       stays in-viewport without scroll. */
+    /* Board must stay square. `width: 100%` + `max-height` + `aspect-
+       ratio: 1` would let the browser keep width=100% and crop the
+       height, giving a 1000×846 non-square rectangle (the canvas content
+       then renders stretched). Instead we set width to the SMALLER of
+       container-width and remaining-viewport-height — aspect-ratio: 1
+       then resolves to a true square at that size.
+       Buffer leaves room for header (~65) + avatar strip (~150) +
+       side panel (~235 with capped score graph) + Pass/Resign row
+       (~52) + paddings/gaps ≈ 520. */
+    width: min(100%, calc(100dvh - 520px));
     max-width: none;
-    max-height: calc(100dvh - 520px);
+    max-height: none;
+  }
+
+  /* Lay Pass / Resign / Undo / Finish in a horizontal row so they're
+     readable-width (~500px each in a 2-button row) instead of
+     stretching across the full ~1000px side panel as gigantic blocks
+     when stacked column-by-column. */
+  .control-buttons {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .control-buttons .btn {
+    flex: 1 1 auto;
+    min-width: 120px;
   }
 
   /* The avatar strip up top already shows whose turn it is (active
