@@ -46,6 +46,12 @@ interface LearnState {
   lastDeniedPoint: Point | null;
   /** True when waiting on the user's second move in a `secondTurn` lesson. */
   awaitingSecondMove: boolean;
+  /** Snapshot of the board taken when we entered second-turn mode (i.e. after
+   *  the user's first correct move + any afterSuccess auto-response landed).
+   *  A wrong second move resets to *this* board, not the lesson's starting
+   *  position — so the player retries just the second step instead of being
+   *  thrown back to the beginning of the puzzle (lessons 4 and 6). */
+  secondTurnInitialBoard: Board | null;
   /** Lesson IDs the user has finished (persisted to localStorage). */
   completed: Set<string>;
   /** True when the post-puzzle reward overlay should cover the lesson view. */
@@ -185,6 +191,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
   deniedSeq: 0,
   lastDeniedPoint: null,
   awaitingSecondMove: false,
+  secondTurnInitialBoard: null,
   completed: loadCompleted(),
   showReward: false,
   quizIndex: 0,
@@ -239,6 +246,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
         lastCaptures: [],
         lastMoveColor: Color.Empty,
         awaitingSecondMove: false,
+      secondTurnInitialBoard: null,
         eyeHighlight: null,
         _afterSuccessTimer: null,
         _afterSuccessRun: null,
@@ -266,6 +274,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
         lastCaptures: [],
         lastMoveColor: Color.Empty,
         awaitingSecondMove: false,
+      secondTurnInitialBoard: null,
         quizIndex: 0,
         quizCorrect: 0,
         quizFeedback: null,
@@ -293,6 +302,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
         lastCaptures: [],
         lastMoveColor: Color.Empty,
         awaitingSecondMove: false,
+      secondTurnInitialBoard: null,
         partIndex: 0,
         partFeedback: null,
         eyeHighlight: null,
@@ -316,6 +326,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
       lastCaptures: [],
       lastMoveColor: Color.Empty,
       awaitingSecondMove: false,
+      secondTurnInitialBoard: null,
       eyeHighlight: null,
       _afterSuccessTimer: null,
       _afterSuccessRun: null,
@@ -561,7 +572,30 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     const verdict = activeValidate({ board: tentative, point, capturedCount: captures.length });
 
     if (verdict !== 'success') {
-      // Legal but wrong puzzle answer — reset to the lesson's starting position.
+      // Legal but wrong puzzle answer.
+      //   - In second-turn mode (lessons 4, 6: user's first move + auto-
+      //     response already landed) we restore the board to the snapshot
+      //     captured when we entered second-turn mode. The player retries
+      //     just the second move; they don't have to redo the first one.
+      //   - In first-move mode we rebuild from the lesson's initial board
+      //     (the original behavior).
+      const snapshot = get().secondTurnInitialBoard;
+      if (isSecond && snapshot) {
+        const reset = snapshot.clone();
+        set({
+          board: reset,
+          grid: [...reset.grid],
+          lastMove: null,
+          lastCaptures: [],
+          lastMoveColor: Color.Empty,
+          status: 'retry',
+          feedback: activeRetryMessage,
+          awaitingSecondMove: true,
+          // Keep secondTurnInitialBoard intact — next wrong move resets to
+          // the same snapshot.
+        });
+        return;
+      }
       const reset = buildLessonBoard(get().lessonIndex);
       set({
         board: reset,
@@ -572,6 +606,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
         status: 'retry',
         feedback: activeRetryMessage,
         awaitingSecondMove: false,
+        secondTurnInitialBoard: null,
       });
       return;
     }
@@ -601,12 +636,13 @@ export const useLearnStore = create<LearnState>((set, get) => ({
         feedback: isLastLesson ? "You've finished the intro!" : null,
         showHint: false,
         awaitingSecondMove: false,
+      secondTurnInitialBoard: null,
         completed,
       });
       return;
     }
 
-    // Branch B': lesson has a secondTurn but NO auto-placement (Lesson 4).
+    // Branch B': lesson has a secondTurn but NO auto-placement.
     // Apply the user's first move and immediately ask for the rescue follow-up.
     if (lesson.secondTurn && !lesson.afterSuccess) {
       set({
@@ -622,6 +658,9 @@ export const useLearnStore = create<LearnState>((set, get) => ({
         feedback: null,
         showHint: false,
         awaitingSecondMove: true,
+        // Snapshot the board *after* the user's first correct move so a
+        // wrong second-move retries from here, not from the lesson start.
+        secondTurnInitialBoard: tentative.clone(),
         completed,
       });
       return;
@@ -667,6 +706,10 @@ export const useLearnStore = create<LearnState>((set, get) => ({
             message: after.followUpMessage,
             feedback: null,
             awaitingSecondMove: true,
+            // Snapshot the post-auto-response board for second-move retries
+            // (lessons 4, 6) — a wrong second move falls back to this state
+            // instead of the lesson's starting position.
+            secondTurnInitialBoard: nextBoard.clone(),
             _afterSuccessTimer: null,
             _afterSuccessRun: null,
           });
@@ -796,6 +839,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
       lastCaptures: [],
       lastMoveColor: Color.Empty,
       awaitingSecondMove: false,
+      secondTurnInitialBoard: null,
     });
   },
 
