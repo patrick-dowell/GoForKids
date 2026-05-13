@@ -162,11 +162,13 @@ describe('localGameRouter — bridge ownership for end-of-game scoring', () => {
     localGameRouter.playMove(game_id, 4, 4); // W
     localGameRouter.playMove(game_id, 3, 3); // B
     // 5×5 = 25 ownership values, row-major. Bridge emits in GTP convention
-    // (NEGATIVE = Black controls — see comment in localGameRouter.ts's
-    // deadStonesViaOwnership). The router negates internally before
-    // thresholding. So to simulate a Black-dominant board the stub returns
-    // all -0.9 values.
-    const own = new Array(25).fill(-0.9); // Black-controlled everywhere (GTP sign)
+    // ("+1 = player-to-move owns"). 15 real moves + 2 passes leaves
+    // currentColor = White at scoring time, so we send color: 'W' and the
+    // router negates the values before thresholding. To simulate a
+    // Black-dominant board we therefore return all -0.9 values (which the
+    // router will flip to +0.9 = Black-owns). The pla=B branch is covered
+    // by the next test.
+    const own = new Array(25).fill(-0.9); // Black-controlled everywhere (pla=W frame)
     stubBridge(own);
 
     // Two consecutive passes triggers scoring.
@@ -182,6 +184,57 @@ describe('localGameRouter — bridge ownership for end-of-game scoring', () => {
     // Captures should reflect the killed whites (6 white stones on board
     // before scoring, all dead).
     expect(final.captures.black).toBeGreaterThanOrEqual(6);
+  });
+
+  it('removes dead stones correctly when scoring pla is Black (regression: 19x19scoring.log)', async () => {
+    // Mirror image of the previous test: 14 real moves instead of 15, so
+    // currentColor at scoring time is Black (B passes first, then W). The
+    // bridge therefore receives color: 'B' and the router MUST NOT negate
+    // the ownership values — KataGo's GTP layer already returned them in
+    // the "+1 = Black owns" frame.
+    //
+    // Before the 2026-05-12 fix the router negated unconditionally, which
+    // inverted the sign in this branch and caused 238 Black stones to be
+    // mass-marked as dead on a real 19×19 game (see 19x19scoring.log:
+    // "removing 238 dead stones, rescoring → winner=white"). This test
+    // pins the conditional-negate logic.
+    const { game_id } = localGameRouter.createGame({ board_size: 5 });
+    // Same opening as the pla=W test, but stop one move short. Black's
+    // move 13 at (3,2) closes the last liberty of the central W(2,2), so
+    // it's captured before the passes — leaving the 6 isolated W stones
+    // on the edges, which should all be ruled dead by ownership.
+    localGameRouter.playMove(game_id, 1, 1); // B
+    localGameRouter.playMove(game_id, 2, 2); // W (will be captured at move 13)
+    localGameRouter.playMove(game_id, 1, 2); // B
+    localGameRouter.playMove(game_id, 0, 0); // W
+    localGameRouter.playMove(game_id, 1, 3); // B
+    localGameRouter.playMove(game_id, 0, 1); // W
+    localGameRouter.playMove(game_id, 2, 1); // B
+    localGameRouter.playMove(game_id, 0, 2); // W
+    localGameRouter.playMove(game_id, 2, 3); // B
+    localGameRouter.playMove(game_id, 0, 3); // W
+    localGameRouter.playMove(game_id, 3, 1); // B
+    localGameRouter.playMove(game_id, 0, 4); // W
+    localGameRouter.playMove(game_id, 3, 2); // B — captures W(2,2)
+    localGameRouter.playMove(game_id, 4, 4); // W
+    // 14 moves played → currentColor = Black at scoring time → pla = 'B'.
+    // GTP convention with pla=B: positive = Black owns. So a Black-dominant
+    // board is simulated by all +0.9 values (NO negation by the stub).
+    const own = new Array(25).fill(0.9);
+    stubBridge(own);
+
+    await localGameRouter.pass(game_id);
+    const final = (await localGameRouter.pass(game_id)) as Exclude<
+      Awaited<ReturnType<typeof localGameRouter.pass>>,
+      { error: string }
+    >;
+    expect(final.phase).toBe('finished');
+    // All 6 surviving white stones (top row + 4,4) should be marked dead.
+    const whiteLeft = final.board.flat().filter((c) => c === 2).length;
+    expect(whiteLeft).toBe(0);
+    // Black should win — would be flipped to White with the old buggy
+    // unconditional-negate (every Black stone would have been marked dead).
+    expect(final.result!.winner).toBe('black');
   });
 
   it('keeps raw-territory score when bridge returns no ownership', async () => {

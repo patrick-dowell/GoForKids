@@ -31,6 +31,10 @@ Thumbs.db
 # KataGo logs
 analysis_logs/
 
+# Bridge / playtest logs at the repo root (Xcode console dumps captured
+# during iPad playtest sessions — useful for debugging, not for the repo).
+/*.log
+
 # Claude
 .claude/
 

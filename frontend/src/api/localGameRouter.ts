@@ -15,16 +15,18 @@
  * doesn't exist.
  *
  * What's NOT here (yet):
- * - **Dead-stone detection for end-of-game scoring** still hits Render's
- *   `/score-position` endpoint (KataGo ownership analysis). One HTTP call,
- *   only when both players pass. Commit 2 will move this on-device via
- *   bridge ownership mode.
- * - **finishMove** still hits Render. The Session 16 known-bug ("Finish
- *   Game on iPad still broken") will be fixed when commit 2 lands and we
- *   can run the auto-finish loop locally through the bridge.
  * - **score_lead** (live score graph) only updates on AI moves (via the
  *   analyze in getAIMoveViaBridge). Player moves leave the previous value
  *   intact; no extra KataGo call is fired. Documented as a v1 limitation.
+ *
+ * What landed:
+ * - **Dead-stone detection** runs on-device via the bridge's ownership
+ *   mode (see deadStonesViaOwnership). Render fallback retained for the
+ *   web build, but iPad never reaches it now.
+ * - **finishMove** routes through `getAIMoveViaBridge` on iPad (see
+ *   client.ts:finishMove). Each call returns one AI move/pass; the
+ *   gameStore loops until two passes trigger localGameRouter.pass's
+ *   on-device scoring. Fixes the Session 16 "Finish Game iPad-only" bug.
  *
  * Persistence: every mutation serializes the LocalActiveGame to
  * localStorage under `goforkids:game:<gameId>`. On `getGame()` for an
@@ -553,26 +555,27 @@ async function deadStonesViaOwnership(lg: LocalActiveGame): Promise<Point[]> {
       if (!result.ownership) {
         console.warn(`[localGameRouter] bridge returned no ownership in ${elapsedMs}ms — check Swift bridge build`);
       } else {
-        // KataGo's GTP `kata-genmove_analyze` emits ownership values whose
-        // sign convention differs from the JSON analysis engine the Python
-        // backend uses:
+        // KataGo's GTP `kata-genmove_analyze` emits ownership values from
+        // the player-to-move's perspective: positive = pla owns. Source:
+        // ios/KataGo/cpp/command/gtp.cpp:983 — when pla == BLACK the GTP
+        // layer outputs -whiteOwnerMap[pos], when pla == WHITE it outputs
+        // whiteOwnerMap[pos] raw. Net effect across both branches is the
+        // same convention: "+1 = the side we're asking-on-behalf-of owns".
         //
-        //   JSON engine:  +1 = black, -1 = white   (what we want)
-        //   GTP analyze:  output = -raw when pla == BLACK and perspective
-        //                 is unset (the default cfg). Net effect: positive
-        //                 in the output means White controls.
+        // applyOwnership wants "+1 = Black owns" (its documented contract).
+        // So we negate iff we sent color: 'W'; for color: 'B' the values
+        // are already in the right frame.
         //
-        // After two passes the current-to-move cycles to Black in the
-        // typical kid-vs-AI game (player passed, AI passed, currentColor
-        // is now Black). We sent `color: 'B'` to match — so we hit the
-        // negated branch every time. Negate at the JS boundary to restore
-        // the +1=black convention.
-        //
-        // Source: ios/KataGo/cpp/command/gtp.cpp:983 — the conditional
-        // negation of ownership[pos]. Empirically verified 2026-05-12
-        // after the first iPad playtest of commit 2 showed all Black
-        // stones marked dead in a Black-winning position.
-        const flipped = result.ownership.map((v) => -v);
+        // History: an earlier version negated unconditionally on the
+        // assumption that pla is always Black at scoring time (kid plays
+        // first, kid passes, AI passes → currentColor=Black). That holds
+        // when the move count before the two passes is odd, but not when
+        // it's even — see 19x19scoring.log (260 moves, pla=B, every Black
+        // stone marked dead, "removing 238 dead stones"). Fixed 2026-05-12.
+        const flipped =
+          colorChar === 'W'
+            ? result.ownership.map((v) => -v)
+            : result.ownership.slice();
         console.log(
           `[localGameRouter] bridge ownership received in ${elapsedMs}ms ` +
             `(${flipped.length} values, sample[0..3]=${flipped.slice(0, 4).map((v) => v.toFixed(2)).join(',')})`,

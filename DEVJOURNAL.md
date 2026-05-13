@@ -220,6 +220,157 @@ to a viewport-specific fix.
   `coremlDeviceToUse = 100`); A17/A18 Pro may want different tuning
   (per [iPad gotcha #14](#)). Test after first iPhone install.
 
+## Session 17 — May 12, 2026
+
+Phase D bug-fix pass driven by an iPad playtest. Started with two
+on-device commits already in the tree from earlier in the day (Phase D
+commits 1+2 + a partial ownership sign-convention fix), then closed
+three real bugs the playtest surfaced and converted the end-game UI to
+a modal so iPhone portrait stops cutting off the score breakdown.
+
+### Phase D scoring sign-convention — *actual* fix
+
+Earlier today commit `fe2f4d3` shipped an "ownership sign convention"
+fix that negated KataGo's GTP output unconditionally, on the theory
+that after two passes `currentColor` is always Black so we always send
+`color: 'B'` to the bridge. The theory was wrong — parity depends on
+the move count before the passes — and a 19×19 playtest immediately
+hit the broken branch: 260 moves, pla=B at scoring time, raw ownership
+values all ≈ −1 (correctly reporting "Black owns" under KataGo's GTP
+"+1 = player-to-move owns" convention), router negated them anyway,
+**238 stones marked dead, final score winner=white black=122 white=140.5**.
+
+Root cause confirmed against `ios/KataGo/cpp/command/gtp.cpp:983` — the
+GTP layer outputs `+1 = pla` regardless of which color pla is; the
+internal `whiteOwnerMap` already gets flipped when `pla == BLACK` so
+the *output* is always "from the player-to-move's view." To get to
+`applyOwnership`'s "+1 = Black owns" contract we negate iff
+`colorChar === 'W'`, not always.
+
+- Replaced the unconditional `result.ownership.map((v) => -v)` in
+  `deadStonesViaOwnership` with a conditional negate based on
+  `colorChar`. Comment block rewritten to point at `19x19scoring.log`
+  as the smoking gun + cite the KataGo source line.
+- New unit test in `localGameRouter.test.ts` — *"removes dead stones
+  correctly when scoring pla is Black (regression: 19x19scoring.log)"*
+  — plays 14 moves on a 5×5 to force `currentColor = Black` at scoring,
+  stubs the bridge with all-positive ownership (the pla=B convention
+  for a Black-controlled board), asserts winner is Black. Existing
+  pla=W test stays — together they pin both branches.
+
+### Finish Game on iPad — *actually* working now
+
+The reopened bug from Session 16 ("d34ab1b shipped, still broken on
+iPad"). Two layers of fix:
+
+1. **Route through the bridge.** `api.finishMove` was hard-wired to
+   HTTP `/games/{id}/finish-move` with no bridge fallback — but iPad
+   games only exist in localStorage, so the request hit Render with a
+   game_id Render had never heard of, threw, and `gameStore.finishGame`'s
+   catch block silently halted the auto-loop. The Xcode log captured
+   the smoking gun at `19x19scoring.log:70745`:
+   `[JS warn] finish-move failed: Ot@app://localhost/...`.
+   New `finishMoveViaBridge` in `client.ts` runs the same loop locally:
+   one bridge.analyze per call, play the top candidate via
+   `localGameRouter.playMove`, return one `AIMoveDTO`. The gameStore
+   loop drives it until two passes trigger on-device scoring.
+
+2. **Don't use the rank-calibrated selector for finishing.** First cut
+   delegated to `getAIMoveViaBridge('1d')`. Playtest: the kid bot
+   torched an 8-point Black lead during auto-finish, because every
+   b28 profile (including 1d) has deliberate `mistake_freq` injection
+   for kid-friendly play — exactly wrong for endgame wrap-up. Switched
+   `finishMoveViaBridge` to bypass the selector entirely and play
+   KataGo's actual top candidate, matching the backend's
+   `state.py:331` semantic (full-strength KataGo, top pick only).
+
+3. **Use Japanese rules, not Tromp-Taylor.** Even at full strength the
+   bot kept filling its own liberties forever. Cause: tromp-taylor is
+   area scoring, under which playing in your own territory is
+   point-neutral, so KataGo has no incentive to ever pass. The backend
+   uses japanese (`engine.py:160`); our local `Game.score()` is
+   territory-style too. Aligned the rules string, added an explicit
+   pass-threshold check (`FINISH_PASS_THRESHOLD = 0.5`) that triggers
+   when pass is in the candidate list with reasonable visits and
+   within 0.5 points of best — matches the selector's normal pass logic.
+
+4. **Ko fallback.** `boardToMoves` sends only current stone positions
+   to the bridge — no move history — so KataGo can't see our
+   positional-superko bans. Kid plays a capturing move into a ko shape,
+   hits Finish Game; KataGo (history-blind) suggests the immediate
+   recapture; our engine rejects `MoveResult.Ko`; `unwrap` throws; loop
+   halts. Wrapped the `api.playMove` call in `getAIMoveViaBridge` and
+   `finishMoveViaBridge` in try/catch — on rejection, fall back to a
+   pass. Self-heals within one iteration (other side moves → ko clears).
+   Followup task to send actual move history is filed.
+
+### End-game UI converted to a modal
+
+Inline `.game-result` block in `GameControls` was getting cut off
+below the viewport on iPhone (the side panel doesn't scroll on narrow
+widths) — score breakdown invisible to anyone on a phone.
+
+- New `GameEndModal` (full-screen overlay + centered card) and
+  `GameEndPanel` (compact "See results" pill in the sidebar after
+  dismiss). Replaces the cut-off inline block. Pattern lifted from
+  `LessonGameEndModal`; the two modals share CSS classes.
+- Adaptive framing: AI games show "You won!" / "Seedling (30k) wins"
+  using the bot's actual name from `gameStore.botName`; local games use
+  "Black wins" / "White wins"; bot-vs-bot uses both bot names.
+- New `gameEndDismissed` state in gameStore, mirroring
+  `lessonGameEndDismissed`. Resets on `newGame`.
+- Mounted at App level with `onQuit={() => setShowHome(true)}` so the
+  Quit button drops back to the home screen.
+
+### Layout fixes around the new modal
+
+- **Modal cut off in landscape.** Card is `width: min(460px, 92vw); max-height: 90vh`.
+  iPhone landscape is ~390pt tall → 90vh ≈ 351pt, card content was
+  ~440pt, buttons just under the fold. `@media (max-height: 500px)`
+  trims padding / icon / title / button sizes by ~120pt total — fits
+  cleanly on iPhone, iPad landscape is unaffected (820pt tall).
+- **Compact panel overlapped its own title in landscape.** Side panel
+  in phone landscape is 180px wide; the horizontal `[icon] [text]
+  [button]` flex doesn't fit, button has `flex-shrink: 0`, was sitting
+  on top of the title text. Same media query stacks the pill vertically
+  in landscape — icon hides (redundant with title), button takes the
+  full width on its own line below.
+- **Settings gear overlapped the bottom controls in iPhone portrait.**
+  Gear at `bottom: 14px` sat on top of the Pass / Resign / Finish
+  Game row that stacks below the board in narrow layouts. Bumped to
+  `bottom: 72px` inside the `max-width: 699px` breakpoint — clears the
+  touch-target row with breathing room.
+
+### Files touched
+
+- `frontend/src/api/client.ts` — new `finishMoveViaBridge`, bridge-aware
+  `api.finishMove`, ko-fallback try/catch in `getAIMoveViaBridge`
+- `frontend/src/api/localGameRouter.ts` — conditional negate in
+  `deadStonesViaOwnership`, header comment rewrite
+- `frontend/src/api/__tests__/localGameRouter.test.ts` — pla=B
+  regression test
+- `frontend/src/components/GameEndModal.tsx` — new, exports
+  `GameEndModal` + `GameEndPanel`
+- `frontend/src/components/LessonGameEndModal.css` — landscape media
+  query (benefits both modals)
+- `frontend/src/components/GameControls.tsx` — replaced inline
+  `.game-result` block with `<GameEndPanel />`
+- `frontend/src/App.tsx` — mount `<GameEndModal onQuit={…} />`
+- `frontend/src/store/gameStore.ts` — `gameEndDismissed` state +
+  dismiss/reopen actions
+- `frontend/src/App.css` — gear repositioning under 699px breakpoint
+- `.gitignore` — root-level `*.log` (Xcode playtest dumps)
+
+All 56 unit tests pass; `tsc --noEmit` clean.
+
+### Followups
+- **Send move history to the bridge** (not just current stones) so
+  KataGo's positional-superko tracking matches ours. Eliminates the
+  ko-fallback (becomes dead code). Spawned task; deferred because the
+  fallback is safe and the playtest can proceed without it.
+- **Dead `.game-result` / `.score-breakdown` CSS** in `App.css` —
+  inline block was removed but the rules still live there. Easy cleanup.
+
 ## Session 15 — May 5–6, 2026
 
 Closed out the first-cut Learn-to-Play arc. Lessons 1–11 now form an
@@ -1453,12 +1604,12 @@ Not worth further tuning right now — fixing H3 exactly requires either making 
 - [x] **"New Game" doesn't fully reset prior game state** — fixed 2026-05-05: `autoCompleting` flag was the only initial-state field missing from the `newGame()` reset block; if a prior game was mid Finish-Game, the new game's Pass / Resign / Finish Game buttons stayed disabled. Repro for any future leak: audit `gameStore` reset path against the initial-state object
 - [ ] **Hard to get back to main menu** — repro unclear; one likely cause: full-viewport modal overlays (e.g. `.scoring-overlay` z-index 9500 in [ScoringInProgressModal.css](frontend/src/components/ScoringInProgressModal.css)) cover the `GoForKids` title that's the only path home, and the `request()` helper in [api/client.ts](frontend/src/api/client.ts) has no `AbortController` timeout — so a hung backend leaves the modal stuck. Real fix: timeout + manual dismiss button, or raise the title's z-index
 - [ ] **13×13 bots are too strong across the board** — confirmed via playtest 2026-05-05. The b28.yaml comments self-document this for 15k ("kids picking 13x13 15k face a ~12k-equivalent. Rank ordering is preserved"); the same drift likely applies to 30k and 6k. Calibration approach was b28-vs-b20 head-to-head at the same nominal rank, which doesn't catch inter-rank gap drift on the new network. Same fix shape as the 19×19 relabel pass
-- [ ] **Score occasionally counted incorrectly** — repro unclear; capture an example game (SGF + final score) when it next happens to debug
+- [x] **Score occasionally counted incorrectly** — root cause identified + fixed 2026-05-12 (Session 17). The Phase D on-device dead-stone detection (`localGameRouter.ts:deadStonesViaOwnership`) was negating KataGo's GTP ownership values unconditionally, on the false assumption that pla is always Black at scoring time. When parity made pla=W, the negate was correct (worked accidentally); when parity made pla=B (most 19×19 games), the sign flipped backwards and the wrong color's stones got marked dead. Real-world impact captured in `19x19scoring.log`: 260-move game scored as `winner=white black=122 white=140.5` with 238 stones wrongly marked dead. Fix: conditional negate based on `colorChar`, with a regression test for the pla=B branch
 - [x] **"Finish game" mode hangs until final score appears** — fixed 2026-05-06 (commit d34ab1b): replaced the server-side `auto_complete` batch loop (one POST → 100+ KataGo analyses → final state) with a per-move `/finish-move` endpoint driven by a self-recursive frontend loop in `gameStore.finishGame`. Each KataGo move animates and plays a sound at natural pacing (~0.5–2s per analyze on Render b20). Also resolves the iPad-only "nothing happens when I click Finish Game" bug (every individual request is short, so iPad WKWebView's URLSession timeout is no longer a factor)
 - [x] **iPad vertical (portrait) hides a lot of UI** — fixed 2026-05-08 as part of the [21 iPhone support](feature_plans/21_iphone_support.md) responsive pass. Three-tier breakpoints in App.css (wide ≥1100px, medium 700–1099px, narrow <700px) plus a phone-landscape height-bound branch. iPad portrait now uses an avatar strip across the top with board+controls underneath; iPhone portrait stacks vertically; iPhone landscape keeps the board height-bound with a thin avatar column. Same viewport pass also handles all dialogs, lessons, replay, library
 - [x] **Resign button shows "You win" / wrong winner** — fixed 2026-05-07. Two layers: (1) Resign button now `disabled={autoCompleting || aiThinking}` so the player can't click during the bot's turn; (2) `Game.resign()` accepts an optional explicit `loser` color, and `gameStore.resign()` passes `playerColor` for AI games — so even if the click somehow lands during a wrong-current-color state, the right side is credited. Backend [resign()](backend/app/game/state.py:273) updated to use `game.player_color` (with bot-vs-bot fallback to current_color) so the persisted record matches. New unit test in `Game.test.ts` locks in the explicit-loser contract
 - [x] **Rapid clicks during bot turn flip the bot to playing as Black** — fixed 2026-05-07. `playMove()` now sets `aiThinking: true` synchronously the moment the local stone lands (when `gameId && _game.phase === 'playing'`), so Pass / further taps are gated immediately instead of having a ~400ms + RTT window of false-`aiThinking`. `pass()` got the matching `currentColor !== playerColor` guard for belt-and-suspenders. Both branches also reset `aiThinking` on api-call failure so the UI doesn't soft-lock if a /move or /pass POST rejects
-- [ ] **"Finish game" doesn't work on iPad** — REOPENED 2026-05-08. The d34ab1b per-move loop fix shipped to iPad and the symptom persists. Hypothesis from playtest: full-strength KataGo at 500 visits on Render b20 takes ~5s per call (state.py:359) plus a follow-up `_compute_score_lead` analyze; over a 50-move endgame, individual calls can hit cold-start contention or transient slowness past iPad WKWebView's 60s URLSession timeout. The frontend loop also gives up on the first error (gameStore.ts:806) — single transient failure kills the whole playout. **Pending parallel perf work:** the user is doing performance work on KataGo throughput that may make finish-game work as-is. If still broken after perf lands, parked proposal is: drop visits 500 → 150 in `state.py:finish_move`, add 2-retry layer to `gameStore.finishGame` loop, add `[finishGame]` diagnostic console.log on each step so the next iPad repro gives us a real trace
+- [x] **"Finish game" doesn't work on iPad** — fixed 2026-05-12 (Session 17). Root cause was different from the Session 16 hypothesis: `api.finishMove` was HTTP-only with no bridge fallback, so on iPad (game_id only in localStorage) every call rejected and `gameStore.finishGame`'s catch silently halted the auto-loop. Three-part fix: (1) new `finishMoveViaBridge` runs the per-move loop locally via the bridge; (2) bypasses the rank-calibrated selector (mistake_freq was burning leads during finish) — plays KataGo's top candidate at 200 visits matching the backend's full-strength semantic; (3) uses Japanese rules + 0.5-point pass threshold so KataGo actually passes once the position is settled (under tromp-taylor area scoring it would fill its own liberties forever). Ko-fallback (catch playMove rejection, pass instead) handles the case where KataGo suggests a move our positional-superko engine rejects — boardToMoves doesn't send move history
 - [ ] **Sound stops working after several games (restart fixes)** — observed 2026-05-07, iPad-only so far. Likely-fix-plus-diagnostics shipped 2026-05-08 (commit 219aaca): [`resumeAudio()`](frontend/src/audio/SoundManager.ts:104) now triggers on any non-running `AudioContext.state` (was `=== 'suspended'` only — missed the iOS-specific `'interrupted'` state that follows notifications, lock screen, Siri, etc.) and logs the prior state on every resume attempt, plus the result of the `resume()` promise. Next iPad repro: check Xcode console for `[Audio] resuming AudioContext, state was: <X>` — the value of X tells us where to look next. If still broken: secondary hypothesis is AudioNode accumulation (cosmic pack creates 4–5 OscillatorNodes per capture, no `disconnect()` on any) hitting a WebKit ceiling; fix shape would be `osc.onended = () => osc.disconnect()` on each node, or pooling. Fallback if `state === 'closed'` after interruption: recreate the `AudioContext` instead of trying to resume
 
 > Three of the four iPad-specific bugs from the 2026-05-07 playtest pass are closed in code. The audio-death bug (#1) ships with a likely fix + diagnostic logs in commit 219aaca — open until a repro confirms either that sound recovers (close it) or that the logs reveal a different root cause. iPad must be rebuilt from Xcode to pick up the bundled frontend changes (Finish Game, Resign disable, rapid-click gate, audio resume).

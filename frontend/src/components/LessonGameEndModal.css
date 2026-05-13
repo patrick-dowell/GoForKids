@@ -17,6 +17,11 @@
 .lesson-end-card {
   position: relative;
   width: min(460px, 92vw);
+  /* Safety net for small phones: never grow taller than the viewport;
+   * scroll the card contents instead. Without this the buttons can land
+   * below the bottom edge on iPhone SE-class devices. */
+  max-height: 90vh;
+  overflow-y: auto;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -298,4 +303,98 @@
 .lesson-end-btn-primary:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 24px rgba(88, 166, 255, 0.45);
+}
+
+/* Short viewports (phone landscape, ~390pt tall after rotate) — shrink
+ * the card so all content fits without scroll. The max-height: 90vh on
+ * .lesson-end-card was keeping it visible but the buttons were landing
+ * just below the fold. iPad landscape stays unaffected (height ~820pt). */
+@media (max-height: 500px) {
+  .lesson-end-card {
+    padding: 16px 18px;
+    gap: 8px;
+    border-radius: 12px;
+  }
+  .lesson-end-close {
+    top: 6px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    font-size: 20px;
+  }
+  .lesson-end-icon {
+    font-size: 32px;
+  }
+  .lesson-end-title {
+    font-size: 20px;
+  }
+  .lesson-end-body {
+    font-size: 14px;
+  }
+  .lesson-end-rule {
+    font-size: 12px;
+  }
+  .lesson-end-scoreboard {
+    gap: 8px;
+    margin-top: 0;
+  }
+  .lesson-end-side {
+    padding: 8px 8px;
+    gap: 3px;
+    border-radius: 8px;
+  }
+  .lesson-end-side-total {
+    font-size: 24px;
+  }
+  .lesson-end-side-detail {
+    font-size: 11px;
+    gap: 1px;
+  }
+  .lesson-end-side-label {
+    font-size: 11px;
+  }
+  .lesson-end-vs {
+    font-size: 11px;
+  }
+  .lesson-end-actions {
+    margin-top: 2px;
+    gap: 8px;
+  }
+  .lesson-end-btn {
+    padding: 10px 12px;
+    font-size: 14px;
+    border-radius: 8px;
+  }
+
+  /* Side-panel pill (the "Game over — see results" strip): in landscape the
+   * side panel is only 180px wide, so the horizontal `[icon] [text] [btn]`
+   * row overflows — the button has flex-shrink: 0 and was sitting on top
+   * of the title text. Stack vertically and let the button take the full
+   * width on its own line. */
+  .lesson-end-panel {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .lesson-end-panel-text {
+    /* Recenter the title/margin pair now that the icon's beside us in the
+     * stacked layout. Keep it left-aligned so it doesn't look floaty. */
+    text-align: left;
+  }
+  .lesson-end-panel > .lesson-end-panel-icon {
+    /* Inline with the title rather than its own row — keeps the pill short. */
+    display: none;
+  }
+  .lesson-end-panel-title {
+    font-size: 13px;
+  }
+  .lesson-end-panel-margin {
+    font-size: 11px;
+  }
+  .lesson-end-panel-btn {
+    width: 100%;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
 }

@@ -11,6 +11,7 @@ import { HomePage } from './components/HomePage';
 import { LearnView } from './components/LearnView';
 import { BotPassedModal } from './components/BotPassedModal';
 import { LessonGameEndModal } from './components/LessonGameEndModal';
+import { GameEndModal } from './components/GameEndModal';
 import { SettingsButton } from './components/SettingsButton';
 import { FeedbackButton } from './components/FeedbackButton';
 import { PrivacyTermsModal } from './components/PrivacyTermsModal';
@@ -344,6 +345,7 @@ function App() {
         onMoveOn={handleMoveOnFromLessonGame}
         onNextLesson={nextLessonAfterGame !== null ? handleNextLessonAfterGame : undefined}
       />
+      <GameEndModal onQuit={() => setShowHome(true)} />
       <FeedbackButton />
       {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       {scoringInProgress && <ScoringInProgressModal />}

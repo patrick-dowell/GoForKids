@@ -178,6 +178,11 @@ interface GameState {
   /** When true, the lesson 5 game-end modal is hidden (collapsed to the right
    *  side panel). Player can re-open it from the panel. */
   lessonGameEndDismissed: boolean;
+  /** When true, the regular (non-lesson) game-end modal is hidden. Mirrors
+   *  lessonGameEndDismissed but for the generic GameEndModal — pops up once
+   *  on phase=finished, can be dismissed back to the board and re-opened
+   *  from the GameEndPanel "See results" button. */
+  gameEndDismissed: boolean;
   deadStones: { row: number; col: number; color: Color }[];  // Stones marked dead at scoring
   /** True while the backend is computing the final score with dead-stone
    *  detection (~5-10 s). UI shows a "Calculating final score…" modal and
@@ -211,6 +216,11 @@ interface GameState {
   dismissLessonGameEnd: () => void;
   /** Re-open the lesson game-end modal from the side-panel re-open button. */
   reopenLessonGameEnd: () => void;
+  /** Collapse the regular game-end modal back to the side-panel "See
+   *  results" pill. */
+  dismissGameEnd: () => void;
+  /** Re-open the regular game-end modal from the side-panel pill. */
+  reopenGameEnd: () => void;
 }
 
 function snapshot(game: Game, extras?: Partial<GameState>): Partial<GameState> {
@@ -317,6 +327,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   lessonContext: false,
   botJustPassed: false,
   lessonGameEndDismissed: false,
+  gameEndDismissed: false,
   deadStones: [],
   scoringInProgress: false,
   scoreHistory: [{ move: 0, lead: 0 }],
@@ -403,6 +414,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       lessonContext: !!options?.lessonContext,
       botJustPassed: false,
       lessonGameEndDismissed: false,
+      gameEndDismissed: false,
       deadStones: [],
       scoringInProgress: false,
       scoreHistory: [{ move: 0, lead: currentLead(game) }],
@@ -928,6 +940,9 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   dismissLessonGameEnd: () => set({ lessonGameEndDismissed: true }),
   reopenLessonGameEnd: () => set({ lessonGameEndDismissed: false }),
+
+  dismissGameEnd: () => set({ gameEndDismissed: true }),
+  reopenGameEnd: () => set({ gameEndDismissed: false }),
 
   replayGame: () => {
     const s = get();

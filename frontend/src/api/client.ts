@@ -161,11 +161,25 @@ export const api = {
     return request<AIMoveDTO>(`/games/${gameId}/ai-move`, { method: 'POST' });
   },
 
-  // Still hits Render even on iPad — commit 2 will move auto-finish on-device
-  // via the bridge so the Session 16 "Finish Game iPad-only" bug gets fixed
-  // for free along the way.
-  finishMove: (gameId: string) =>
-    request<AIMoveDTO>(`/games/${gameId}/finish-move`, { method: 'POST' }),
+  // On iPad the auto-finish loop drives `finishMoveViaBridge` — which
+  // BYPASSES the selector and plays KataGo's actual top candidate at 200
+  // visits. The selector's rank-calibrated mistake injection (mistake_freq,
+  // max_point_loss, randomness) is wrong for finishing: we want solid
+  // endgame moves and a clean pass when KataGo recognizes the game is
+  // settled, NOT the kid-friendly noise we use during play. Mirrors the
+  // backend's `/finish-move` (full-strength KataGo, top pick only — see
+  // backend/app/game/state.py:331).
+  //
+  // Each call returns ONE move (or pass); gameStore.finishGame loops until
+  // two consecutive passes trigger localGameRouter.pass's scoring path.
+  // Fixes the Session 16 "Finish Game iPad-only" bug — see
+  // 19x19scoring.log:70745 for the original failure (HTTP-only,
+  // game_id only existed in localStorage).
+  finishMove: async (gameId: string): Promise<AIMoveDTO> => {
+    const bridge = getKataGoBridge();
+    if (bridge) return finishMoveViaBridge(gameId, bridge);
+    return request<AIMoveDTO>(`/games/${gameId}/finish-move`, { method: 'POST' });
+  },
 
   /** Score a board position using KataGo ownership analysis. Returns dead
    *  stones. Used by replayStore for post-game analysis (one-shot, not a
@@ -284,7 +298,43 @@ async function getAIMoveViaBridge(
     };
   }
 
-  const newState = await api.playMove(gameId, chosen.row, chosen.col);
+  // Try to commit the chosen move. KataGo can suggest a move our engine
+  // considers illegal because `boardToMoves` sends only the current stone
+  // layout — no move history — so KataGo doesn't see our positional
+  // superko bans. The classic case: kid just captured into a ko shape;
+  // KataGo (history-blind) suggests the immediate recapture; our engine
+  // rejects MoveResult.Ko (see 19x19scoring.log:31:30 finish-move failure
+  // at R3). Suicide is the other variant. In both cases, falling back to
+  // a pass is safe — the ko-ban clears after the other side moves one
+  // iteration later, and a stray single pass mid-Finish-Game just resets
+  // the consecutive_passes counter when the next real move lands.
+  //
+  // TODO(scoring-followup): wire move history into the bridge replay so
+  // KataGo's positional history matches ours. Then KataGo will never
+  // suggest a superko-banned move and this fallback becomes dead code.
+  let newState: GameStateDTO;
+  try {
+    newState = await api.playMove(gameId, chosen.row, chosen.col);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[getAIMoveViaBridge] engine rejected KataGo's pick (${chosen.row},${chosen.col}): ${msg} — passing instead`,
+    );
+    const passState = await api.pass(gameId);
+    const tEnd = performance.now();
+    console.log(
+      `[perf-js] aiMove(forced-pass) get=${Math.round(tAfterGet - tOuterStart)}ms ` +
+      `select=${Math.round(tAfterSelect - tBeforeSelect)}ms ` +
+      `commit=${Math.round(tEnd - tAfterSelect)}ms ` +
+      `total=${Math.round(tEnd - tOuterStart)}ms`,
+    );
+    return {
+      point: { row: -1, col: -1 },
+      captures: [],
+      score_lead: cachedScoreLead ?? passState.score_lead,
+      final_state: passState.phase === 'finished' ? passState : null,
+    };
+  }
   const tEnd = performance.now();
   console.log(
     `[perf-js] aiMove get=${Math.round(tAfterGet - tOuterStart)}ms ` +
@@ -296,5 +346,169 @@ async function getAIMoveViaBridge(
     point: chosen,
     captures: [],
     score_lead: cachedScoreLead ?? newState.score_lead,
+  };
+}
+
+/** Finish Game pass threshold. If KataGo's pass candidate has a scoreLead
+ *  within this many points of the best move (from the player-to-move's
+ *  perspective), we pass instead of playing — the game is settled enough
+ *  to wrap up. Matches the selector's default `pass_threshold` of 0.3 but
+ *  slightly more eager (user explicitly chose "Finish Game"). */
+const FINISH_PASS_THRESHOLD = 0.5;
+
+/**
+ * Bridge-side Finish Game move. Unlike `getAIMoveViaBridge`, this bypasses
+ * the rank-calibrated selector entirely and plays KataGo's actual top
+ * candidate — matching the backend's `finish_move` semantic (full-strength
+ * KataGo, top pick only). The selector is for in-game play where we WANT
+ * the bot to make rank-calibrated mistakes; for finishing the game we want
+ * solid endgame play so the position converges on passes.
+ *
+ * Two non-obvious choices match the backend (backend/app/game/state.py:331,
+ * backend/app/katago/engine.py:158):
+ * - **Japanese rules** (territory scoring). Under area scoring (tromp-taylor),
+ *   filling your own territory is point-neutral so KataGo has no incentive
+ *   to pass — it'll happily fill every dame and self-liberty until the
+ *   board is full. Under territory scoring, those moves cost you a point,
+ *   so the value head correctly favors passing once the position is sealed.
+ *   This matches our local Game.score() which is territory-style.
+ * - **Eager pass-threshold check** (FINISH_PASS_THRESHOLD = 0.5). Even with
+ *   territory scoring, if KataGo's top candidate is a real move that's
+ *   only marginally better than passing, we pass — the kid hit "Finish
+ *   Game" because they want it OVER, not because they want to grind out
+ *   the last 0.3-point yose move.
+ *
+ * Visits set to 200 — same budget used for end-of-game ownership analysis
+ * (OWNERSHIP_VISITS in localGameRouter). The backend uses 500; we trade a
+ * tiny bit of strength for ~2× faster per-move latency on iPad. Still
+ * vastly stronger than the strongest b28 profile.
+ *
+ * History: 2026-05-12 playtest — was using getAIMoveViaBridge with '1d'
+ * profile; mistake_freq 0.22 burned a Black lead. Switched to top-
+ * candidate but used tromp-taylor rules; KataGo then refused to pass and
+ * kept filling its own liberties. Switched to japanese + pass-threshold.
+ */
+async function finishMoveViaBridge(
+  gameId: string,
+  bridge: KataGoBridge,
+): Promise<AIMoveDTO> {
+  const tOuterStart = performance.now();
+  const state = await api.getGame(gameId);
+  const tAfterGet = performance.now();
+  const colorChar: 'B' | 'W' = state.current_color === 'black' ? 'B' : 'W';
+  const moves = boardToMoves(state.board, state.board_size);
+
+  const tAnalyzeStart = performance.now();
+  const result = await bridge.analyze({
+    boardSize: state.board_size,
+    komi: 7.5,
+    rules: 'japanese',
+    moves,
+    color: colorChar,
+    maxVisits: 200,
+  });
+  const analyzeMs = Math.round(performance.now() - tAnalyzeStart);
+  console.log(`[perf-js] finish.analyze visits=200 jsRT=${analyzeMs}ms`);
+
+  const top = result.candidates[0];
+  // Defensive: if KataGo returned no candidates at all (shouldn't happen
+  // outside a degenerate position) treat as a pass so the loop terminates
+  // gracefully instead of throwing.
+  if (!top) {
+    console.warn('[finishMoveViaBridge] bridge returned no candidates — passing');
+    const passState = await api.pass(gameId);
+    return {
+      point: { row: -1, col: -1 },
+      captures: [],
+      score_lead: passState.score_lead,
+      final_state: passState.phase === 'finished' ? passState : null,
+    };
+  }
+
+  const decoded = fromGtp(top.move, state.board_size);
+  const topScoreLead = top.scoreLead ?? null;
+
+  // Eager pass: if pass is in the candidates with enough visits to trust
+  // its score estimate AND the gap to the best move is below threshold
+  // (from the side-to-move's perspective), just pass. Bridge has flipped
+  // scoreLead to Black's perspective; flip back for the comparison when
+  // we're playing as White.
+  const passCand =
+    result.candidates.find((c) => c.move.toLowerCase() === 'pass') ?? null;
+  const minPassVisits = Math.max(4, Math.floor((top.visits ?? 0) / 10));
+  if (
+    passCand &&
+    (passCand.visits ?? 0) >= minPassVisits &&
+    typeof top.scoreLead === 'number' &&
+    typeof passCand.scoreLead === 'number'
+  ) {
+    const sign = colorChar === 'B' ? 1 : -1;
+    const bestForMover = sign * top.scoreLead;
+    const passForMover = sign * passCand.scoreLead;
+    if (bestForMover - passForMover < FINISH_PASS_THRESHOLD) {
+      console.log(
+        `[finishMoveViaBridge] eager-pass best=${bestForMover.toFixed(2)} ` +
+          `pass=${passForMover.toFixed(2)} thr=${FINISH_PASS_THRESHOLD} ` +
+          `(passV=${passCand.visits} bestV=${top.visits})`,
+      );
+      const passState = await api.pass(gameId);
+      return {
+        point: { row: -1, col: -1 },
+        captures: [],
+        score_lead: passCand.scoreLead ?? passState.score_lead,
+        final_state: passState.phase === 'finished' ? passState : null,
+      };
+    }
+  }
+
+  // KataGo's top is itself a pass (or resign — treat the same in finish
+  // mode). This is the happy-path termination: KataGo recognizes the game
+  // is settled, we pass, two passes triggers localGameRouter.pass's
+  // on-device scoring.
+  if (decoded === 'pass' || decoded === 'resign') {
+    const passState = await api.pass(gameId);
+    const tEnd = performance.now();
+    console.log(
+      `[perf-js] finishMove(pass) get=${Math.round(tAfterGet - tOuterStart)}ms ` +
+      `analyze=${analyzeMs}ms total=${Math.round(tEnd - tOuterStart)}ms`,
+    );
+    return {
+      point: { row: -1, col: -1 },
+      captures: [],
+      score_lead: topScoreLead ?? passState.score_lead,
+      final_state: passState.phase === 'finished' ? passState : null,
+    };
+  }
+
+  // Commit the move. Same ko-fallback as getAIMoveViaBridge: if our engine
+  // rejects KataGo's pick (positional superko, etc.), pass instead. See
+  // 19x19scoring.log:31:30 for the original failure mode + the TODO in
+  // getAIMoveViaBridge for the proper fix (send move history to the bridge).
+  let newState: GameStateDTO;
+  try {
+    newState = await api.playMove(gameId, decoded.row, decoded.col);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[finishMoveViaBridge] engine rejected KataGo's pick (${decoded.row},${decoded.col}): ${msg} — passing instead`,
+    );
+    const passState = await api.pass(gameId);
+    return {
+      point: { row: -1, col: -1 },
+      captures: [],
+      score_lead: topScoreLead ?? passState.score_lead,
+      final_state: passState.phase === 'finished' ? passState : null,
+    };
+  }
+
+  const tEnd = performance.now();
+  console.log(
+    `[perf-js] finishMove get=${Math.round(tAfterGet - tOuterStart)}ms ` +
+    `analyze=${analyzeMs}ms total=${Math.round(tEnd - tOuterStart)}ms`,
+  );
+  return {
+    point: decoded,
+    captures: [],
+    score_lead: topScoreLead ?? newState.score_lead,
   };
 }

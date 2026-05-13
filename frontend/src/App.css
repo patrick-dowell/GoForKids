@@ -1564,6 +1564,15 @@ body {
   .dialog h2 {
     font-size: 16px;
   }
+
+  /* iPhone portrait: the side panel stacks below the board and its bottom
+     edge (Pass / Resign / Finish Game button row, or the GameEndPanel
+     after a game ends) sits right at the viewport bottom — exactly where
+     the gear was. Push the gear up so it clears the touch-target row plus
+     a little breathing room. */
+  .settings-gear {
+    bottom: calc(72px + var(--safe-bottom));
+  }
 }
 
 /* Phone landscape: short height, want the board + controls to coexist
