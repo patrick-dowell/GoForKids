@@ -2,10 +2,17 @@
 
 .autoplay-view {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   position: relative;
   overflow: hidden;
+  /* Pick up the iOS safe-area-inset on left/right so content doesn't
+     sit under the rounded screen corners / notch in landscape. The
+     header handles top inset itself below; bottom is handled by the
+     play CTA which sits well clear of the home indicator already. */
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
 }
 
 .autoplay-backdrop {
@@ -46,6 +53,10 @@
   justify-content: space-between;
   align-items: center;
   padding: 18px 28px;
+  /* Push the Home button + rank chip below the iOS status bar
+     (time / battery indicators). var(--safe-top) is ~44px on iPhone
+     and ~24px on iPad in portrait; 0 on web so this is a no-op there. */
+  padding-top: calc(18px + var(--safe-top));
 }
 
 .autoplay-back-btn {
