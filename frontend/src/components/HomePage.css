@@ -129,10 +129,38 @@
   letter-spacing: 1px;
 }
 
+/* Rank chip — current 19×19 rank, near the action row. */
+.home-rank-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: rgba(212, 192, 144, 0.08);
+  border: 1px solid rgba(212, 192, 144, 0.25);
+  border-radius: 999px;
+  font-weight: 600;
+  margin-top: -16px; /* tighten gap to the title block */
+}
+
+.home-rank-chip-label {
+  font-size: 11px;
+  color: #8b949e;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.home-rank-chip-rank {
+  font-size: 18px;
+  color: #f0d590;
+  letter-spacing: 0.5px;
+}
+
 /* Action buttons */
 .home-actions {
   display: flex;
   gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .home-btn {

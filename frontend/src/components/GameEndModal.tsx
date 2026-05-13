@@ -39,11 +39,13 @@ export function GameEndModal({ onQuit }: GameEndModalProps) {
   const botName = useGameStore((s) => s.botName);
   const targetRank = useGameStore((s) => s.targetRank);
   const lessonContext = useGameStore((s) => s.lessonContext);
+  const autoplayContext = useGameStore((s) => s.autoplayContext);
   const dismissed = useGameStore((s) => s.gameEndDismissed);
   const dismiss = useGameStore((s) => s.dismissGameEnd);
   // We deliberately do NOT auto-popup the modal if the user has the
   // bot-passed handoff modal open (would stack); that's a separate flow.
   if (lessonContext) return null;  // Lesson games use LessonGameEndModal.
+  if (autoplayContext) return null; // Auto-play games use AutoPlayGameEndModal.
   if (phase !== 'finished' || !result) return null;
   if (dismissed) return null;
 
@@ -162,9 +164,11 @@ export function GameEndPanel() {
   const gameMode = useGameStore((s) => s.gameMode);
   const botName = useGameStore((s) => s.botName);
   const lessonContext = useGameStore((s) => s.lessonContext);
+  const autoplayContext = useGameStore((s) => s.autoplayContext);
   const reopen = useGameStore((s) => s.reopenGameEnd);
 
   if (lessonContext) return null;
+  if (autoplayContext) return null; // Auto-play games use AutoPlayGameEndModal.
   if (phase !== 'finished' || !result) return null;
 
   const isBotVsBot = gameMode === 'botvsbot';

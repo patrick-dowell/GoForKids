@@ -29,11 +29,13 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 | 14 | [Parent-facing dashboard](14_parent_dashboard.md) | 📝 Planned | High | 01, 02, 03, 15 |
 | 15 | [Rewards loop (milestones, cosmetics, streaks)](15_rewards_loop.md) | 📝 Planned | High | 02, 03, 11, 12, 14 |
 | 16 | [Mistake tracking across games](16_mistake_tracking.md) | 📝 Planned | Medium | 04, 02, 03, 14 |
-| 17 | [Rank / progress UI widget](17_rank_progress_ui.md) | 📝 Planned | Medium | 01, 13, 15 |
+| 17 | [Rank / progress UI widget](17_rank_progress_ui.md) | ❄️ On hold (superseded by 22 + 23) | Medium | — |
 | 18 | [Rules refresher (returning adults)](18_rules_refresher.md) | 📝 Planned | Low | 03, 05 |
 | 19 | [What-if exploration (interactive review)](19_whatif_exploration.md) | 📝 Planned | Medium | 04 |
 | 20 | [b28 bot calibration harness](20_b28_calibration.md) | 📝 Planned | High | — |
 | 21 | [iPhone (Pro Max) support](21_iphone_support.md) | 🟡 Beta | Medium | 10 |
+| 22 | [Auto-play (matchmaker + ranked progression)](22_auto_play.md) | 📝 Planned | High | 01, 23 |
+| 23 | [Profile page](23_profile_page.md) | 📝 Planned | High | 22, 11 |
 
 ## Suggested sequencing
 

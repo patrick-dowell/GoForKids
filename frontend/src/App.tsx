@@ -22,8 +22,12 @@ import { useLearnStore } from './store/learnStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
 import { useReplayStore } from './store/replayStore';
 import { useSettingsStore } from './store/settingsStore';
+import { useAutoPlayStore } from './store/autoPlayStore';
 import { LESSONS } from './learn/lessons';
 import { BOT_AVATARS } from './components/Avatar';
+import { AutoPlayView } from './components/AutoPlayView';
+import { AutoPlayGameEndModal } from './components/AutoPlayGameEndModal';
+import { RankUpOverlay } from './components/RankUpOverlay';
 import { Color, oppositeColor } from './engine/types';
 import './App.css';
 
@@ -41,6 +45,7 @@ function useGameIdInUrl() {
 function App() {
   const [showHome, setShowHome] = useState(true);
   const [showNewGame, setShowNewGame] = useState(false);
+  const [showAutoPlay, setShowAutoPlay] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showStudy, setShowStudy] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
@@ -66,14 +71,31 @@ function App() {
   const botVsBotPaused = useGameStore((s) => s.botVsBotPaused);
   const botVsBotSpeed = useGameStore((s) => s.botVsBotSpeed);
   const scoringInProgress = useGameStore((s) => s.scoringInProgress);
+  const autoplayContext = useGameStore((s) => s.autoplayContext);
+  const result = useGameStore((s) => s.result);
   const togglePause = useGameStore((s) => s.toggleBotVsBotPause);
   const setSpeed = useGameStore((s) => s.setBotVsBotSpeed);
+
+  const autoplayGamePending = useAutoPlayStore((s) => s.gamePending);
+  const recordAutoplayResult = useAutoPlayStore((s) => s.recordResult);
 
   useGameIdInUrl();
 
   useEffect(() => {
     useLibraryStore.getState().loadFromStorage();
+    useAutoPlayStore.getState().loadFromStorage();
   }, []);
+
+  // Auto-play game-end hook: when an auto-play game finishes, record the
+  // win/loss into the auto-play store exactly once. `gamePending` is set by
+  // AutoPlayView right before `gameStore.newGame` and cleared by
+  // `recordResult`, so this effect can't double-fire across re-renders.
+  useEffect(() => {
+    if (!autoplayContext || !autoplayGamePending) return;
+    if (phase !== 'finished' || !result) return;
+    const userWon = result.winner === playerColor;
+    recordAutoplayResult(userWon ? 'win' : 'loss');
+  }, [autoplayContext, autoplayGamePending, phase, result, playerColor, recordAutoplayResult]);
 
   const replayActive = useReplayStore((s) => s.active);
   const loadReplay = useReplayStore((s) => s.loadGame);
@@ -153,7 +175,47 @@ function App() {
 
   const handleOpenNewGame = () => {
     setShowHome(false);
+    setShowAutoPlay(false);
     setShowNewGame(true);
+  };
+
+  const handleStartAutoPlay = () => {
+    setShowHome(false);
+    setShowAutoPlay(true);
+  };
+
+  const handleExitAutoPlay = () => {
+    setShowAutoPlay(false);
+    setShowHome(true);
+  };
+
+  const handleStartAutoPlayGame = (matchup: { bot: string; handicap: number }) => {
+    // Switch out of the match-picker so the game UI takes over, then mark
+    // the game pending so the game-end effect records the result back into
+    // the auto-play store.
+    setShowAutoPlay(false);
+    useAutoPlayStore.getState().setGamePending(true);
+    newGame({
+      boardSize: 19,
+      targetRank: matchup.bot,
+      handicap: matchup.handicap,
+      useBackend: true,
+      isRanked: false,
+      gameMode: 'ai',
+      playerColor: Color.Black,
+      autoplayContext: true,
+    });
+  };
+
+  const handleNextAutoPlayMatch = () => {
+    // Return to the match-picker — AutoPlayView reads the post-recordResult
+    // rung state from the store. Tapping Play on the card starts the next game.
+    setShowAutoPlay(true);
+  };
+
+  const handleAutoPlayHome = () => {
+    setShowAutoPlay(false);
+    setShowHome(true);
   };
 
   // Keyboard navigation for replay
@@ -197,7 +259,8 @@ function App() {
       <div className="app">
         <SettingsButton />
         <HomePage
-          onNewGame={handleOpenNewGame}
+          onAutoPlay={handleStartAutoPlay}
+          onCustomMatch={handleOpenNewGame}
           onLibrary={() => setShowLibrary(true)}
           onLearn={handleStartLearn}
           onShowPrivacy={() => setShowPrivacy(true)}
@@ -208,6 +271,19 @@ function App() {
         {showLibrary && (
           <GameLibrary onSelectGame={handleSelectGame} onClose={() => setShowLibrary(false)} />
         )}
+        <FeedbackButton />
+        {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
+      </div>
+    );
+  }
+
+  // Auto-play match-picker — shown when the player tapped "Play" on home
+  // and either hasn't started a game yet or has just returned from one.
+  if (showAutoPlay && !replayActive) {
+    return (
+      <div className="app">
+        <SettingsButton />
+        <AutoPlayView onExit={handleExitAutoPlay} onStart={handleStartAutoPlayGame} />
         <FeedbackButton />
         {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
@@ -348,6 +424,11 @@ function App() {
         onNextLesson={nextLessonAfterGame !== null ? handleNextLessonAfterGame : undefined}
       />
       <GameEndModal onQuit={() => setShowHome(true)} />
+      <AutoPlayGameEndModal
+        onNextMatch={handleNextAutoPlayMatch}
+        onHome={handleAutoPlayHome}
+      />
+      <RankUpOverlay />
       <FeedbackButton />
       {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       {scoringInProgress && <ScoringInProgressModal />}

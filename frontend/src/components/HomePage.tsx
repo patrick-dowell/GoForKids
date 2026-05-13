@@ -1,8 +1,10 @@
 import { Avatar, BOT_AVATARS } from './Avatar';
+import { useAutoPlayStore } from '../store/autoPlayStore';
 import './HomePage.css';
 
 interface HomePageProps {
-  onNewGame: () => void;
+  onAutoPlay: () => void;
+  onCustomMatch: () => void;
   onLibrary: () => void;
   onLearn: () => void;
   onShowPrivacy?: () => void;
@@ -10,7 +12,9 @@ interface HomePageProps {
 
 const BOTS = Object.entries(BOT_AVATARS); // Show all bots
 
-export function HomePage({ onNewGame, onLibrary, onLearn, onShowPrivacy }: HomePageProps) {
+export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onShowPrivacy }: HomePageProps) {
+  const currentRung = useAutoPlayStore((s) => s.rungState.currentRung);
+
   return (
     <div className="home-page">
       {/* Cosmic background with floating stones */}
@@ -29,15 +33,25 @@ export function HomePage({ onNewGame, onLibrary, onLearn, onShowPrivacy }: HomeP
           <p className="home-tagline">Learn Go. Play the universe.</p>
         </div>
 
+        {/* Rank chip — tap target reserved for the Profile page (feature 23). */}
+        <div className="home-rank-chip" aria-label={`Current 19×19 rank: ${currentRung}`}>
+          <span className="home-rank-chip-label">19×19</span>
+          <span className="home-rank-chip-rank">{currentRung}</span>
+        </div>
+
         {/* Main actions */}
         <div className="home-actions">
           <button onClick={onLearn} className="home-btn home-btn-learn">
             <span className="home-btn-icon">✨</span>
             Learn to Play
           </button>
-          <button onClick={onNewGame} className="home-btn home-btn-primary">
+          <button onClick={onAutoPlay} className="home-btn home-btn-primary">
             <span className="home-btn-icon">▶</span>
             Play
+          </button>
+          <button onClick={onCustomMatch} className="home-btn home-btn-secondary">
+            <span className="home-btn-icon">⚙</span>
+            Custom Match
           </button>
           <button onClick={onLibrary} className="home-btn home-btn-secondary">
             <span className="home-btn-icon">📚</span>

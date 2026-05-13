@@ -1,6 +1,10 @@
 # 17 — Rank / progress UI widget
 
-**Status:** 📝 Planned
+**Status:** ❄️ On hold — superseded by features 22 (auto-play) and 23 (Profile page).
+The homepage rank chip and rank-up celebration belong to 22; the rank-over-time
+chart and other rank-progress surfacing belong to 23. This doc is preserved for
+historical context; do not start a session against it.
+
 **Priority:** Medium
 
 ## What

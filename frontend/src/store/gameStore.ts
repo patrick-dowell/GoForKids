@@ -137,6 +137,10 @@ interface NewGameOptions {
   /** Marks this game as the lesson 5 first-game flow — game UI should swap
    *  the analytical ScoreGraph for a simpler "Who's winning" bar. */
   lessonContext?: boolean;
+  /** Marks this game as launched from the auto-play match-picker
+   *  (feature 22). App.tsx watches for this + phase='finished' to call
+   *  `autoPlayStore.recordResult` exactly once when the game ends. */
+  autoplayContext?: boolean;
 }
 
 interface GameState {
@@ -171,6 +175,9 @@ interface GameState {
   /** True when this game was launched from the Learn flow (lesson 5 first-game).
    *  Game UI uses this to swap analytical widgets for kid-friendly explainers. */
   lessonContext: boolean;
+  /** True when this game was launched from the auto-play match-picker
+   *  (feature 22). The post-game modal + rank-up celebration key off this. */
+  autoplayContext: boolean;
   /** Set to true the moment the AI passes mid-game. UI watches this to surface
    *  a "what just happened" modal so newcomers don't think the game silently
    *  ended. Cleared by either the user passing back or dismissing. */
@@ -408,6 +415,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   botVsBotPaused: false,
   autoCompleting: false,
   lessonContext: false,
+  autoplayContext: false,
   botJustPassed: false,
   lessonGameEndDismissed: false,
   gameEndDismissed: false,
@@ -496,6 +504,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       _botVsBotTimer: null,
       autoCompleting: false,
       lessonContext: !!options?.lessonContext,
+      autoplayContext: !!options?.autoplayContext,
       botJustPassed: false,
       lessonGameEndDismissed: false,
       gameEndDismissed: false,
