@@ -1,5 +1,138 @@
 # Development Journal
 
+## Session 17 — May 12–13, 2026
+
+iPad-focused playtest pass on tutorial + small-board UX. Started with
+two lesson layout bugs and finished with a bunch of tutorial-game-flow
+polish (bot doesn't quit early, ko/suicide explainers, auto-end on no
+legal moves, board not selectable) and a second wave of iPad responsive-
+layout tuning (bigger boards in landscape AND portrait, square board
+fix, horizontal Pass/Resign row, score-graph SVG cap).
+
+### Lesson polish — fixed
+- **Board shifted up/down between lesson steps** (commit `31b68f5`).
+  The `.learn-feedback` div was conditionally rendered — present
+  during awaiting/retry (~56 px tall via `min-height`) but
+  *completely absent* during success/animating. That 56 px footer
+  collapse let `.learn-board-wrap` grow, which on iPad landscape
+  meant the board got taller (height-bound) and on iPad portrait
+  meant the centered board shifted vertically. Fix: always render the
+  `.learn-feedback` div; in success/animating it's an empty
+  `aria-hidden` placeholder. CSS `min-height: 56px` stabilizes the
+  slot so the board stays put.
+- **Wrong second-move reset all the way to lesson start** in
+  lessons 4 (Save Your Team) and 6 (Capture Race) (commit `1861b5b`).
+  Both lessons have a `secondTurn` mechanic: user makes a first
+  correct move, an `afterSuccess` auto-response lands, then the user
+  must play a second move. The wrong-move branch was rebuilding the
+  lesson's *initial* board and flipping `awaitingSecondMove` back to
+  false — sending the player all the way back to redo the first move
+  + watch the auto-response replay before getting another shot. Fix:
+  capture a `secondTurnInitialBoard` snapshot when entering second-
+  turn mode (after the auto-response lands), restore to *that* on a
+  wrong second move. Player retries just the second step; the first
+  move's progress isn't lost.
+
+### Tutorial game-flow polish — fixed
+- **Bot quits early in 5x5 / 9x9 tutorials.** A multi-iteration fix
+  (4 commits before it really stuck): `7f3e0dc` introduced a
+  `{ neverPass: true }` option that threads through
+  `gameStore.requestAIMove → api.getAIMove → selectAiMove`. Several
+  iterations later (`a8714f6 → daf7333 → 5aa986f`) closed every
+  pass-leak in the selector:
+    - Original logic gated on `lessonContext`. Gate refined to
+      `lessonContext && _game.consecutivePasses === 0` so the bot
+      reverts to normal pass-logic once the player passes — matches
+      user spec "should pass if the player passes assuming the game
+      is in fact over."
+    - The selector's max-point-loss filter at 0.3 threshold dropped
+      every non-pass candidate when KataGo's pass scoreLead was high.
+      Eventually skipped the filter entirely in `neverPass` mode.
+    - Three remaining null-return paths still leaked:
+      - Eye-fill failsafe (5 retries all fill eyes → null): in
+        `neverPass` returns the eye-fill anyway (bad move > quitting).
+      - Branch 1 (KataGo's top is pass, no non-pass candidate): in
+        `neverPass` falls back to `pickRandomLegal(board, color)`.
+      - Branch 3 (filtered empty + top is pass): in `neverPass` scans
+        full candidate list for any non-pass first, then
+        `pickRandomLegal`.
+  Stress-tested with KataGo returning ONLY pass as a candidate:
+  0/30 passes in `neverPass` mode (same scenarios reliably pass
+  without `neverPass`).
+- **Auto-end tutorial games when no legal moves remain** (also in
+  `7f3e0dc`). New `Board.hasLegalMove(color)` helper (clones each
+  empty intersection and `tryPlay`s — O(size²), trivial at 5×5/9×9).
+  New `lessonAutoPass(get, set)` helper that passes on behalf of
+  `currentColor` when they have no legal moves, then recurses. Two
+  consecutive auto-passes trigger the existing pass-pass scoring
+  path. Wired into `requestAIMove` at the start (bot's turn, can't
+  play) and after the bot's move lands (player's turn, can't play).
+  Scoped to `lessonContext`.
+- **Ko / suicide explainer modals** (also in `7f3e0dc`). New
+  `ruleViolation: 'ko' | 'suicide' | null` state field + a
+  `RuleViolationModal` component (reuses the BotPassedModal CSS).
+  `playMove` sets the field when `_game.playMove` returns
+  `MoveResult.Ko` or `MoveResult.Suicide`. Occupied stays silent
+  (intuitive). Shows on every game — new players everywhere benefit.
+- **Board canvas not text-selectable** (also in `7f3e0dc`). Added
+  `user-select: none; -webkit-user-select: none; -webkit-touch-callout:
+  none` to `.go-board-canvas`. Drag-to-place no longer starts a
+  text selection on desktop; iOS long-press no longer pops the
+  selection callout / magnifier. Text elsewhere unchanged.
+
+### iPad responsive-layout second pass — fixed
+After the responsive layout in Session 16, on-device testing surfaced
+more issues. Three commits (`a8714f6`, `daf7333`, `8f1432d`) closed
+them:
+- **iPad landscape (wide, ≥ 1100px):** `.game-layout` swapped from
+  flex-row to CSS grid. Avatar (top-left) + side panel (bottom-left)
+  stack on a 260px left column; board fills the entire 1fr right
+  column at `width/height: min(100cqi, 100cqb)` square (same
+  container-query trick the lesson view uses). Board went from
+  700×700 → ~917×917 on 1366×1024.
+- **iPad portrait (medium + portrait):** side panel moves to a full-
+  width row below the board (`width: 100%` so flex-wrap puts it on
+  its own row). Hide the redundant game-info rows (turn-indicator,
+  matchup, captures-display, move-counter) since the avatar strip
+  already shows whose turn it is — mirrors the phone-portrait trim.
+  Board went from 700×700 → ~846×846 on 1024×1366.
+- **Score-graph SVG cut off in iPad portrait** (`daf7333`). The
+  SVG declares `width="100%"` without a height attribute, so the
+  intrinsic-sizing algorithm scaled its 200×70 viewBox proportionally
+  — on a 1000px-wide side panel that meant a ~350 px tall graph (5×
+  the design height). Cap the side-panel SVG to `height: 70px`.
+- **Board rendering stretched non-square in iPad portrait** (`8f1432d`).
+  CSS `width: 100% + max-height + aspect-ratio: 1` resolved to
+  1000×846 (browser kept width=100% and cropped height), and the
+  canvas's 700×700 internal coords drew stretched. Fix: set width
+  itself to `min(100%, calc(100dvh - 520px))` so aspect-ratio
+  resolves to a true square. Verified 846×846 at 1024×1366.
+- **Pass / Resign stacked vertically and huge in iPad portrait**
+  (`8f1432d`). Only the narrow rule was flipping `.control-buttons`
+  to flex-row. Added the same row+wrap+`min-width: 120px` to iPad
+  portrait — buttons share a row at ~480 px each instead of two
+  full-width blocks.
+
+### Lesson worth keeping
+Multiple "still doesn't work" iterations on the same bug (the bot
+keep-playing fix took 4 commits) usually means there are more
+null-return paths in a function than your first scan saw. When a
+"defend against passing" change still passes, audit *every* path in
+the function that returns null/pass, not just the one you think
+matters.
+
+### Status of feature plans after this session
+- **iPhone Pro Max (21) responsive coverage** continues to harden —
+  every iPad-portrait fix here also benefits iPhone landscape and
+  iPhone portrait since they share the medium/narrow blocks.
+- **iPad portrait Known Bug** stays closed.
+
+### Deferred to next session
+- **Finish Game on iPad** — still held pending the user's parallel
+  KataGo perf work.
+- **Audio interrupted-state fix verification** — still awaiting next
+  iPad repro of "sound dies."
+
 ## Session 16 — May 7–8, 2026
 
 iPad/iPhone playtest pass. Started with four bugs from the 2026-05-07

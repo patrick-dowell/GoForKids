@@ -31,6 +31,36 @@ After the initial responsive pass shipped, on-device testing surfaced several is
   - *Pinch-to-zoom + double-tap reset* — two-finger pinch scales [1, 3] with the midpoint anchored under the fingers; double-tap resets when zoomed. Transform applied via CSS, browser composites smoothly, `toBoard()` works unchanged because `getBoundingClientRect` already returns the transformed rect.
 - **Phone-landscape polish** (commits `b0dc91b`, `a393488`): player cards stack avatar-above-name (was overflowing the 90 px column); `.app-header` becomes `position: absolute` in the top-right so the board reaches the viewport top edge; coordinate labels now `'700 12px monospace'` with 24 px clearance from the board edge so glyph tops don't sit on the dark canvas background.
 
+## Polish from second iPad playtest (2026-05-12 / 13)
+After Session 17's playtest, more iPad-specific layout polish landed
+(also benefits iPhone since they share medium/narrow breakpoints):
+- **iPad landscape board got much bigger** (commit `a8714f6`).
+  `.game-layout` switched from flex-row to CSS grid: avatar (top-
+  left) + side panel (bottom-left) stack on a 260 px left column,
+  board fills the entire 1fr right column at `width/height:
+  min(100cqi, 100cqb)` square. Board went 700×700 → ~917×917 on
+  1366×1024.
+- **iPad portrait board got much bigger** (commits `a8714f6` →
+  `daf7333` → `8f1432d`). Side panel dropped to a full-width row
+  below the board. Game-info row trimmed (turn / matchup / captures /
+  move-counter all redundant with the avatar strip). Score-graph
+  SVG cap fix (its `width=100%` with no height attribute was
+  scaling the 200×70 viewBox to ~350 px on a 1000-wide panel).
+  Square-board fix (CSS `width: 100% + max-height + aspect-ratio: 1`
+  resolves to a non-square rect; switched to `width: min(100%,
+  calc(100dvh - 520px))` so aspect-ratio resolves to a true square).
+  Pass / Resign moved to a horizontal row instead of two full-width
+  blocks. Board went 700×700 → ~846×846 on 1024×1366.
+
+## Tutorial-game flow polish (2026-05-12)
+Session 17 also landed a stack of tutorial-game-flow improvements
+(see DEVJOURNAL Session 17 for details): bot keeps playing in the
+5x5 tutorial via `neverPass` flag and an exhaustive pass-leak
+audit, auto-end on no legal moves via `lessonAutoPass` chain,
+ko/suicide explainer modals, board canvas not text-selectable,
+plus two lesson-layout fixes (board shift between steps, wrong
+second-move reset).
+
 ## Action item to ship to iPhone
 - Rebuild the iOS app in Xcode → "Bundle React frontend" Run Script picks up the responsive frontend → install on an iPhone Pro Max for native verification of (a) CoreML inference parity vs iPad and (b) layout on real device pixels (browser-resize verification only checks viewport, not safe-area-inset values which are 0 on web but real on hardware).
 
