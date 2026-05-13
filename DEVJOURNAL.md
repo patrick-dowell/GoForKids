@@ -175,6 +175,62 @@ ref-based latch reset on the right edge.
   pace doesn't match real player skill at higher ranks, the schema is
   forward-compatible for switching to Glicko-driven at 12k+.
 
+### Late-day follow-ups (same session, post-playtest)
+
+- **AutoPlayView header clipped by iOS status bar** (commit `fe800bc`).
+  `.autoplay-header` had `padding: 18px 28px` with no `var(--safe-top)`
+  handling, so the "← Home" button and the rank chip sat under the
+  iPhone notch / iPad status bar in portrait. Mirrored the App.css
+  pattern: `padding-top: calc(18px + var(--safe-top))` on the header,
+  plus `padding-left/right: var(--safe-left/right)` on `.autoplay-view`
+  for rotated-device edge insets. Verified at simulated 44 px notch:
+  header padding 18 → 62, buttons clear the bar.
+
+- **ProfileView header clipped by iOS status bar** (commit `1f9c2b2`).
+  Same root cause and fix as AutoPlayView — `.profile-header-nav`
+  picks up `padding-top: calc(18px + var(--safe-top))`, `.profile-view`
+  picks up left/right insets + `min-height: 100dvh`.
+
+- **Bot passed the turn after the player took a ko** (commit `4ebff34`).
+  Real bug from ladder-mode playtest. Black takes a ko stone → White
+  bot just passes instead of playing a ko threat or tenuki. Saw it
+  consistently across multiple ranks.
+
+  Root cause: the iPad bridge fed KataGo `boardToMoves(state.board)` —
+  a sorted "all black stones then all white stones" stone list with no
+  move order. KataGo replayed those out-of-order plays, ended up with
+  the right stones on the board but **no notion of which point was
+  just captured**. Its top suggestion was usually "retake the ko stone
+  you just lost," our engine rejected that as `MoveResult.Ko`, and the
+  selector's pass-threshold filter then declared pass as the best
+  remaining option. The exact problem was even called out in a
+  pre-existing TODO in `api/client.ts:321` ("wire move history into
+  the bridge replay so KataGo's positional history matches ours").
+
+  Fix: new `buildBridgeMovesFromGame(game, handicap, size)` helper in
+  `gameStore.ts` builds the real GTP move list — handicap stones first
+  as Black plays (KataGo's GTP accepts consecutive same-color plays),
+  then `moveHistory` in chronological order with passes encoded as
+  `'pass'`. Threaded as an optional `movesForBridge` field through
+  `api.getAIMove` → `getAIMoveViaBridge` and through `api.finishMove`
+  → `finishMoveViaBridge`. Falls back to `boardToMoves` if not
+  supplied so any legacy caller still works. Verified output structure
+  on both a 9×9 ko scenario (last emitted move is the ko-capturer) and
+  a handicap=3 game (3 Black handicap moves at C3/G7/G3 emitted first,
+  then play history). The pre-existing pass-fallback in the commit
+  loop stays as a safety net for any other engine-vs-KataGo
+  disagreement (e.g., a rare suicide edge case).
+
+### Lesson worth keeping (followups)
+
+Two of these three fixes (`fe800bc`, `1f9c2b2`) were the same iOS
+safe-area pattern in two different new screens. Each new full-screen
+view shipped during a feature build should pick up the App.css safe-
+area-inset pattern as table stakes: `min-height: 100dvh`, side padding
+from `--safe-left`/`--safe-right`, and `padding-top: calc(base +
+var(--safe-top))` on the header. Easier to add once at scaffold time
+than to remember each time.
+
 ---
 
 ## Session 17 — May 12–13, 2026
