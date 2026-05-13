@@ -2,7 +2,7 @@
 
 A Go (board game) teaching app built kid-first — but with enough depth for returning adult players. Play against a rank-calibrated AI that feels like a real opponent, not a crippled engine. Review your games with plain-language explanations powered by Claude.
 
-**Status:** v1 technical foundation + the full first-cut Learn-to-Play arc (lessons 1–11), now in closed beta on Render. Proves the AI rank ladder, board feel, study mode, small-board play on 5×5 / 9×9 / 13×13 / 19×19, and an end-to-end intro flow that teaches placement, capture, survival, capture races, life-and-death (one eye dies, two eyes live forever), territory counting, and graduates the player onto a real 9×9 game.
+**Status:** v1 technical foundation + the full first-cut Learn-to-Play arc (lessons 1–11) + an auto-play ranked progression on 19×19, now in closed beta on Render. Proves the AI rank ladder, board feel, study mode, small-board play on 5×5 / 9×9 / 13×13 / 19×19, an end-to-end intro flow that teaches placement, capture, survival, capture races, life-and-death (one eye dies, two eyes live forever), territory counting, and a one-tap Play flow that tracks the player's rank from 30k and picks each matchup deterministically off a 29-rung ladder.
 
 ## What's Working
 
@@ -19,7 +19,9 @@ A Go (board game) teaching app built kid-first — but with enough depth for ret
 - **Replay mode** — step / autoplay through saved games with sound
 - **Study mode** — post-game analysis with KataGo evaluation + Claude API narrative explanations calibrated to player reading level
 - **Dead stone detection** — KataGo ownership analysis removes dead stones before scoring
-- **Glicko-2 rating system** — tracks player improvement across ranked games
+- **Auto-play ranked progression (19×19)** — one-tap Play picks each matchup deterministically off a 29-rung linear ladder (30k → 27k = 18k bot + H9 → 26k = H8 → ... → 18k even → 17k = 15k bot + H2 → ... → 1d). Win 3 games at any rung to promote; losses don't count against you. Anti-frustration safeguard adds +2 stones for the next match after 5 consecutive losses at a rung. Cosmic rank-up celebration over the post-game modal. State persists per-browser in localStorage. The original "Play" → bot picker → handicap slider flow becomes "Custom Match"
+- **Profile page** — top-level route showing avatar + display name, current 19×19 rank + matchup + wins-to-promotion meter + recent-results strip, a rank-over-time SVG chart with promotion dots, and an Advanced toggle that exposes the Glicko-2 shadow rating (`mu` / `phi` / `sigma` + 95% CI), matchmaker pseudocode, full game log, and beta dev tools (manual rank set, reset, export/import JSON)
+- **Glicko-2 rating system** — runs as a "shadow" rating alongside the linear-ladder rank progression. Surfaced on the Profile page; doesn't drive promotion in v1 but provides a power-user statistical view
 - **SGF export/import** — standard Go game record format, any size
 - **Beta hosting on Render** — Vite static site + Dockerized FastAPI/KataGo backend, defined in `render.yaml`. Frontend gated by a shared password (`VITE_BETA_PASSWORD`); floating feedback button (`VITE_FEEDBACK_URL`) opens prefilled mailto / GitHub issue with session context; minimal privacy-and-terms modal. Active games persist to SQLite on a disk-mounted volume so multi-worker requests stay coherent. Local mirror of the deployed image via `make up` (Docker, `--platform linux/amd64`)
 - **Native iPad app** — WKWebView wrapping the same React frontend, bundled into the app and served via a custom `app://` URL scheme handler (no Render dependency for UI assets). KataGo runs natively on the iPad's Neural Engine via CoreML; rank-calibrated move selection runs in TypeScript on the iPad reading the same `data/profiles/b28.yaml` Render's Python backend uses. Game-state endpoints (move/pass/score) still hit Render — full offline support is Phase D. See `ios/README.md` and `DEVJOURNAL.md` Sessions 13–14

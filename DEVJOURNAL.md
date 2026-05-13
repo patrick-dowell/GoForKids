@@ -1,5 +1,182 @@
 # Development Journal
 
+## Session 18 — May 13, 2026
+
+Auto-play (feature 22) + Profile page (feature 23) shipped together
+with the Glicko-2 shadow rating wired in. Replaced the "Play" button
+on the homepage with a one-tap surface that tracks the player's 19×19
+rank from 30k and picks each matchup deterministically off a 29-rung
+ladder. The pick-board / pick-bot / pick-handicap flow becomes
+"Custom Match." Plus two bugs caught during playtest before pushing.
+
+### Feature 22 — auto-play (linear ladder + match-picker + celebration)
+
+The data model is a pure linear ladder. Each rank is a fixed
+`(bot, handicap)` tuple chosen so handicap balances bot rank to the
+player's rung: 30k → 27k (= 18k bot + H9) → 26k (H8) → ... → 18k even
+→ 17k (= 15k bot + H2) → ... → 1d. 29 rungs total. The 30k → 27k jump
+skips 28k/29k because there's no calibrated bot to fill that gap. Each
+rung past the first promotes by exactly one rank. Source of truth is
+`frontend/src/autoplay/matchmaker.ts`, fully covered by 32 unit tests
+(ladder math, promotion logic, validation-wall holds, safeguard).
+
+Promotion is first-to-3 wins per rung. Losses are no-ops — they don't
+reset the count, don't count against you, don't demote. Anti-frustration
+safeguard adds +2 handicap stones for the next match after 5 consecutive
+losses at the current rung (capped at H9 so 27k is a no-op). Quiet, no
+UI callout — meant to restore the win taste without surfacing it as a
+demotion.
+
+Persistence lives in `frontend/src/store/autoPlayStore.ts` (Zustand,
+`goforkids.autoplay.v1` localStorage key). Tracks rung state, full
+history (last 200 games), promotion events, and a `gamePending`
+lifecycle flag App.tsx uses to record the result exactly once per
+auto-play game.
+
+The match-picker (`AutoPlayView`) is the pre-game friction screen — bot
+avatar + rank + handicap line + wins-toward-promotion meter + one Play
+button. Tapping Play sets `autoplayContext: true` on the game and dives
+into the regular game UI. On game-end, the `AutoPlayGameEndModal` slides
+in with the result + Home / Next match buttons. On a promotion-causing
+win, the `RankUpOverlay` fires first — full-screen cosmic celebration,
+gold star badge, "You're now 27k" gradient title — and the game-end
+modal then renders underneath with all three progress segments lit gold
+and "Congratulations on reaching 27k!" copy for the game that earned it.
+
+Math fix while writing: the original plan's 2k/1k handicaps were off by
+one stone — found by a property test that every step is exactly 1 rank
+stronger than the previous. Plan doc + ladder code now agree.
+
+### Feature 23 — Profile page (rank, history, Glicko shadow, dev tools)
+
+New top-level Profile route alongside Play / Learn / Custom Match /
+Library. Six sections:
+- **Header** — avatar (CSS-art Black Hole / Nova / Nebula) + click-to-edit
+  display name.
+- **Current rank card** — big rank, current matchup line, wins-to-promotion
+  meter, last-10 W/L chip strip.
+- **Rank graph** — custom SVG step-line chart with gold promotion dots,
+  rung labels 30k → 1d on Y, game number on X. Replays history through
+  the matchmaker to derive the rung-at-each-game series.
+- **Avatar picker** — moved out of NewGameDialog (which now shows a
+  read-only "playing as Patrick" row with a "Change in Profile" link).
+- **Advanced toggle** (collapsed by default, state persists in
+  localStorage) — Glicko mu/phi/sigma + 95% CI + derived rank, matchmaker
+  decision pseudocode, last-20 games table, promotion log.
+- **Dev tools** — Manual rank set (dropdown of all rungs), Reset (type-
+  RESET confirm), Export/Import JSON. Gated under Advanced; useful for
+  beta testers validating the matchmaker from cold without grinding.
+
+Glicko-2 ported to TS at `frontend/src/autoplay/glicko.ts` —
+mechanical port of `backend/app/game/rating.py`. The two stay in sync
+by virtue of implementing the same algorithm, not via code-sharing.
+Two pre-existing bugs fixed in both source files in passing:
+
+1. `rank_to_rating("1d")` returned 2100 vs `1k` = 2400 — so 1d was
+   rated WEAKER than 1k, contrary to the rank ordering. New dan formula
+   `2400 + dan*100` gives 1d=2500, 2d=2600, monotonic across the ladder.
+2. `to_go_rank` had `max(1, ...)` clamping the raw rank before the
+   dan-vs-kyu branch, making the `<= 0` branch unreachable. `mu=2500`
+   returned "1k" instead of "1d". Dropped the clamp.
+
+Each finished auto-play game updates the shadow rating via
+`update_rating`. Opponent strength = player's current rung (handicap
+balances by construction), not the raw bot rank. Shadow rating doesn't
+drive promotion in v1 — that's the linear ladder's job — it's a power-
+user diagnostic surfaced on the Profile's Advanced tab. Hedge for the
+future: if real playtest data shows the linear ladder is too slow / too
+fast at higher ranks, we can flip to Glicko-driven promotion at 12k+
+without re-architecting.
+
+### Bugs caught in playtest
+
+**Cross-game double-fire on Next-match.** The first bug surfaced once
+the Profile page made game history visible: a "W W L W" sequence
+showed as 2W / 2L with no promotion instead of the expected 3W / 1L.
+`handleStartAutoPlayGame` sets `gamePending=true` synchronously before
+`newGame()`'s async `createGame` resolves and flips `phase` to
+'playing'. During that gap, `gameStore` still has the previous game's
+phase='finished' + result. The game-end effect re-fired and re-recorded
+the previous outcome on every Next-match tap. Fix: a
+`recordedThisGameRef` useRef that resets when `phase` transitions back
+to 'playing' so each game records exactly once.
+
+**Local-then-server result swap on player double-pass.** With a backend,
+`gameStore.pass()` sets `result` from local `scoreTerritory` (no dead-
+stone awareness) first, then ~5-10s later `syncServerScoring` replaces
+`result` with the server's dead-stone-corrected version. On close games
+dead stones can flip the winner — the effect was recording the local
+(potentially wrong) winner. Fix: skip the effect while
+`scoringInProgress` is true, so only the post-scoring result fires the
+record.
+
+**Game-end modal showed a "downgrade" right after promotion.** After
+the player dismissed the rank-up celebration, the `AutoPlayGameEndModal`
+underneath was reading the post-promotion rung state and showing
+"0 of 3 wins at 27k to promote" with an empty progress bar. The win
+that just earned the promotion was the only win that didn't fill any
+segments. Fix: keep `pendingFromRung` set past `dismissRankUp` so the
+modal can detect "this game caused the promotion" and render a
+celebratory state — all three segments lit gold, copy reads
+"Congratulations on reaching 27k!". `pendingFromRung` naturally clears
+on the next `recordResult` call so the celebration only persists for
+the game that earned it.
+
+### Rebase onto main
+
+After feature 22 + 23 + the first fix, rebased the four-commit stack
+onto the latest `origin/main` (Session 17 had landed 25 commits ahead).
+Manual resolution needed only on the c5852b7 (feature 22) commit:
+- `feature_plans/README.md` — kept main's iPhone 21 🟡 Beta status,
+  kept new rows 22 + 23.
+- `frontend/src/App.tsx` — main added `GameEndModal` + `RuleViolationModal`
+  to the modal stack; mine added `AutoPlayGameEndModal` + `RankUpOverlay`.
+  All four coexist.
+- `frontend/src/components/GameEndModal.tsx` — main's new generic
+  end-of-game modal needed an `autoplayContext` early-return added,
+  otherwise both it and `AutoPlayGameEndModal` would render in auto-
+  play games. Same for `GameEndPanel`.
+
+The other two commits (feature 23, the recording fix) replayed cleanly.
+Post-rebase: 113/113 tests pass, TypeScript clean, browser smoke
+verifies the modal-suppression and the cross-game fix both work.
+
+### Lesson worth keeping
+
+The same useEffect+Zustand pattern bit us twice in two different ways
+in the same effect — first the cross-game stale-state issue, then the
+local-then-server result swap. Both bugs share a root cause: the
+"gamePending" guard alone isn't enough when an effect's dependencies
+can change for reasons unrelated to "a NEW game ended." Three guards
+combined did the job: gamePending (the obvious one), `scoringInProgress`
+(skip while results are being refined), and a useRef reset on the next
+`phase='playing'` transition (per-game dedup). When you're recording
+discrete events keyed off reactive state, "exactly once" doesn't fall
+out of one boolean flag — you need either a per-event ID or a
+ref-based latch reset on the right edge.
+
+### Status of feature plans after this session
+- **22 (Auto-play):** 🧪 Beta — first cut shipped, 19×19 only. 9×9 /
+  13×13 auto-play waits for those calibrated ladders.
+- **23 (Profile page):** 🧪 Beta — first cut shipped, 19×19 section
+  only. More board sizes added once feature 01 fills the ladders.
+- **17 (Rank progress widget):** ❄️ Superseded by 22 + 23.
+
+### Deferred to next session
+- **Smoke-test auto-play against the real Render bots.** Local
+  verification used resign-driven game-ends. Backend bots running on
+  Render at calibrated visits will exercise the full pass-pass scoring
+  + scoringInProgress path that the second fix targeted.
+- **5k → 4k validation wall.** Player will hit it once they win
+  through the validated 30k → 6k ladder; need to confirm the "you've
+  reached the top of the calibrated ladder" message reads right vs
+  starting the player into the un-validated 3k bot anyway.
+- **Rate-limit Glicko-driven promotion switchover.** If linear-ladder
+  pace doesn't match real player skill at higher ranks, the schema is
+  forward-compatible for switching to Glicko-driven at 12k+.
+
+---
+
 ## Session 17 — May 12–13, 2026
 
 iPad-focused playtest pass on tutorial + small-board UX. Started with
