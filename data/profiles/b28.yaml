@@ -31,16 +31,43 @@ profiles:
       #   random_move_chance 0.08 -> 0.20 (more pure-random moves)
       #   visits 10 -> 6 (shallow search reduces b28's MCTS edge, though this
       #     theory failed on 13x13; trying anyway for the Seedling profile).
-      max_point_loss: 18.0
+      # v3 dropped the b28 win rate from 90% to 67% but still over the 45-55%
+      # target band, and playtesting confirmed it feels too strong (and barely
+      # weaker than 19x19 18k — both ended up on the same v3 template).
+      # v4 (2026-05-13): port the "weakening" knobs that smaller-board 30k
+      # profiles use but 19x19 30k was missing — strong local_bias to distract
+      # the bot from globally optimal play, clarity_prior + clarity_score_gap
+      # so it concedes settled positions, pass_threshold, bigger max_point_loss
+      # so individual mistakes hurt more.
+      #   local_bias 0.42 -> 0.80 + local_bias_in_opening: true
+      #   max_point_loss 18 -> 28 (between 13x13's 22 and 9x9's 30)
+      #   add clarity_prior 1.1, clarity_score_gap 999.0, pass_threshold 0.15
+      # v4 verdict (2026-05-13): tested 30k+H9 vs 18k on 19x19 (asymmetric
+      # handicap harness, b28+b28.yaml both sides) — 4/4 sweep for 30k+H9
+      # with avg margin +347. Tried v5 with much more aggressive weakening
+      # (visits 6->3, mistake_freq 0.75->0.88, rand 0.20->0.40, opening_moves
+      # 8->2) and the margin got WORSE (+385 over 2 games), confirming the
+      # cross-rank handicap bot-vs-bot test is structurally broken — the
+      # defender's noise is cheap (local-bias plays roughly correct moves
+      # for handicap defense), the attacker's noise is catastrophic. Rolled
+      # back to v4 for human-playtest validation. v4 keeps v3's noise levels
+      # (visits/mistake_freq/random_move_chance) but adds clarity-based
+      # passing + strong local_bias + bigger max_pl so the bot stops grinding
+      # through the endgame in clearly-decided positions.
+      max_point_loss: 28.0
       mistake_freq: 0.75
       policy_weight: 0.15
       randomness: 0.78
       random_move_chance: 0.20
-      local_bias: 0.42
+      local_bias: 0.80
+      local_bias_in_opening: true
       first_line_chance: 0.0
       visits: 6
       min_candidates: 15
       opening_moves: 8
+      pass_threshold: 0.15
+      clarity_prior: 1.1
+      clarity_score_gap: 999.0
     "18k":
       # b28 calibration round 1: b20-clone landed at 80% n=30, margin +137.23.
       # Applying the 19x19 30k v3 heavy-noise template (proven to drop 30k from

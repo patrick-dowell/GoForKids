@@ -443,7 +443,8 @@ Final locked rates (b28-side win % vs b20-side, 30-game triage unless noted):
 | 13×13 | 30k  | `max_point_loss 35 → 22`                                 ✅ band  | 46.0% (n=50) | -5.68 |
 | 13×13 | 15k  | b20-clone (5 rounds, irreducible — see below)                     | 76.7% (n=150) | +47 avg |
 | 13×13 | 6k   | `mistake_freq 0.22 → 0.45`                                        | 73.3% | +18.03 |
-| 19×19 | 30k  | heavy-noise: `visits 10→6, mistake 0.55→0.75, rand 0.08→0.20, max_pl 30→18` | 66.7% | +76.43 |
+| 19×19 | 30k  | v3 heavy-noise: `visits 10→6, mistake 0.55→0.75, rand 0.08→0.20, max_pl 30→18` | 66.7% | +76.43 |
+| 19×19 | 30k v4 | **2026-05-13:** + `local_bias 0.42→0.80` + `_in_opening`, `max_pl 18→28`, added `clarity_prior` / `clarity_score_gap` / `pass_threshold`. Not re-measured vs b20 — bot-vs-bot calibration deprecated for this profile; awaiting human playtest. | — | — |
 | 19×19 | 18k  | heavy-noise: `visits 12→6, mistake 0.55→0.72, rand 0.12→0.22, max_pl 28→18` | 76.7% | +113.50 |
 | 19×19 | 15k  | heavy-noise: `visits 30→8, mistake 0.40→0.65, rand 0.05→0.18, max_pl 20→14` | 66.7% | +69.60 |
 | 19×19 | 12k  | heavy-noise: `visits 42→8, mistake 0.34→0.55, rand 0.02→0.15, max_pl 17→13` ✅ band | 53.3% | +38.00 |
@@ -464,6 +465,8 @@ Final locked rates (b28-side win % vs b20-side, 30-game triage unless noted):
 **The LFS pointer-file footgun.** The first half-day of calibration runs were silently invalid because `backend/models/b28.bin.gz` was a 134-byte git-LFS pointer (the `.gitattributes` smudge filter was new and the working-tree file wasn't materialized). KataGo failed to load it; the backend silently fell back to a random-legal-move stub AI; and we measured `b20-vs-stub` instead of `b20-vs-b28`. The signature was a wildly out-of-band rate (10-40%) with huge margins. Three defenses landed in commit c397214: STRICT_KATAGO env var that raises on engine-start failure, a model-file size check in `make calibrate-up` (refuses to launch backends with a model < 1 MB), and a post-launch `/ai-move` smoke that verifies `score_lead` is non-null. After this, all calibration measurements have been valid.
 
 **Validity gradient.** Profiles in the strict 45-55% band are well-calibrated and ready to ship. Profiles in 40-60% sanity band are functional with tolerable over- or under-strength (max ~1 rank off). The two stubborn ones (13×13 15k at ~77%, 19×19 18k at ~77%) play noticeably stronger than nominal — kids picking those will get a tougher game than expected. Listed as known limitations rather than blockers; future work could revisit with profile-asymmetric levers (e.g. apply different visit counts to the two backends), which the current YAML schema doesn't support but could be added.
+
+**Cross-rank handicap bot-vs-bot is broken as a signal (2026-05-13).** Tried to validate the 19x19 30k v4 weakening by running `30k+H9 vs 18k` on 19x19, both backends b28+b28.yaml — target ~50% to match the user's ranked-mode progression (beat 30k → beat 18k+H9). Got a 4/4 sweep for 30k+H9 with avg margin +347 (max possible ~361). Pushed an aggressive v5 (`visits 6→3, mistake 0.75→0.88, rand 0.20→0.40, max_pl 28→45, opening_moves 8→2`) — margin got **worse** (+385 over 2 games), not better. The handicap-defender's noise is cheap (`local_bias=0.80` plays approximately-correct reactive moves), the attacker's noise is catastrophic (`mistake_freq=0.72` blunders during invasions), so the defender wins regardless of profile. Don't repeat this experiment as a tuning signal. Validation for handicap-tier balance — both 30k weakness and 18k strength under handicap — has to come from human playtest.
 
 ## Game Data
 

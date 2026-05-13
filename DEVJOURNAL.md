@@ -310,6 +310,48 @@ matters.
 - **Audio interrupted-state fix verification** — still awaiting next
   iPad repro of "sound dies."
 
+### 19x19 30k bot — weakening pass (v3 → v4)
+Playtest feedback: 30k feels too strong on 19x19, but not on 13x13 or
+9x9. Diff'd the b28 30k profiles across boards and the 19x19 entry was
+missing every "weakening knob" the smaller-board 30k profiles use —
+strong `local_bias` (0.42 vs 0.80–0.87 elsewhere), no
+`local_bias_in_opening`, no `clarity_prior` / `clarity_score_gap`, no
+`pass_threshold`, and the tightest `max_point_loss` cap of any 30k
+(18 vs 22–38). It was also nearly indistinguishable from 19x19 18k —
+both inherited the same v3 heavy-noise template verbatim, leaving 30k
+only marginally weaker than 18k.
+
+**v4 change** ([b28.yaml](data/profiles/b28.yaml)):
+- `local_bias` 0.42 → 0.80, added `local_bias_in_opening: true`
+- `max_point_loss` 18 → 28
+- Added `clarity_prior: 1.1`, `clarity_score_gap: 999.0`, `pass_threshold: 0.15`
+- Core noise levels (visits=6, mistake_freq=0.75, random_move_chance=0.20)
+  unchanged from v3.
+
+**Calibration test (deprecated as a signal).** Tried to validate v4 by
+running `30k+H9 vs 18k` on 19x19 with two b28 backends — target ~50%
+since the user is designing a ranked-mode progression where players
+advance from "beat 30k even" to "beat 18k at 9 stones." Built a
+small asymmetric-rank harness (`calibrate_handicap_19x19_30k_vs_18k.py`,
+removed after use) and ran 4 games. **Result: 4/4 sweep for 30k+H9
+with margins +267 to +387** (avg +347 on a board with max ~361).
+Pushed an aggressive v5 (visits 6→3, mistake_freq 0.75→0.88, rand
+0.20→0.40, max_pl 28→45, opening_moves 8→2) — 2/2 sweep, avg +385.
+**Cutting MCTS depth in half and doubling random play made the margin
+worse, not better.** Diagnosis: the handicap-defender's noise
+(local_bias plays roughly correct reactive moves) is cheap, while the
+attacker's noise (`mistake_freq=0.72` blunders during invasions) is
+catastrophic. Cross-rank handicap bot-vs-bot is a broken signal for
+profile tuning. Rolled back to v4 for human-playtest validation. Saved
+the limitation as a memory.
+
+**Concurrent product-design implication.** For the ranked-mode
+progression (beat 30k → beat 18k+H9 → … → beat 18k+H0), the 18k+H9
+challenge needs the 18k bot to win some games against a beginner human;
+if a near-random 30k bot defeats 18k+H9, a beginner human almost
+certainly will too. Either 18k needs strengthening or the 9-stone
+handicap is too generous at that tier. Deferred to playtest.
+
 ## Session 16 — May 7–8, 2026
 
 iPad/iPhone playtest pass. Started with four bugs from the 2026-05-07
