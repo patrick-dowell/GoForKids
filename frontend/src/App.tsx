@@ -23,11 +23,13 @@ import { useLibraryStore, type SavedGame } from './store/libraryStore';
 import { useReplayStore } from './store/replayStore';
 import { useSettingsStore } from './store/settingsStore';
 import { useAutoPlayStore } from './store/autoPlayStore';
+import { useProfileStore } from './store/profileStore';
 import { LESSONS } from './learn/lessons';
 import { BOT_AVATARS } from './components/Avatar';
 import { AutoPlayView } from './components/AutoPlayView';
 import { AutoPlayGameEndModal } from './components/AutoPlayGameEndModal';
 import { RankUpOverlay } from './components/RankUpOverlay';
+import { ProfileView } from './components/ProfileView';
 import { Color, oppositeColor } from './engine/types';
 import './App.css';
 
@@ -46,6 +48,7 @@ function App() {
   const [showHome, setShowHome] = useState(true);
   const [showNewGame, setShowNewGame] = useState(false);
   const [showAutoPlay, setShowAutoPlay] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showStudy, setShowStudy] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
@@ -84,6 +87,7 @@ function App() {
   useEffect(() => {
     useLibraryStore.getState().loadFromStorage();
     useAutoPlayStore.getState().loadFromStorage();
+    useProfileStore.getState().loadFromStorage();
   }, []);
 
   // Auto-play game-end hook: when an auto-play game finishes, record the
@@ -138,6 +142,7 @@ function App() {
       isRanked: false,
       gameMode: 'ai',
       playerColor: Color.Black,
+      playerAvatar: useProfileStore.getState().avatar,
       lessonContext: true,
     });
   };
@@ -176,7 +181,20 @@ function App() {
   const handleOpenNewGame = () => {
     setShowHome(false);
     setShowAutoPlay(false);
+    setShowProfile(false);
     setShowNewGame(true);
+  };
+
+  const handleStartProfile = () => {
+    setShowHome(false);
+    setShowAutoPlay(false);
+    setShowNewGame(false);
+    setShowProfile(true);
+  };
+
+  const handleExitProfile = () => {
+    setShowProfile(false);
+    setShowHome(true);
   };
 
   const handleStartAutoPlay = () => {
@@ -203,6 +221,7 @@ function App() {
       isRanked: false,
       gameMode: 'ai',
       playerColor: Color.Black,
+      playerAvatar: useProfileStore.getState().avatar,
       autoplayContext: true,
     });
   };
@@ -263,10 +282,11 @@ function App() {
           onCustomMatch={handleOpenNewGame}
           onLibrary={() => setShowLibrary(true)}
           onLearn={handleStartLearn}
+          onProfile={handleStartProfile}
           onShowPrivacy={() => setShowPrivacy(true)}
         />
         {showNewGame && (
-          <NewGameDialog onClose={() => setShowNewGame(false)} />
+          <NewGameDialog onClose={() => setShowNewGame(false)} onOpenProfile={handleStartProfile} />
         )}
         {showLibrary && (
           <GameLibrary onSelectGame={handleSelectGame} onClose={() => setShowLibrary(false)} />
@@ -284,6 +304,18 @@ function App() {
       <div className="app">
         <SettingsButton />
         <AutoPlayView onExit={handleExitAutoPlay} onStart={handleStartAutoPlayGame} />
+        <FeedbackButton />
+        {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
+      </div>
+    );
+  }
+
+  // Profile page — feature 23.
+  if (showProfile && !replayActive) {
+    return (
+      <div className="app">
+        <SettingsButton />
+        <ProfileView onExit={handleExitProfile} />
         <FeedbackButton />
         {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
@@ -412,7 +444,10 @@ function App() {
       </main>
 
       {showNewGame && (
-        <NewGameDialog onClose={() => { setShowNewGame(false); setShowStudy(false); }} />
+        <NewGameDialog
+          onClose={() => { setShowNewGame(false); setShowStudy(false); }}
+          onOpenProfile={handleStartProfile}
+        />
       )}
       {showLibrary && (
         <GameLibrary onSelectGame={handleSelectGame} onClose={() => setShowLibrary(false)} />

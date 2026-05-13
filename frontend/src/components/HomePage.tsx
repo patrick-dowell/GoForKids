@@ -7,12 +7,13 @@ interface HomePageProps {
   onCustomMatch: () => void;
   onLibrary: () => void;
   onLearn: () => void;
+  onProfile: () => void;
   onShowPrivacy?: () => void;
 }
 
 const BOTS = Object.entries(BOT_AVATARS); // Show all bots
 
-export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onShowPrivacy }: HomePageProps) {
+export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onProfile, onShowPrivacy }: HomePageProps) {
   const currentRung = useAutoPlayStore((s) => s.rungState.currentRung);
 
   return (
@@ -33,11 +34,16 @@ export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onShow
           <p className="home-tagline">Learn Go. Play the universe.</p>
         </div>
 
-        {/* Rank chip — tap target reserved for the Profile page (feature 23). */}
-        <div className="home-rank-chip" aria-label={`Current 19×19 rank: ${currentRung}`}>
+        {/* Rank chip — opens Profile (feature 23). */}
+        <button
+          type="button"
+          className="home-rank-chip"
+          onClick={onProfile}
+          aria-label={`Open Profile. Current 19×19 rank: ${currentRung}`}
+        >
           <span className="home-rank-chip-label">19×19</span>
           <span className="home-rank-chip-rank">{currentRung}</span>
-        </div>
+        </button>
 
         {/* Main actions */}
         <div className="home-actions">
@@ -56,6 +62,10 @@ export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onShow
           <button onClick={onLibrary} className="home-btn home-btn-secondary">
             <span className="home-btn-icon">📚</span>
             Library
+          </button>
+          <button onClick={onProfile} className="home-btn home-btn-secondary">
+            <span className="home-btn-icon">👤</span>
+            Profile
           </button>
         </div>
 

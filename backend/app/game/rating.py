@@ -31,9 +31,18 @@ class Rating:
         return (low, high)
 
     def to_go_rank(self) -> str:
-        """Convert Glicko rating to approximate Go rank string."""
-        # Rough mapping: 1500 = ~15k, each 100 points ~ 1 rank
-        rank_num = max(1, round((2000 - self.mu) / 100) + 5)
+        """Convert Glicko rating to approximate Go rank string.
+
+        ~100 rating points per rank, anchored so mu=2000 → 5k. Floor at
+        mu=-500 (30k). Negative `rank_num` flips to the dan range.
+
+        Previously had `max(1, ...)` clamping `rank_num` before the
+        dan-vs-kyu branch, making the `<=0` branch unreachable —
+        `to_go_rank(mu=2500)` returned "1k" instead of "1d". Dropped
+        the clamp so negatives flow into the dan branch. The TS port
+        in `frontend/src/autoplay/glicko.ts` carries the same fix.
+        """
+        rank_num = round((2000 - self.mu) / 100) + 5
         if rank_num > 30:
             rank_num = 30
         if rank_num <= 0:
@@ -129,12 +138,19 @@ def update_rating(player: Rating, opponent_mu: float, opponent_phi: float, score
 
 
 def rank_to_rating(rank: str) -> float:
-    """Convert a Go rank string to approximate Glicko rating."""
+    """Convert a Go rank string to approximate Glicko rating.
+
+    Fix: previously `1d` returned 2100, less than `1k` at 2400 — so a
+    1d player was scored weaker than a 1k, contrary to the rank
+    ordering. The dan formula is now `2400 + dan*100` so 1d=2500,
+    2d=2600, ..., consistent with the kyu side and monotonic across
+    the ladder. The TS port carries the same convention.
+    """
     rank = rank.strip().lower()
     if rank.endswith("k"):
         kyu = int(rank[:-1])
-        return 2000 - (kyu - 5) * 100  # 5k = 2000, 15k = 1000
+        return 2000 - (kyu - 5) * 100  # 5k = 2000, 15k = 1000, 30k = -500
     elif rank.endswith("d"):
         dan = int(rank[:-1])
-        return 2000 + dan * 100  # 1d = 2100
+        return 2400 + dan * 100  # 1d = 2500, 2d = 2600, ...
     return 1500  # Default

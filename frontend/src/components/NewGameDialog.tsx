@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useGameStore, MAX_HANDICAP_BY_SIZE, type GameMode } from '../store/gameStore';
+import { useProfileStore } from '../store/profileStore';
 import { Color } from '../engine/types';
-import { AvatarPicker } from './AvatarPicker';
-import { Avatar, BOT_AVATARS, type PlayerAvatarType } from './Avatar';
+import { Avatar, BOT_AVATARS } from './Avatar';
 
 interface NewGameDialogProps {
   onClose: () => void;
+  /** Optional: link to the Profile page from the "playing as" display so
+   *  the player can change their avatar without leaving the dialog flow. */
+  onOpenProfile?: () => void;
 }
 
 type RankOption = {
@@ -52,14 +55,6 @@ function rankOption(opt: RankOption, size: number) {
   );
 }
 
-function getSavedAvatar(): PlayerAvatarType {
-  try {
-    const saved = localStorage.getItem('goforkids_avatar');
-    if (saved === 'blackhole' || saved === 'nova' || saved === 'nebula') return saved;
-  } catch {}
-  return 'blackhole';
-}
-
 const BOARD_SIZE_OPTIONS = [
   { value: 9,  label: '9×9',  description: 'Quickest games — best for new players' },
   { value: 13, label: '13×13', description: 'Mid-size — short but full of strategy' },
@@ -74,13 +69,16 @@ function getSavedBoardSize(): number {
   return 19;
 }
 
-export function NewGameDialog({ onClose }: NewGameDialogProps) {
+export function NewGameDialog({ onClose, onOpenProfile }: NewGameDialogProps) {
   const [gameMode, setGameMode] = useState<GameMode>('ai');
   const [playerColor, setPlayerColor] = useState<Color>(Color.Black);
   const [targetRank, setTargetRank] = useState('30k');
   const [handicap, setHandicap] = useState(0);
   const [isRanked, setIsRanked] = useState(false);
-  const [playerAvatar, setPlayerAvatar] = useState<PlayerAvatarType>(getSavedAvatar());
+  // Avatar lives in profileStore now (Profile page owns the picker).
+  // NewGameDialog reads it; a "Change in Profile" link is offered below.
+  const playerAvatar = useProfileStore((s) => s.avatar);
+  const displayName = useProfileStore((s) => s.displayName);
   const [boardSize, setBoardSize] = useState<number>(getSavedBoardSize());
   const maxHandicap = MAX_HANDICAP_BY_SIZE[boardSize] ?? 9;
   // Bot vs bot ranks
@@ -106,7 +104,6 @@ export function NewGameDialog({ onClose }: NewGameDialogProps) {
   const botInfo = BOT_AVATARS[gameMode === 'botvsbot' ? whiteRank : targetRank] || BOT_AVATARS['15k'];
 
   const handleStart = () => {
-    localStorage.setItem('goforkids_avatar', playerAvatar);
     localStorage.setItem('goforkids_board_size', String(boardSize));
     newGame({
       playerColor,
@@ -170,11 +167,25 @@ export function NewGameDialog({ onClose }: NewGameDialogProps) {
           </div>
         </div>
 
-        {/* Avatar picker — not for bot vs bot */}
+        {/* Avatar display (picker lives on the Profile page). */}
         {gameMode !== 'botvsbot' && (
           <div className="dialog-field">
-            <label>Your Avatar</label>
-            <AvatarPicker selected={playerAvatar} onSelect={setPlayerAvatar} />
+            <label>You</label>
+            <div className="dialog-player-row">
+              <Avatar type={playerAvatar} size={36} />
+              <span className="dialog-player-name">
+                {displayName || 'Playing as you'}
+              </span>
+              {onOpenProfile && (
+                <button
+                  type="button"
+                  className="dialog-player-link"
+                  onClick={() => { onClose(); onOpenProfile(); }}
+                >
+                  Change in Profile
+                </button>
+              )}
+            </div>
           </div>
         )}
 

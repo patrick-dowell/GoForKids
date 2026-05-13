@@ -7,6 +7,11 @@ import {
   matchupForRung,
   freshState,
 } from '../autoplay/matchmaker';
+import {
+  type Rating,
+  rankToRating,
+  updateRating,
+} from '../autoplay/glicko';
 
 export interface HistoryEntry {
   rung: Rung;
@@ -26,8 +31,11 @@ interface PersistedSlot {
   rungState: RungState;
   history: HistoryEntry[];
   promotionEvents: PromotionEvent[];
-  // shadowRating: Glicko mu/phi/sigma planned for feature 23 (Profile page).
-  // Schema is forward-compatible: future fields are read if present, ignored otherwise.
+  /** Glicko-2 shadow rating. Updated per game; does NOT drive promotion
+   *  in v1 (linear ladder is authoritative). Surfaced on the Profile page's
+   *  Advanced tab. Optional in the schema for backward compat with
+   *  payloads written before feature 23 landed. */
+  shadowRating?: Rating;
 }
 
 interface PersistedState {
@@ -40,6 +48,7 @@ interface AutoPlayState {
   rungState: RungState;
   history: HistoryEntry[];
   promotionEvents: PromotionEvent[];
+  shadowRating: Rating;
 
   /** True between when a player taps Play on the match-picker card and when
    *  the resulting game's outcome has been recorded. Used by App.tsx's
@@ -80,6 +89,18 @@ interface AutoPlayState {
 const STORAGE_KEY = 'goforkids.autoplay.v1';
 const HISTORY_CAP = 200;
 
+/** Glicko-2 opponent uncertainty assumed for bot matches. Bots have
+ *  well-calibrated strength (each rank validated against thousands of
+ *  Fox games), so phi=100 is appropriate vs a default of 350. */
+const BOT_OPP_PHI = 100;
+
+/** Initial shadow rating for a brand-new player: seeded at the 30k rung
+ *  with full prior uncertainty (phi=350) so the rating converges fast
+ *  during the first ~15 games. */
+function freshRating(): Rating {
+  return { mu: rankToRating('30k'), phi: 350, sigma: 0.06 };
+}
+
 function persist(slot: PersistedSlot) {
   try {
     const payload: PersistedState = { byBoardSize: { '19x19': slot } };
@@ -98,6 +119,7 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
   rungState: freshState(),
   history: [],
   promotionEvents: [],
+  shadowRating: freshRating(),
   gamePending: false,
   showRankUp: false,
   pendingFromRung: null,
@@ -105,7 +127,7 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
   setGamePending: (pending: boolean) => set({ gamePending: pending }),
 
   recordResult: (result: 'win' | 'loss') => {
-    const { rungState, history, promotionEvents } = get();
+    const { rungState, history, promotionEvents, shadowRating } = get();
     const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak);
     const ts = Date.now();
     const newEntry: HistoryEntry = {
@@ -120,10 +142,17 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
     const newPromotionEvents = out.promoted && out.fromRung
       ? [...promotionEvents, { from: out.fromRung, to: out.state.currentRung, ts }].slice(-HISTORY_CAP)
       : promotionEvents;
+    // Shadow rating update. The matchup's effective opponent strength is
+    // the player's CURRENT rung (handicap balances bot rank to player rung
+    // by construction), so we compare the player against `currentRung` —
+    // not against the raw bot rank.
+    const oppMu = rankToRating(rungState.currentRung);
+    const newShadowRating = updateRating(shadowRating, oppMu, BOT_OPP_PHI, result === 'win' ? 1 : 0);
     set({
       rungState: out.state,
       history: newHistory,
       promotionEvents: newPromotionEvents,
+      shadowRating: newShadowRating,
       gamePending: false,
       showRankUp: out.promoted,
       pendingFromRung: out.fromRung,
@@ -132,6 +161,7 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
       rungState: out.state,
       history: newHistory,
       promotionEvents: newPromotionEvents,
+      shadowRating: newShadowRating,
     });
   },
 
@@ -139,15 +169,17 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
 
   reset: () => {
     const fresh = freshState();
+    const rating = freshRating();
     set({
       rungState: fresh,
       history: [],
       promotionEvents: [],
+      shadowRating: rating,
       gamePending: false,
       showRankUp: false,
       pendingFromRung: null,
     });
-    persist({ rungState: fresh, history: [], promotionEvents: [] });
+    persist({ rungState: fresh, history: [], promotionEvents: [], shadowRating: rating });
   },
 
   setRung: (rung: Rung) => {
@@ -157,13 +189,19 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
       winsAtCurrentRung: 0,
       lossStreak: 0,
     };
+    // Manual rank set is a calibration tool. Snap the shadow rating to the
+    // new rung's anchor with moderate uncertainty (phi=200) so subsequent
+    // games can move it freely. Avoids leaving the shadow stuck at an
+    // old value if the user jumped from 30k to 6k.
+    const newShadow: Rating = { mu: rankToRating(rung), phi: 200, sigma: 0.06 };
     const { history, promotionEvents } = get();
     set({
       rungState: newRungState,
+      shadowRating: newShadow,
       showRankUp: false,
       pendingFromRung: null,
     });
-    persist({ rungState: newRungState, history, promotionEvents });
+    persist({ rungState: newRungState, history, promotionEvents, shadowRating: newShadow });
   },
 
   loadFromStorage: () => {
@@ -177,6 +215,7 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
         rungState: slot.rungState ?? freshState(),
         history: slot.history ?? [],
         promotionEvents: slot.promotionEvents ?? [],
+        shadowRating: slot.shadowRating ?? freshRating(),
       });
     } catch (e) {
       console.warn('Failed to load auto-play state:', e);
