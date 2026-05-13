@@ -428,23 +428,21 @@ function selectWithKataGo(
 
   // Drop candidates strictly worse than passing (when pass has enough
   // visits to trust). Prevents endgame moves that fill own territory.
-  // Skip this filter in neverPass mode — we want *something* to play
-  // even if every candidate fills own territory.
-  if (!options.neverPass && passCand !== null && passCand.visits >= minPassVisits) {
+  // Applies even in neverPass mode — the point of neverPass is to keep
+  // playing CONSTRUCTIVE moves, not to play self-destructive fillers
+  // just to avoid a pass. If every candidate is worse than pass, we
+  // fall through and pass below.
+  if (passCand !== null && passCand.visits >= minPassVisits) {
     filtered = filtered.filter((f) => f.c.scoreLead >= passCand!.scoreLead - passThreshold);
   }
 
   if (filtered.length === 0) {
+    // All non-pass candidates fill our own territory — passing IS the
+    // correct move, even with neverPass set. The semantics of neverPass
+    // are "don't quit while there are useful moves," not "play garbage
+    // forever."
     const c = candidates[0];
-    if (c.move.row < 0) {
-      // Top candidate is pass. In neverPass mode, search the candidate list
-      // for any legal non-pass; otherwise pass.
-      if (options.neverPass) {
-        const nonPass = candidates.find((cand) => cand.move.row >= 0);
-        if (nonPass) return { row: nonPass.move.row, col: nonPass.move.col };
-      }
-      return null;
-    }
+    if (c.move.row < 0) return null;
     return { row: c.move.row, col: c.move.col };
   }
 

@@ -1435,6 +1435,49 @@ body {
   }
 }
 
+/* iPad portrait (medium width + portrait orientation): drop the side
+   panel below the board so the board fills the full viewport width.
+   iPhone portrait technically matches this too but its `max-width: 699px`
+   narrow block further refines the layout for tiny screens. iPad
+   landscape (≥ 1100px) and iPhone Pro Max landscape (caught by the
+   height-bound rule) are unaffected. */
+@media (max-width: 1099px) and (orientation: portrait) {
+  .side-panel {
+    width: 100%;
+    /* No flex-shrink: 0 here so it sits where the flex-wrap places it. */
+  }
+
+  .go-board-canvas {
+    /* Lift the 700px cap — iPad portrait has ~1000px of width to give
+       the board. max-height leaves room for the rest of the layout
+       (header + avatar strip + side panel + paddings) so Pass/Resign
+       at the bottom stay visible without scroll. Buffer tuned to the
+       slimmer side panel below (turn indicator etc hidden as redundant
+       with the avatar cards' active-glow). */
+    max-width: none;
+    max-height: calc(100dvh - 420px);
+  }
+
+  /* The avatar strip up top already shows whose turn it is (active
+     glow + status dot + captures count). The turn-indicator, matchup,
+     captures-display, and move-counter inside the now-below-board side
+     panel are duplicates — drop them on iPad portrait. Keep the score
+     graph (genuinely new info). Mirrors the same trim from the phone-
+     portrait narrow rule. */
+  .side-panel .turn-indicator,
+  .side-panel .matchup,
+  .side-panel .captures-display,
+  .side-panel .move-counter {
+    display: none;
+  }
+
+  .side-panel .game-info {
+    padding: 6px 8px;
+    background: transparent;
+    border: none;
+  }
+}
+
 @media (max-width: 699px) {
   /* --------- NARROW (iPhone portrait) --------- */
 
@@ -1757,5 +1800,73 @@ body {
     padding: 6px 8px;
     background: transparent;
     border: none;
+  }
+}
+
+
+/* iPad landscape / desktop (wide ≥ 1100px) — CSS grid layout with
+   avatar (top) + side panel (bottom) on the left, and the board filling
+   the entire right column. Lifting the canvas max-width here lets the
+   board scale to fill the column (typically ~900px on a 1366×1024
+   iPad, where the height of the right column is the limiting axis).
+   Base rules above default to flex-row for legacy reasons; this block
+   overrides them on wide viewports. */
+@media (min-width: 1100px) {
+  .game-layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "avatar  board"
+      "side    board";
+    padding: 24px;
+    gap: 16px;
+    /* Override the base flex justify/align so grid items lay out cleanly */
+    justify-content: stretch;
+    align-items: stretch;
+  }
+
+  .avatar-panel {
+    grid-area: avatar;
+    /* Lift the legacy 180×700 fixed sizing — panel sizes to its content
+       row in the grid, and width to the left column. */
+    width: auto;
+    height: auto;
+  }
+
+  .side-panel {
+    grid-area: side;
+    /* Override the base width: 240px so the side panel fills the left
+       column (~260px including padding). align-self: start keeps it at
+       the top of the bottom row instead of stretching vertically. */
+    width: auto;
+    align-self: start;
+  }
+
+  .board-container {
+    grid-area: board;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    /* `container-type: size` lets the canvas inside size off both the
+       inline (cqi) and block (cqb) dimensions of this container — the
+       same trick the lesson view uses. Without this, CSS aspect-ratio
+       can't pick the "smaller of width/height" without manual math. */
+    container-type: size;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .go-board-canvas {
+    /* min(100cqi, 100cqb) = largest square that fits both the container's
+       width AND height. On a 1042×919 right column the board comes out
+       at 919×919 (height-bound). On a 1366×1024 viewport that's a
+       noticeably larger board than the old 700px cap. */
+    width: min(100cqi, 100cqb);
+    height: min(100cqi, 100cqb);
+    max-width: none;
+    max-height: none;
   }
 }

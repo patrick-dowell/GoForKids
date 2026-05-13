@@ -760,11 +760,18 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Pass targetRank so the iPad bridge path can apply rank-calibrated
       // selection. Web (HTTP) path ignores it — backend reads target_rank
       // from the active-game record.
-      // `neverPass: true` in tutorial games (lessonContext) keeps the bot
-      // playing through what KataGo considers a settled position. On tiny
-      // 5x5/9x9 boards the AI otherwise declares the game over before
-      // the kid is ready, surprising new players.
-      const aiMove = await api.getAIMove(gameId, targetRank, { neverPass: lessonContext });
+      //
+      // neverPass: tutorial bots keep playing as long as the kid is still
+      // placing stones, so the game doesn't quit on them mid-tutorial.
+      // Gated on `consecutivePasses === 0` so that once the player passes
+      // (cons=1), the bot reverts to its normal pass-logic and can pass
+      // back to end the game — matches the user's spec "should pass if
+      // the player passes assuming it thinks the game is in fact over."
+      // The selector still passes when every non-pass candidate fills own
+      // territory, even with neverPass set — that's the "no non-destructive
+      // moves" carve-out.
+      const neverPass = lessonContext && _game.consecutivePasses === 0;
+      const aiMove = await api.getAIMove(gameId, targetRank, { neverPass });
       // Re-check state hasn't changed (e.g., user resigned while AI was thinking)
       if (get().phase !== 'playing') {
         set({ aiThinking: false });
