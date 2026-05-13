@@ -1090,3 +1090,9 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 }));
+
+// Dev convenience: expose gameStore on `window.__gameStore` to mirror
+// the shims for autoPlayStore + profileStore. Gated by Vite's DEV flag.
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  (window as unknown as { __gameStore: typeof useGameStore }).__gameStore = useGameStore;
+}

@@ -27,6 +27,7 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
   const playerColor = useGameStore((s) => s.playerColor);
   const showRankUp = useAutoPlayStore((s) => s.showRankUp);
   const rungState = useAutoPlayStore((s) => s.rungState);
+  const pendingFromRung = useAutoPlayStore((s) => s.pendingFromRung);
   // Compute derived outside the selector to avoid React's getSnapshot warning.
   const atWall = rungState.winsAtCurrentRung >= WINS_TO_PROMOTE;
 
@@ -40,10 +41,19 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
   const isResignation = result.blackScore === 0 && result.whiteScore === 0;
   const winnerName = result.winner === Color.Black ? 'Black' : 'White';
 
-  const winsRemaining = Math.max(0, WINS_TO_PROMOTE - rungState.winsAtCurrentRung);
+  // `pendingFromRung` survives the rank-up dismissal, so when it's non-null
+  // we know THIS game's win caused the promotion. Render a celebratory
+  // state instead of the usual wins-toward-next-rung text: all three
+  // progress segments lit gold, "Congrats on reaching N" copy.
+  const justPromoted = pendingFromRung !== null;
   const next = nextRung(rungState.currentRung);
+  const filledSegs = justPromoted ? WINS_TO_PROMOTE : rungState.winsAtCurrentRung;
+  const winsRemaining = Math.max(0, WINS_TO_PROMOTE - rungState.winsAtCurrentRung);
 
   const progressLine = (() => {
+    if (justPromoted) {
+      return `Congratulations on reaching ${rungState.currentRung}!`;
+    }
     if (atWall) {
       return `You've earned promotion — but the ${next ?? 'next'} bot is still being calibrated.`;
     }
@@ -76,7 +86,7 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
             {Array.from({ length: WINS_TO_PROMOTE }).map((_, i) => (
               <div
                 key={i}
-                className={'autoplay-end-progress-seg' + (i < rungState.winsAtCurrentRung ? ' autoplay-end-progress-seg-filled' : '')}
+                className={'autoplay-end-progress-seg' + (i < filledSegs ? ' autoplay-end-progress-seg-filled' : '')}
               />
             ))}
           </div>

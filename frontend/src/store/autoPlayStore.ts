@@ -165,7 +165,11 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
     });
   },
 
-  dismissRankUp: () => set({ showRankUp: false, pendingFromRung: null }),
+  // Don't clear `pendingFromRung` here — AutoPlayGameEndModal reads it to
+  // render a "congrats on reaching N" state for the game that just caused
+  // the promotion. It stays set until the next `recordResult` either
+  // replaces it with a new fromRung (another promotion) or with null.
+  dismissRankUp: () => set({ showRankUp: false }),
 
   reset: () => {
     const fresh = freshState();
