@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { GoBoard } from './board/GoBoard';
 import { GameControls } from './components/GameControls';
 import { NewGameDialog } from './components/NewGameDialog';
@@ -90,16 +90,40 @@ function App() {
     useProfileStore.getState().loadFromStorage();
   }, []);
 
-  // Auto-play game-end hook: when an auto-play game finishes, record the
-  // win/loss into the auto-play store exactly once. `gamePending` is set by
-  // AutoPlayView right before `gameStore.newGame` and cleared by
-  // `recordResult`, so this effect can't double-fire across re-renders.
+  // Auto-play game-end recording. Two guards needed beyond gamePending:
+  //
+  // 1. Cross-game double-fire. handleStartAutoPlayGame sets gamePending=true
+  //    SYNCHRONOUSLY before newGame()'s async createGame call resolves and
+  //    flips phase to 'playing'. During that gap, gameStore still has the
+  //    previous game's phase='finished' + result, so the effect would
+  //    re-fire and re-record the previous outcome on every Next-match tap.
+  //    recordedThisGameRef catches this; it resets to false on the next
+  //    phase='playing' transition.
+  //
+  // 2. Local-then-server result swap on player double-pass. When the
+  //    player passes twice with a backend, gameStore first sets `result`
+  //    from local scoreTerritory (no dead-stone awareness), then later
+  //    replaces it with the server's dead-stone-corrected result. On close
+  //    games dead stones can flip the winner — the local fire would record
+  //    the wrong outcome. scoringInProgress is true between the two fires;
+  //    skip while true so we record the corrected result, not the local one.
+  const recordedThisGameRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (phase === 'playing') {
+      recordedThisGameRef.current = false;
+    }
+  }, [phase]);
+
   useEffect(() => {
     if (!autoplayContext || !autoplayGamePending) return;
     if (phase !== 'finished' || !result) return;
+    if (scoringInProgress) return;
+    if (recordedThisGameRef.current) return;
+    recordedThisGameRef.current = true;
     const userWon = result.winner === playerColor;
     recordAutoplayResult(userWon ? 'win' : 'loss');
-  }, [autoplayContext, autoplayGamePending, phase, result, playerColor, recordAutoplayResult]);
+  }, [autoplayContext, autoplayGamePending, phase, result, scoringInProgress, playerColor, recordAutoplayResult]);
 
   const replayActive = useReplayStore((s) => s.active);
   const loadReplay = useReplayStore((s) => s.loadGame);
