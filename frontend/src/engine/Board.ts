@@ -58,6 +58,23 @@ export class Board {
     return this.grid.join('');
   }
 
+  /** Does `color` have any legal move (excluding pass)?
+   *  Used by the tutorial auto-end flow: when neither side has anywhere
+   *  legal to play, we auto-pass so the lesson game terminates without
+   *  the kid having to figure out the pass button. Clones per empty
+   *  intersection — costs ~size² array copies, fine on 5x5/9x9. */
+  hasLegalMove(color: Stone): boolean {
+    for (let row = 0; row < this.size; row++) {
+      for (let col = 0; col < this.size; col++) {
+        if (this.grid[row * this.size + col] !== Color.Empty) continue;
+        const test = this.clone();
+        const { result } = test.tryPlay(color, { row, col });
+        if (result === MoveResult.Ok) return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * Try to play a stone. Returns MoveResult and captured stones.
    * Does NOT mutate if the move is illegal.

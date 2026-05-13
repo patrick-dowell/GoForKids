@@ -169,22 +169,37 @@ export function boardFromGrid(grid: number[][], size: number): Board {
  *
  * Returns `null` for pass.
  */
+/** Optional tweaks to selectAiMove's behavior — currently just one flag for
+ *  tutorial games where we want the bot to keep playing instead of declaring
+ *  the game over (small 5×5/9×9 boards in lessons settle very quickly to a
+ *  pass-pass termination at full strength, which surprises kid players). */
+export interface SelectAiMoveOptions {
+  /** When true, the selector never returns null (pass). If KataGo's
+   *  preferred move is pass, fall back to the best legal non-pass
+   *  candidate. Used by the lesson-context game flow. */
+  neverPass?: boolean;
+}
+
 export async function selectAiMove(
   board: Board,
   color: Stone,
   targetRank: string,
   lastOpponentMove: Point | null,
   analyze: (visits: number) => Promise<PositionAnalysis>,
+  options: SelectAiMoveOptions = {},
 ): Promise<SelectionResult> {
-  const move = await selectAiMoveInner(board, color, targetRank, lastOpponentMove, analyze);
+  const move = await selectAiMoveInner(board, color, targetRank, lastOpponentMove, analyze, options);
 
   // Eye-fill safety check — never fill our own eye.
   if (move && isEyeFill(board, color, move)) {
     for (let attempt = 0; attempt < 5; attempt++) {
-      const alt = await selectAiMoveInner(board, color, targetRank, lastOpponentMove, analyze);
+      const alt = await selectAiMoveInner(board, color, targetRank, lastOpponentMove, analyze, options);
       if (alt && !isEyeFill(board, color, alt)) return alt;
     }
-    // 5 attempts all filled eyes — pass.
+    // 5 attempts all filled eyes — pass. (If neverPass is set, the inner
+    // function would have already returned a non-pass move, so we'd never
+    // get here unless every candidate filled an eye, which on tiny tutorial
+    // boards effectively means "no useful moves left" — passing is OK.)
     return null;
   }
 
@@ -197,6 +212,7 @@ async function selectAiMoveInner(
   targetRank: string,
   lastOpponentMove: Point | null,
   analyze: (visits: number) => Promise<PositionAnalysis>,
+  options: SelectAiMoveOptions = {},
 ): Promise<SelectionResult> {
   const profile = getProfile(targetRank, board.size);
 
@@ -207,7 +223,7 @@ async function selectAiMoveInner(
 
   try {
     const analysis = await analyze(profile.visits);
-    return selectWithKataGo(board, color, profile, analysis, lastOpponentMove);
+    return selectWithKataGo(board, color, profile, analysis, lastOpponentMove, options);
   } catch {
     // KataGo unreachable — fall back to a random legal move so the game
     // doesn't lock up. Same behavior as the Python's except-clause.
@@ -283,6 +299,7 @@ function selectWithKataGo(
   profile: RankProfile,
   analysisIn: PositionAnalysis,
   lastOpponentMove: Point | null,
+  options: SelectAiMoveOptions = {},
 ): SelectionResult {
   const stoneCount = countStones(board);
   const isOpening = stoneCount < profile.opening_moves;
@@ -300,9 +317,20 @@ function selectWithKataGo(
   if (candidates.length === 0) return null;
 
   // --- Pass detection ---
+  // In tutorial mode (`options.neverPass`), both "KataGo wants to pass" and
+  // "best move barely beats pass" fall through to the best legal non-pass
+  // candidate. On tiny 5x5/9x9 tutorial boards the position settles fast
+  // and the bot would otherwise quit the game before the kid is ready.
   let best = candidates[0];
-  if (best.move.row < 0 && !isOpening) {
-    return null;  // KataGo's #1 is pass and we're past the opening — pass.
+  if (best.move.row < 0 && (!isOpening || options.neverPass)) {
+    // KataGo's top is pass — either we'd normally pass (post-opening) OR
+    // we explicitly forbid passing. Look for the best non-pass candidate.
+    const nonPassBest = candidates.find((c) => c.move.row >= 0);
+    if (!nonPassBest) {
+      // No legal non-pass move exists — even neverPass has to give up here.
+      return null;
+    }
+    best = nonPassBest;
   }
   if (best.move.row < 0 && isOpening) {
     // Top is pass during opening — skip pass and use best non-pass.
@@ -319,6 +347,7 @@ function selectWithKataGo(
   const minPassVisits = Math.max(4, Math.floor(best.visits / 10));
   if (
     !isOpening &&
+    !options.neverPass &&
     passCand !== null &&
     passCand.visits >= minPassVisits &&
     best.scoreLead - passCand.scoreLead < passThreshold
@@ -399,13 +428,23 @@ function selectWithKataGo(
 
   // Drop candidates strictly worse than passing (when pass has enough
   // visits to trust). Prevents endgame moves that fill own territory.
-  if (passCand !== null && passCand.visits >= minPassVisits) {
+  // Skip this filter in neverPass mode — we want *something* to play
+  // even if every candidate fills own territory.
+  if (!options.neverPass && passCand !== null && passCand.visits >= minPassVisits) {
     filtered = filtered.filter((f) => f.c.scoreLead >= passCand!.scoreLead - passThreshold);
   }
 
   if (filtered.length === 0) {
     const c = candidates[0];
-    if (c.move.row < 0) return null;
+    if (c.move.row < 0) {
+      // Top candidate is pass. In neverPass mode, search the candidate list
+      // for any legal non-pass; otherwise pass.
+      if (options.neverPass) {
+        const nonPass = candidates.find((cand) => cand.move.row >= 0);
+        if (nonPass) return { row: nonPass.move.row, col: nonPass.move.col };
+      }
+      return null;
+    }
     return { row: c.move.row, col: c.move.col };
   }
 

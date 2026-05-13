@@ -129,6 +129,12 @@ body {
   border-radius: 8px;
   /* Stop iOS from interpreting a stone-place tap as pinch-zoom / scroll */
   touch-action: manipulation;
+  /* Don't show the iOS text-selection callout / magnifier on long-press,
+     and don't let drag-to-place start a text selection on desktop. Scoped
+     to the canvas only — text everywhere else stays selectable. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   /* On wide layouts the side panels constrain horizontal space, so the
      board picks up max-width 700 naturally. Cap the height to the row's
      available space for the (rare) very-tall narrow viewport. */

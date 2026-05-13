@@ -192,6 +192,12 @@ interface GameState {
   /** Stones merged by the most recent move (or empty). Renderer reads this
    *  to fire a connection pulse, then it gets cleared on the next move. */
   lastMerged: { color: Color; stones: Point[] };
+  /** Set when the player's most recent click was rejected by a *rule*
+   *  (ko, suicide). Drives a kid-friendly modal that explains why the
+   *  move wasn't allowed. Null = no violation to surface (or already
+   *  dismissed). Occupied isn't included — it's self-evident and we
+   *  let the existing "stones can't be moved" feedback handle it. */
+  ruleViolation: 'ko' | 'suicide' | null;
 
   _game: Game;
   _botVsBotTimer: number | null;
@@ -207,6 +213,8 @@ interface GameState {
   toggleBotVsBotPause: () => void;
   finishGame: () => Promise<void>;
   getBoard: () => Board;
+  /** Clear the rule-violation modal (ko / suicide explainer). */
+  dismissRuleViolation: () => void;
   /** Dismiss the bot-passed modal without taking action (player keeps playing). */
   dismissBotPassed: () => void;
   /** Restart the current game with the same config (used by the lesson 5
@@ -295,6 +303,81 @@ function syncServerScoring(
   return deadStones;
 }
 
+/**
+ * In tutorial games (lessonContext), auto-pass on behalf of the current
+ * player when they have no legal moves. Recurses, so if the new current
+ * color also can't play, they auto-pass too — two consecutive passes
+ * trigger the pass-pass scoring path and the game ends gracefully
+ * without the kid having to find the Pass button.
+ *
+ * No-op outside lesson context. No-op if the current player has at least
+ * one legal move. Bookkeeping mirrors gameStore.pass() but skips the
+ * player-turn guard since we may be passing on the bot's behalf.
+ */
+function lessonAutoPass(
+  get: () => GameState,
+  set: (partial: Partial<GameState> | ((s: GameState) => Partial<GameState>)) => void,
+): void {
+  const s = get();
+  if (!s.lessonContext) return;
+  if (s.phase !== 'playing') return;
+  // currentColor in a playing game is never Empty — narrow the type for
+  // hasLegalMove() which only accepts Stone (Black | White).
+  const stone = s.currentColor as Color.Black | Color.White;
+  if (s._game.board.hasLegalMove(stone)) return;
+
+  s._game.pass();
+  playPassSound();
+
+  const prevHistory = s.scoreHistory;
+  const lastLead = prevHistory.length > 0 ? prevHistory[prevHistory.length - 1].lead : 0;
+  const passHistory = [...prevHistory, { move: s._game.moveHistory.length, lead: lastLead }];
+
+  if (s._game.phase === 'finished') {
+    // Pass-pass ended the game — kick off the same scoring sync as the
+    // human-driven pass() finished-branch.
+    playGameEndSound();
+    set({
+      deadStones: [],
+      scoringInProgress: !!s.gameId,
+      ...snapshot(s._game),
+      scoreHistory: passHistory,
+    });
+    if (s.gameId) {
+      api.pass(s.gameId).then((serverState) => {
+        if (serverState.result) {
+          const dead = syncServerScoring(s._game, serverState);
+          const finalHistory = appendFinalScore(passHistory, s._game.moveHistory.length + 1, serverState.result);
+          set({
+            deadStones: dead,
+            scoringInProgress: false,
+            ...snapshot(s._game),
+            scoreHistory: finalHistory,
+          });
+          autoSaveGame(get());
+        } else {
+          set({ scoringInProgress: false });
+        }
+      }).catch((e) => {
+        console.warn('Auto-pass scoring sync failed:', e);
+        set({ scoringInProgress: false });
+        autoSaveGame(get());
+      });
+    } else {
+      autoSaveGame(get());
+    }
+    return;
+  }
+
+  // Pass didn't end the game — commit state, sync the backend, and recurse
+  // to check whether the OTHER side also has no legal moves.
+  set({ ...snapshot(s._game), scoreHistory: passHistory });
+  if (s.gameId) {
+    api.pass(s.gameId).catch((e) => console.warn('Auto-pass sync failed:', e));
+  }
+  lessonAutoPass(get, set);
+}
+
 export const useGameStore = create<GameState>((set, get) => ({
   grid: new Array(BOARD_SIZE * BOARD_SIZE).fill(Color.Empty),
   boardSize: BOARD_SIZE,
@@ -332,6 +415,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   scoringInProgress: false,
   scoreHistory: [{ move: 0, lead: 0 }],
   lastMerged: { color: Color.Empty, stones: [] },
+      ruleViolation: null,
   _game: new Game(),
   _botVsBotTimer: null,
 
@@ -419,6 +503,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       scoringInProgress: false,
       scoreHistory: [{ move: 0, lead: currentLead(game) }],
       lastMerged: { color: Color.Empty, stones: [] },
+      ruleViolation: null,
     });
 
     // Bot vs Bot: start the auto-play loop
@@ -446,6 +531,14 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const merged = _game.board.detectMergedGroups(currentColor, point);
     const { result, captures } = _game.playMove(point);
+    // Surface the rule that rejected the move so the UI can explain it.
+    // Occupied is intuitive (you can see the stone there) and stays silent;
+    // ko and suicide both look legal-but-aren't to a new player.
+    if (result === MoveResult.Ko) {
+      set({ ruleViolation: 'ko' });
+    } else if (result === MoveResult.Suicide) {
+      set({ ruleViolation: 'suicide' });
+    }
     if (result === MoveResult.Ok) {
       playPlaceSound(point.row, point.col);
       if (captures.length > 0) {
@@ -646,8 +739,20 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   requestAIMove: async () => {
-    const { gameId, _game, phase, targetRank } = get();
+    const { gameId, _game, phase, targetRank, lessonContext, playerColor } = get();
     if (!gameId || phase !== 'playing') return;
+
+    // Tutorial auto-pass: before fetching a bot move, check whether the
+    // current side (= the bot, since we're in requestAIMove) has any legal
+    // moves. If not, pass on its behalf; recurse handles the player side
+    // if they also can't play. Two consecutive auto-passes terminate the
+    // game cleanly via the existing pass-pass scoring path.
+    if (lessonContext) {
+      lessonAutoPass(get, set);
+      const after = get();
+      if (after.phase !== 'playing') return;            // game ended via auto-passes
+      if (after.currentColor === playerColor) return;   // player's turn now, no AI move needed
+    }
 
     set({ aiThinking: true });
 
@@ -655,7 +760,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Pass targetRank so the iPad bridge path can apply rank-calibrated
       // selection. Web (HTTP) path ignores it — backend reads target_rank
       // from the active-game record.
-      const aiMove = await api.getAIMove(gameId, targetRank);
+      // `neverPass: true` in tutorial games (lessonContext) keeps the bot
+      // playing through what KataGo considers a settled position. On tiny
+      // 5x5/9x9 boards the AI otherwise declares the game over before
+      // the kid is ready, surprising new players.
+      const aiMove = await api.getAIMove(gameId, targetRank, { neverPass: lessonContext });
       // Re-check state hasn't changed (e.g., user resigned while AI was thinking)
       if (get().phase !== 'playing') {
         set({ aiThinking: false });
@@ -688,6 +797,10 @@ export const useGameStore = create<GameState>((set, get) => ({
               ? { color: aiColor, stones: [...merged, point] }
               : { color: Color.Empty, stones: [] },
           });
+          // Tutorial auto-pass: if the player now has no legal moves, pass
+          // on their behalf. If the bot can also not play, the recursive
+          // chain inside lessonAutoPass will end the game on pass-pass.
+          if (lessonContext) lessonAutoPass(get, set);
           return;
         }
       }
@@ -935,6 +1048,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   getBoard: () => get()._game.board,
+
+  dismissRuleViolation: () => set({ ruleViolation: null }),
 
   dismissBotPassed: () => set({ botJustPassed: false }),
 

@@ -10,6 +10,7 @@ import { ReplayControls } from './components/ReplayControls';
 import { HomePage } from './components/HomePage';
 import { LearnView } from './components/LearnView';
 import { BotPassedModal } from './components/BotPassedModal';
+import { RuleViolationModal } from './components/RuleViolationModal';
 import { LessonGameEndModal } from './components/LessonGameEndModal';
 import { GameEndModal } from './components/GameEndModal';
 import { SettingsButton } from './components/SettingsButton';
@@ -341,6 +342,7 @@ function App() {
         <GameLibrary onSelectGame={handleSelectGame} onClose={() => setShowLibrary(false)} />
       )}
       <BotPassedModal />
+      <RuleViolationModal />
       <LessonGameEndModal
         onMoveOn={handleMoveOnFromLessonGame}
         onNextLesson={nextLessonAfterGame !== null ? handleNextLessonAfterGame : undefined}

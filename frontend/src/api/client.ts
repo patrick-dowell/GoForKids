@@ -155,9 +155,17 @@ export const api = {
     return request<GameStateDTO>(`/games/${gameId}/undo`, { method: 'POST' });
   },
 
-  getAIMove: async (gameId: string, targetRank?: string): Promise<AIMoveDTO> => {
+  getAIMove: async (
+    gameId: string,
+    targetRank?: string,
+    options?: { neverPass?: boolean },
+  ): Promise<AIMoveDTO> => {
     const bridge = getKataGoBridge();
-    if (bridge) return getAIMoveViaBridge(gameId, bridge, targetRank ?? '15k');
+    if (bridge) return getAIMoveViaBridge(gameId, bridge, targetRank ?? '15k', options);
+    // Web path: backend /ai-move doesn't know about neverPass yet — that
+    // would need a body. Tutorial games typically run on iPad anyway; if
+    // we need this for web tutorials later, thread neverPass through the
+    // POST body and update backend/app/ai/move_selector.py the same way.
     return request<AIMoveDTO>(`/games/${gameId}/ai-move`, { method: 'POST' });
   },
 
@@ -208,6 +216,7 @@ async function getAIMoveViaBridge(
   gameId: string,
   bridge: KataGoBridge,
   targetRank: string,
+  options?: { neverPass?: boolean },
 ): Promise<AIMoveDTO> {
   // [perf-js] Outer envelope — sums GET state + selector + analyze(s) +
   // commit POST. Compare against the Swift [perf] total to isolate the
@@ -277,7 +286,7 @@ async function getAIMoveViaBridge(
   };
 
   const tBeforeSelect = performance.now();
-  const chosen = await selectAiMove(board, color, targetRank, lastOpponentMove, analyze);
+  const chosen = await selectAiMove(board, color, targetRank, lastOpponentMove, analyze, options);
   const tAfterSelect = performance.now();
 
   if (chosen === null) {
