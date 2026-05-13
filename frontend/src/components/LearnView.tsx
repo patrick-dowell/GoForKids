@@ -193,21 +193,30 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
             <>
               {/* In-page feedback below the board only covers the awaiting/retry
                   cases. The success + animating celebration moved into a modal so
-                  it's high-contrast and gates progression on an explicit Continue. */}
+                  it's high-contrast and gates progression on an explicit Continue.
+                  IMPORTANT: render this slot ALWAYS — empty during success/animating —
+                  so the footer's height stays constant across status transitions.
+                  Without the placeholder div, the footer drops ~56px in success state,
+                  the .learn-board-wrap grows, and the board visibly resizes / shifts
+                  between every move and "Continue" click. */}
               {status === 'retry' ? (
                 <div className="learn-feedback learn-feedback-retry">{feedback}</div>
               ) : feedback ? (
                 <div className="learn-feedback learn-feedback-retry" key={`warn-${feedback}`}>
                   {feedback}
                 </div>
-              ) : (status === 'awaiting' && (
+              ) : status === 'awaiting' ? (
                 <div className="learn-feedback">
                   <span className="learn-feedback-placeholder">
                     <span className="stone-icon black" />
                     Your turn — you play Black.
                   </span>
                 </div>
-              ))}
+              ) : (
+                // success / animating — keep the slot's 56px height so the
+                // board container above doesn't reflow.
+                <div className="learn-feedback" aria-hidden="true" />
+              )}
 
               <div className="learn-actions">
                 {(status === 'awaiting' || status === 'retry') && !lesson.defaultShowHint && (
