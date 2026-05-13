@@ -158,7 +158,15 @@ export const api = {
   getAIMove: async (
     gameId: string,
     targetRank?: string,
-    options?: { neverPass?: boolean },
+    options?: {
+      neverPass?: boolean;
+      /** Real GTP move history (incl. handicap + passes) for the bridge so
+       *  KataGo correctly tracks ko / superko. When omitted, the bridge
+       *  falls back to `boardToMoves` which loses move order — KataGo
+       *  then can't see the ko ban and suggests illegal recaptures. See
+       *  buildBridgeMovesFromGame in gameStore for the canonical builder. */
+      movesForBridge?: Array<{ color: 'B' | 'W'; point: string }>;
+    },
   ): Promise<AIMoveDTO> => {
     const bridge = getKataGoBridge();
     if (bridge) return getAIMoveViaBridge(gameId, bridge, targetRank ?? '15k', options);
@@ -183,9 +191,12 @@ export const api = {
   // Fixes the Session 16 "Finish Game iPad-only" bug — see
   // 19x19scoring.log:70745 for the original failure (HTTP-only,
   // game_id only existed in localStorage).
-  finishMove: async (gameId: string): Promise<AIMoveDTO> => {
+  finishMove: async (
+    gameId: string,
+    options?: { movesForBridge?: Array<{ color: 'B' | 'W'; point: string }> },
+  ): Promise<AIMoveDTO> => {
     const bridge = getKataGoBridge();
-    if (bridge) return finishMoveViaBridge(gameId, bridge);
+    if (bridge) return finishMoveViaBridge(gameId, bridge, options);
     return request<AIMoveDTO>(`/games/${gameId}/finish-move`, { method: 'POST' });
   },
 
@@ -216,7 +227,10 @@ async function getAIMoveViaBridge(
   gameId: string,
   bridge: KataGoBridge,
   targetRank: string,
-  options?: { neverPass?: boolean },
+  options?: {
+    neverPass?: boolean;
+    movesForBridge?: Array<{ color: 'B' | 'W'; point: string }>;
+  },
 ): Promise<AIMoveDTO> {
   // [perf-js] Outer envelope — sums GET state + selector + analyze(s) +
   // commit POST. Compare against the Swift [perf] total to isolate the
@@ -234,7 +248,13 @@ async function getAIMoveViaBridge(
   // The selector calls `analyze(visits)` to fetch KataGo's candidate list.
   // We capture the best candidate's scoreLead so we can return it for the
   // score graph. (The selector itself doesn't expose its internal state.)
-  const moves = boardToMoves(state.board, state.board_size);
+  //
+  // Prefer the caller-supplied move history (handicap + plays in order)
+  // so KataGo sees the real game sequence and tracks ko correctly. Fall
+  // back to `boardToMoves` (stones only, no order) for callers that
+  // haven't been updated — the legacy path still works but KataGo will
+  // miss ko bans and suggest illegal moves we filter out below.
+  const moves = options?.movesForBridge ?? boardToMoves(state.board, state.board_size);
   let cachedScoreLead: number | null = null;
 
   const analyze = async (visits: number): Promise<PositionAnalysis> => {
@@ -307,20 +327,13 @@ async function getAIMoveViaBridge(
     };
   }
 
-  // Try to commit the chosen move. KataGo can suggest a move our engine
-  // considers illegal because `boardToMoves` sends only the current stone
-  // layout — no move history — so KataGo doesn't see our positional
-  // superko bans. The classic case: kid just captured into a ko shape;
-  // KataGo (history-blind) suggests the immediate recapture; our engine
-  // rejects MoveResult.Ko (see 19x19scoring.log:31:30 finish-move failure
-  // at R3). Suicide is the other variant. In both cases, falling back to
-  // a pass is safe — the ko-ban clears after the other side moves one
-  // iteration later, and a stray single pass mid-Finish-Game just resets
-  // the consecutive_passes counter when the next real move lands.
-  //
-  // TODO(scoring-followup): wire move history into the bridge replay so
-  // KataGo's positional history matches ours. Then KataGo will never
-  // suggest a superko-banned move and this fallback becomes dead code.
+  // Try to commit the chosen move. Historically KataGo would suggest a
+  // ko/superko-banned move because `boardToMoves` sent only the current
+  // stone layout (no history) — but now callers pass `movesForBridge`
+  // with the real move sequence, so this fallback should fire only on
+  // a true engine-vs-engine disagreement (e.g., the rare ko detection
+  // edge cases or suicide rules). Keep the safe-pass fallback below
+  // because it's the cleanest recovery if it ever does happen.
   let newState: GameStateDTO;
   try {
     newState = await api.playMove(gameId, chosen.row, chosen.col);
@@ -400,12 +413,15 @@ const FINISH_PASS_THRESHOLD = 0.5;
 async function finishMoveViaBridge(
   gameId: string,
   bridge: KataGoBridge,
+  options?: { movesForBridge?: Array<{ color: 'B' | 'W'; point: string }> },
 ): Promise<AIMoveDTO> {
   const tOuterStart = performance.now();
   const state = await api.getGame(gameId);
   const tAfterGet = performance.now();
   const colorChar: 'B' | 'W' = state.current_color === 'black' ? 'B' : 'W';
-  const moves = boardToMoves(state.board, state.board_size);
+  // Prefer caller-supplied move history so ko bans are respected — the
+  // TODO at the top of getAIMoveViaBridge applies here too.
+  const moves = options?.movesForBridge ?? boardToMoves(state.board, state.board_size);
 
   const tAnalyzeStart = performance.now();
   const result = await bridge.analyze({

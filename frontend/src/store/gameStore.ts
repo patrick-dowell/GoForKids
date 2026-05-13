@@ -3,6 +3,7 @@ import { Game, type GamePhase } from '../engine/Game';
 import { Board } from '../engine/Board';
 import { Color, type Point, type GameResult, MoveResult, BOARD_SIZE } from '../engine/types';
 import { api } from '../api/client';
+import { toGtp } from '../api/nativeKataGo';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
 import { BOT_AVATARS, type PlayerAvatarType, type BotAvatarType } from '../components/Avatar';
@@ -120,6 +121,45 @@ export const MAX_HANDICAP_BY_SIZE: Record<number, number> = { 9: 5, 13: 9, 19: 9
 
 function handicapPositions(size: number, n: number): [number, number][] {
   return HANDICAP_BY_SIZE[size]?.[n] ?? [];
+}
+
+/**
+ * Build the GTP move list to feed KataGo via the iPad bridge.
+ *
+ * Why this exists: the original `boardToMoves` helper sent the bridge
+ * only the CURRENT stone layout (sorted black-stones-first, then white).
+ * KataGo replayed those out-of-order plays and ended up with the right
+ * stones on the board but the WRONG move history — in particular no
+ * notion of which point was just captured, so positional superko (ko)
+ * was invisible. KataGo then routinely suggested re-taking a ko stone
+ * the kid had just captured, our engine rejected the move as illegal,
+ * and the selector fell back to passing. User-visible symptom: bot
+ * passes the turn after a ko capture instead of playing a ko threat.
+ *
+ * This helper produces the actual sequence: handicap stones placed
+ * first (as Black "moves" — KataGo's GTP accepts consecutive plays of
+ * the same color), then the real moveHistory in order including
+ * passes ('pass' in GTP). Captures unfold naturally as KataGo replays
+ * each play.
+ */
+export function buildBridgeMovesFromGame(
+  game: Game,
+  handicap: number,
+  size: number,
+): Array<{ color: 'B' | 'W'; point: string }> {
+  const moves: Array<{ color: 'B' | 'W'; point: string }> = [];
+  if (handicap > 0) {
+    for (const [r, c] of handicapPositions(size, handicap)) {
+      moves.push({ color: 'B', point: toGtp({ row: r, col: c }, size) });
+    }
+  }
+  for (const m of game.moveHistory) {
+    moves.push({
+      color: m.color === Color.Black ? 'B' : 'W',
+      point: m.point ? toGtp(m.point, size) : 'pass',
+    });
+  }
+  return moves;
 }
 
 interface NewGameOptions {
@@ -778,7 +818,21 @@ export const useGameStore = create<GameState>((set, get) => ({
       // back to end the game — matches the user's spec "should pass if
       // the player passes assuming it thinks the game is in fact over."
       const neverPass = lessonContext && _game.consecutivePasses === 0;
-      const aiMove = await api.getAIMove(gameId, targetRank, { neverPass });
+      // Pass the real move history (handicap + plays in order) so the
+      // iPad bridge's KataGo sees the ko / superko bans. Without this,
+      // KataGo replays just the stone layout and routinely suggests
+      // recapturing a freshly-taken ko stone; our engine rejects the
+      // illegal move and the selector falls back to passing — visible
+      // as "bot passes the turn after the player takes a ko."
+      const movesForBridge = buildBridgeMovesFromGame(
+        _game,
+        get().handicap,
+        _game.board.size,
+      );
+      const aiMove = await api.getAIMove(gameId, targetRank, {
+        neverPass,
+        movesForBridge,
+      });
       // Re-check state hasn't changed (e.g., user resigned while AI was thinking)
       if (get().phase !== 'playing') {
         set({ aiThinking: false });
@@ -978,7 +1032,15 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       let aiMove;
       try {
-        aiMove = await api.finishMove(gid);
+        // Same ko-tracking story as requestAIMove: pass real history so
+        // KataGo's bridge replay sees ko bans correctly. The original
+        // TODO in api/client.ts:321 is now addressed.
+        const movesForBridge = buildBridgeMovesFromGame(
+          _game,
+          get().handicap,
+          _game.board.size,
+        );
+        aiMove = await api.finishMove(gid, { movesForBridge });
       } catch (e) {
         console.warn('finish-move failed:', e);
         set({ autoCompleting: false, aiThinking: false });
