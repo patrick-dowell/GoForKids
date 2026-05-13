@@ -2,8 +2,14 @@
 
 .profile-view {
   min-height: 100vh;
+  min-height: 100dvh;
   position: relative;
   overflow-x: hidden;
+  /* Pick up the iOS safe-area-inset on left/right so content doesn't
+     sit under rounded corners / notch in landscape. The header below
+     handles top inset itself. */
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
 }
 
 .profile-backdrop {
@@ -34,6 +40,9 @@
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   padding: 18px 28px;
+  /* Push the Back button + title below the iOS status bar. var(--safe-top)
+     is ~44 px on iPhone portrait, ~24 px on iPad portrait, 0 on web. */
+  padding-top: calc(18px + var(--safe-top));
 }
 
 .profile-back-btn {
