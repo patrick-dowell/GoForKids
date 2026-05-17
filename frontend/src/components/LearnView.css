@@ -596,8 +596,14 @@
     padding: 4px 8px;
   }
 
-  /* Progress dots: scrollable strip when there's >8 lessons */
+  /* Progress dots: scrollable strip when there's >8 lessons. Override the
+     default `justify-self: end` — under grid `auto 1fr`, end alignment
+     sizes the flex container to its content width and the dots overflow
+     LEFTWARD into the back-button cell on iPhone Pro Max portrait
+     (TestFlight beta 2026-05-17). `stretch` constrains the container to
+     its grid column so `overflow-x: auto` can actually scroll. */
   .learn-progress {
+    justify-self: stretch;
     overflow-x: auto;
     scrollbar-width: none;
     flex-shrink: 1;
