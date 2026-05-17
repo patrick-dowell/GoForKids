@@ -127,8 +127,18 @@ function App() {
 
   const replayActive = useReplayStore((s) => s.active);
   const loadReplay = useReplayStore((s) => s.loadGame);
+  const closeReplay = useReplayStore((s) => s.close);
   const replayNext = useReplayStore((s) => s.nextMove);
   const replayPrev = useReplayStore((s) => s.prevMove);
+
+  /** Replay close → return to home, not to the in-progress game underneath.
+   *  Without the setShowHome here, closing a replay opened from Library left
+   *  the user on the prior game's layout (bug #4 from TestFlight 2026-05-14). */
+  const handleCloseReplay = () => {
+    closeReplay();
+    setShowStudy(false);
+    setShowHome(true);
+  };
 
   const learnActive = useLearnStore((s) => s.active);
   const startLearn = useLearnStore((s) => s.start);
@@ -347,7 +357,7 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className={'app' + (replayActive ? ' app-replay' : '')}>
       <SettingsButton />
       <header className="app-header">
         <h1 className="app-title" onClick={() => setShowHome(true)} style={{ cursor: 'pointer' }}>GoForKids</h1>
@@ -425,7 +435,7 @@ function App() {
 
         <aside className="side-panel">
           {replayActive ? (
-            <ReplayControls />
+            <ReplayControls onClose={handleCloseReplay} />
           ) : showStudy && gameId ? (
             <StudyMode gameId={gameId} onClose={() => setShowStudy(false)} />
           ) : (

@@ -1,6 +1,13 @@
 import { useReplayStore } from '../store/replayStore';
 
-export function ReplayControls() {
+interface ReplayControlsProps {
+  /** Called when the user taps Close. Lets the parent route back to home
+   *  in addition to closing the replay store (replay-store close alone left
+   *  the user on the live-game layout — bug #4 from TestFlight 2026-05-14). */
+  onClose: () => void;
+}
+
+export function ReplayControls({ onClose }: ReplayControlsProps) {
   const currentMove = useReplayStore((s) => s.currentMove);
   const totalMoves = useReplayStore((s) => s.totalMoves);
   const gameResult = useReplayStore((s) => s.gameResult);
@@ -15,13 +22,12 @@ export function ReplayControls() {
   const toggleAutoPlay = useReplayStore((s) => s.toggleAutoPlay);
   const setAutoPlaySpeed = useReplayStore((s) => s.setAutoPlaySpeed);
   const downloadSGF = useReplayStore((s) => s.downloadSGF);
-  const close = useReplayStore((s) => s.close);
 
   return (
     <div className="replay-controls">
       <div className="replay-header">
         <h3>Game Replay</h3>
-        <button onClick={close} className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }}>
+        <button onClick={onClose} className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }}>
           Close
         </button>
       </div>
