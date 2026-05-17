@@ -351,21 +351,20 @@ function syncServerScoring(
 }
 
 /**
- * In tutorial games (lessonContext), end the game gracefully when the
- * current side has no legal moves.
+ * In tutorial games (lessonContext), auto-pass on behalf of the current
+ * side when they have no legal moves. Recurses, so if the new current
+ * color also can't play, they auto-pass too — two consecutive passes
+ * trigger the pass-pass scoring path and the game ends gracefully
+ * without the kid having to find the Pass button.
  *
- *  - If it's the BOT'S turn → resign on the bot's behalf. Clean win for
- *    the student, single-action game end (no scoring race). Addresses
- *    the 5×5-tutorial-bot-freezes bug from TestFlight beta 2026-05-15
- *    where every move for W was suicide and the pass-pass path left
- *    the game uncompletable.
- *  - If it's the PLAYER'S turn (e.g. their stones were squeezed into
- *    eyes by the bot) → auto-pass on their behalf so the kid doesn't
- *    have to find the Pass button, then recurse to handle the bot side.
+ * Applies to bot AND player. Passing is always legal in Go (even when
+ * every empty intersection is a suicide point), so this matches strict
+ * rules and ends the game via standard pass-pass scoring rather than
+ * an asymmetric "bot resigns" path.
  *
  * No-op outside lesson context. No-op when the current side has at
  * least one legal move. Skips the usual player-turn guards since we
- * may be acting on either side's behalf.
+ * may be passing on either side's behalf.
  */
 function lessonAutoPass(
   get: () => GameState,
@@ -379,26 +378,6 @@ function lessonAutoPass(
   const stone = s.currentColor as Color.Black | Color.White;
   if (s._game.board.hasLegalMove(stone)) return;
 
-  // Bot's turn with no legal moves → resign on its behalf. Avoids the
-  // pass-pass race that left tutorial games hung on small boards.
-  if (s.currentColor !== s.playerColor) {
-    s._game.resign(stone);
-    playGameEndSound();
-    set({
-      ...snapshot(s._game),
-      // Resignation skips scoring — no dead-stone overlay or "calculating
-      // final score" modal needed.
-      deadStones: [],
-      scoringInProgress: false,
-    });
-    if (s.gameId) {
-      api.resign(s.gameId).catch((e) => console.warn('Auto-resign sync failed:', e));
-    }
-    autoSaveGame(get());
-    return;
-  }
-
-  // Player's turn with no legal moves → auto-pass (don't resign for them).
   s._game.pass();
   playPassSound();
 
