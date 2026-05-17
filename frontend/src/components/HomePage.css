@@ -356,22 +356,30 @@
     min-height: 48px;
   }
 
-  /* Bot roster: keep on one line but scroll horizontally so all 8 are
-     reachable. Float the names below for legibility. */
+  /* Bot roster: shrink avatar + tighten gap so all 8 bots fit on one
+     row of iPhone-narrow widths without horizontal scroll (44px avatars
+     + 12px gaps = ~440px content, didn't fit 370-ish row width — Storm
+     and Void scrolled off-screen on iPhone 17, TestFlight beta 2026-05-17).
+     Avatar uses inline width/height via the size prop, so !important
+     is needed to override; see also .avatar-panel .avatar in App.css. */
   .home-bots-row {
     flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    justify-content: flex-start;
-    gap: 12px;
-    padding: 4px 8px 8px;
-    /* Hide scrollbar for cleaner look on iOS; still scrollable. */
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
+    justify-content: center;
+    gap: 4px;
+    padding: 4px 4px 8px;
   }
 
-  .home-bots-row::-webkit-scrollbar {
-    display: none;
+  .home-bots-row .avatar {
+    width: 32px !important;
+    height: 32px !important;
+  }
+
+  .home-bot-name {
+    font-size: 10px;
+  }
+
+  .home-bot-rank {
+    font-size: 9px;
   }
 
   .home-bot-preview {
