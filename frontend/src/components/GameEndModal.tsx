@@ -209,7 +209,7 @@ export function GameEndPanel() {
   );
 }
 
-interface ScoreSideProps {
+export interface ScoreSideProps {
   label: string;
   total: number;
   territory: number;
@@ -219,7 +219,7 @@ interface ScoreSideProps {
   highlight: boolean;
 }
 
-function ScoreSide({ label, total, territory, captures, komi, accent, highlight }: ScoreSideProps) {
+export function ScoreSide({ label, total, territory, captures, komi, accent, highlight }: ScoreSideProps) {
   return (
     <div className={'lesson-end-side' + (highlight ? ' lesson-end-side-winner' : '')}>
       <div className="lesson-end-side-header">

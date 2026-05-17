@@ -6,6 +6,7 @@ import { ScoreGraph } from './ScoreGraph';
 import { WhoIsWinning } from './WhoIsWinning';
 import { LessonGameEndPanel } from './LessonGameEndModal';
 import { GameEndPanel } from './GameEndModal';
+import { AutoPlayGameEndPanel } from './AutoPlayGameEndModal';
 
 export function GameControls() {
   const phase = useGameStore((s) => s.phase);
@@ -28,6 +29,7 @@ export function GameControls() {
   const undo = useGameStore((s) => s.undo);
   const finishGame = useGameStore((s) => s.finishGame);
   const lessonContext = useGameStore((s) => s.lessonContext);
+  const autoplayContext = useGameStore((s) => s.autoplayContext);
   const showScoreGraph = useSettingsStore((s) => s.showScoreGraph);
 
   const isBotVsBot = gameMode === 'botvsbot';
@@ -135,11 +137,14 @@ export function GameControls() {
 
       {phase === 'finished' && result && (
         // Lesson 5 game uses its own kid-friendly modal + compact panel pair.
-        // Everything else uses GameEndPanel (compact "See results" pill) plus
-        // GameEndModal (mounted at App level) — replaces the legacy inline
-        // `.game-result` block that was getting cut off below the viewport
-        // on iPhone (`.side-panel` doesn't scroll on narrow widths).
-        lessonContext ? <LessonGameEndPanel /> : <GameEndPanel />
+        // Auto-play (ranked Play) games use AutoPlayGameEndPanel which reopens
+        // the AutoPlayGameEndModal. Everything else uses GameEndPanel (compact
+        // "See results" pill) plus GameEndModal (mounted at App level).
+        lessonContext
+          ? <LessonGameEndPanel />
+          : autoplayContext
+            ? <AutoPlayGameEndPanel />
+            : <GameEndPanel />
       )}
     </div>
   );

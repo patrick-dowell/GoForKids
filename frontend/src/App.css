@@ -1566,6 +1566,17 @@ body {
     flex: 0 0 auto;
   }
 
+  /* Replay controls: in iPhone portrait the floating settings gear
+     (position: fixed; bottom: 72px in this breakpoint) was overlapping
+     the Speed-control row's "Fast" button, and Download SGF + hint at
+     the bottom were clipped under the viewport edge (TestFlight beta
+     bug #7, 2026-05-14). Reserve a bottom padding band ≥ the gear's
+     occupied zone so the gear sits over empty padding when the user
+     scrolls to the bottom of the panel. */
+  .replay-controls {
+    padding-bottom: calc(72px + 36px + 14px + var(--safe-bottom));
+  }
+
   .game-info {
     padding: 10px;
     gap: 6px;
@@ -1650,6 +1661,17 @@ body {
      a little breathing room. */
   .settings-gear {
     bottom: calc(72px + var(--safe-bottom));
+  }
+
+  /* Replay mode override: replay panel has no Pass/Resign row at the
+     bottom but it does have a mid-panel Speed-control row that the
+     72px-bottom gear was overlapping (TestFlight beta bug #7,
+     2026-05-14). Drop the gear back to corner so it sits over the
+     lowest-value content (Download SGF / hint zone) instead of over
+     the speed buttons. .replay-controls' padding-bottom (added above)
+     ensures the gear sits over empty padding when fully scrolled. */
+  .app-replay .settings-gear {
+    bottom: calc(14px + var(--safe-bottom));
   }
 }
 

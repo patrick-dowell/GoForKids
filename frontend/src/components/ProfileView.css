@@ -1,10 +1,16 @@
 /* ProfileView — feature 23. */
 
 .profile-view {
-  min-height: 100vh;
-  min-height: 100dvh;
   position: relative;
+  /* Internal scroll instead of body-scroll. overflow-x: hidden alone implicitly
+     turns overflow-y into 'auto' per CSS spec, but without a height cap there's
+     nothing to scroll against on iOS WKWebView portrait — hence the bug where
+     Profile didn't scroll on iPhone portrait. Cap to viewport, scroll inside. */
+  height: 100vh;
+  height: 100dvh;
   overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   /* Pick up the iOS safe-area-inset on left/right so content doesn't
      sit under rounded corners / notch in landscape. The header below
      handles top inset itself. */

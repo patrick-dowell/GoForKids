@@ -2,7 +2,10 @@ import { useGameStore } from '../store/gameStore';
 import { useAutoPlayStore } from '../store/autoPlayStore';
 import { Color } from '../engine/types';
 import { WINS_TO_PROMOTE, nextRung } from '../autoplay/matchmaker';
+import { ScoreSide } from './GameEndModal';
 import './AutoPlayGameEndModal.css';
+// Pulls in the shared lesson-end-* close button, scoreboard, and panel styles.
+import './LessonGameEndModal.css';
 
 
 interface AutoPlayGameEndModalProps {
@@ -14,8 +17,13 @@ interface AutoPlayGameEndModalProps {
 
 /**
  * Post-game modal for auto-play matches. Sits over the finished board with
- * a result line + wins-counter update + Next match / Home actions. The
- * RankUpOverlay (when applicable) renders on top of this via z-index.
+ * a result line + score breakdown + wins-counter update + Next match / Home
+ * actions. The RankUpOverlay (when applicable) renders on top of this via
+ * z-index.
+ *
+ * Dismissible (× / overlay click / Close) so the player can see the final
+ * board. After dismissal, AutoPlayGameEndPanel surfaces a "See results"
+ * pill in the side panel for reopening.
  *
  * Gated by `autoplayContext` so it doesn't fire for Custom Match or
  * lesson games (which have their own end-of-game UI).
@@ -25,6 +33,8 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
   const phase = useGameStore((s) => s.phase);
   const result = useGameStore((s) => s.result);
   const playerColor = useGameStore((s) => s.playerColor);
+  const dismissed = useGameStore((s) => s.gameEndDismissed);
+  const dismiss = useGameStore((s) => s.dismissGameEnd);
   const showRankUp = useAutoPlayStore((s) => s.showRankUp);
   const rungState = useAutoPlayStore((s) => s.rungState);
   const pendingFromRung = useAutoPlayStore((s) => s.pendingFromRung);
@@ -35,6 +45,7 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
   // Stay hidden while the rank-up overlay is sitting on top — the spec wants
   // the player to dismiss that first, then see the result summary underneath.
   if (showRankUp) return null;
+  if (dismissed) return null;
 
   const userWon = result.winner === playerColor;
   const margin = Math.abs(result.blackScore - result.whiteScore);
@@ -67,19 +78,49 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
   })();
 
   return (
-    <div className="autoplay-end-overlay" role="dialog" aria-modal="true">
-      <div className={'autoplay-end-card ' + (userWon ? 'autoplay-end-win' : 'autoplay-end-loss')}>
+    <div className="autoplay-end-overlay" role="dialog" aria-modal="true" onClick={dismiss}>
+      <div
+        className={'autoplay-end-card ' + (userWon ? 'autoplay-end-win' : 'autoplay-end-loss')}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button className="lesson-end-close" onClick={dismiss} aria-label="Close — see the board">
+          ×
+        </button>
         <div className="autoplay-end-icon" aria-hidden>{userWon ? '🏆' : '🤖'}</div>
         <h2 className="autoplay-end-title">
           {userWon ? 'You won!' : 'The bot won this one'}
         </h2>
 
-        <p className="autoplay-end-margin">
-          {isResignation
-            ? `${winnerName} won by resignation.`
-            : `${winnerName} won by ${margin.toFixed(margin % 1 === 0 ? 0 : 1)} points.`
-          }
-        </p>
+        {isResignation ? (
+          <p className="autoplay-end-margin">{winnerName} won by resignation.</p>
+        ) : (
+          <>
+            <div className="lesson-end-scoreboard">
+              <ScoreSide
+                label={playerColor === Color.Black ? 'You' : 'Bot'}
+                total={result.blackScore}
+                territory={result.blackTerritory}
+                captures={result.blackCaptures}
+                komi={0}
+                accent="black"
+                highlight={result.winner === Color.Black}
+              />
+              <div className="lesson-end-vs">vs</div>
+              <ScoreSide
+                label={playerColor === Color.White ? 'You' : 'Bot'}
+                total={result.whiteScore}
+                territory={result.whiteTerritory}
+                captures={result.whiteCaptures}
+                komi={result.komi}
+                accent="white"
+                highlight={result.winner === Color.White}
+              />
+            </div>
+            <p className="autoplay-end-margin">
+              {winnerName} won by {margin.toFixed(margin % 1 === 0 ? 0 : 1)} points
+            </p>
+          </>
+        )}
 
         <div className="autoplay-end-progress">
           <div className="autoplay-end-progress-bar">
@@ -102,6 +143,41 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Compact "See results" pill rendered in the side panel after the player
+ * dismisses the auto-play game-end modal — gives them a way back to the
+ * full scoreboard + Next match / Home actions without having to navigate
+ * away. Mirrors GameEndPanel / LessonGameEndPanel.
+ */
+export function AutoPlayGameEndPanel() {
+  const autoplayContext = useGameStore((s) => s.autoplayContext);
+  const phase = useGameStore((s) => s.phase);
+  const result = useGameStore((s) => s.result);
+  const playerColor = useGameStore((s) => s.playerColor);
+  const reopen = useGameStore((s) => s.reopenGameEnd);
+
+  if (!autoplayContext || phase !== 'finished' || !result) return null;
+
+  const userWon = result.winner === playerColor;
+  const margin = Math.abs(result.blackScore - result.whiteScore);
+  const isResignation = result.blackScore === 0 && result.whiteScore === 0;
+
+  return (
+    <div className={'lesson-end-panel ' + (userWon ? 'lesson-end-panel-win' : '')}>
+      <div className="lesson-end-panel-icon">{userWon ? '🏆' : '🤖'}</div>
+      <div className="lesson-end-panel-text">
+        <div className="lesson-end-panel-title">{userWon ? 'You won!' : 'Bot won'}</div>
+        <div className="lesson-end-panel-margin">
+          {isResignation ? 'by resignation' : `by ${margin.toFixed(margin % 1 === 0 ? 0 : 1)} pts`}
+        </div>
+      </div>
+      <button className="lesson-end-panel-btn" onClick={reopen}>
+        See results
+      </button>
     </div>
   );
 }
