@@ -225,6 +225,16 @@
 /* Bot roster */
 .home-bots {
   text-align: center;
+  /* The parent .home-content is align-items: center, which sizes each
+     flex child to its content. The bot row is wider than the viewport
+     on phone widths (8 bots horizontally), so without these the .home-
+     bots block grew to its content width and bled off-screen equally
+     on both sides — visible as Seedling (left) and Void (right) being
+     cropped on iPhone 17 portrait (TestFlight beta 2026-05-17).
+     Stretch fills the parent's column width regardless of align-items;
+     min-width: 0 lets the inner scroll row actually shrink and scroll. */
+  align-self: stretch;
+  min-width: 0;
 }
 
 .home-bots-label {
