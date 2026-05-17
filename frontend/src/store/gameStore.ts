@@ -500,13 +500,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     const botRank = gameMode === 'botvsbot' ? (whiteRank || '15k') : targetRank;
     const botInfo = BOT_AVATARS[botRank] || BOT_AVATARS['15k'];
 
-    // Place handicap stones on the local board
+    // Place handicap stones on the local board. Game.setHandicap also
+    // flips currentColor to White and stores them so undo/SGF can see them.
     const handiPoints = handicapPositions(boardSize, handicap);
     if (handiPoints.length > 0) {
-      for (const [r, c] of handiPoints) {
-        game.board.grid[r * boardSize + c] = Color.Black;
-      }
-      game.currentColor = Color.White; // White moves first after handicap
+      game.setHandicap(handiPoints.map(([row, col]) => ({ row, col })));
     }
 
     let gameId: string | null = null;

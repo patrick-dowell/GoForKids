@@ -249,20 +249,12 @@ function getOrLoad(gameId: string): LocalActiveGame | null {
 
 function applyHandicapStones(game: Game, stones: Point[]): void {
   if (stones.length === 0) return;
-  for (const p of stones) {
-    game.board.grid[pointToIndex(p, game.board.size)] = Color.Black;
-  }
-  // Snapshot the post-handicap position into the superko history so a future
-  // play that ko-recaptures back to this position is correctly rejected. The
-  // Board constructor already added the empty-board hash; add the new one.
-  // (Reach inside via the public hash() + a getter would be cleaner — but
-  // Board.positionHistory is private. The empty-board entry is now stale and
-  // unreachable through normal play, so leaving it is harmless.)
-  // The Set is private; we'd need a Board API to update it. For now we
-  // accept the (negligible) risk that an exotic ko replaying the empty-board
-  // hash post-handicap could be flagged falsely — never happens in practice.
-  // With handicap, White plays first.
-  game.currentColor = Color.White;
+  // Delegate to Game.setHandicap so game.handicapStones is populated —
+  // Game.undo() relies on that to re-place the stones after rebuild.
+  // (Note: superko hash is not updated for the post-handicap position.
+  // Negligible risk that an exotic ko replaying the empty-board hash is
+  // falsely flagged; never happens in practice.)
+  game.setHandicap(stones);
 }
 
 // --- ID generation -----------------------------------------------------------
@@ -474,24 +466,9 @@ export const localGameRouter = {
     if (!lg) return { error: 'Game not found' };
     const ok = lg.game.undo();
     if (!ok) return { error: 'Nothing to undo' };
-    // Game.undo() rebuilt the board from move history alone — handicap
-    // stones placed during setup are gone. Re-apply them and flip to-play
-    // color (Game.undo defaults to Black-to-play; with handicap White plays).
-    if (lg.handicapStones.length > 0) {
-      applyHandicapStones(lg.game, lg.handicapStones);
-      // Re-replay the move history on top of the now-handicapped board so
-      // currentColor and consecutivePasses are correct. Easiest: snapshot
-      // history, reset Game, applyHandicap, replay.
-      const replay = [...lg.game.moveHistory];
-      lg.game.board = new Board(lg.game.board.size);
-      lg.game.moveHistory = [];
-      lg.game.consecutivePasses = 0;
-      applyHandicapStones(lg.game, lg.handicapStones);
-      for (const m of replay) {
-        if (m.point) lg.game.playMove(m.point);
-        else lg.game.pass();
-      }
-    }
+    // Game.undo() now restores handicap stones internally + uses each
+    // recorded move's color when replaying (fixes TestFlight bug #8) —
+    // no router-side workaround needed.
     persist(lg);
     return toDTO(lg);
   },

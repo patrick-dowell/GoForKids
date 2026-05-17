@@ -110,6 +110,56 @@ describe('Game', () => {
       const game = new Game();
       expect(game.undo()).toBe(false);
     });
+
+    it('preserves handicap stones across undo (TestFlight bug #8)', () => {
+      const game = new Game(0.5, 19);
+      game.setHandicap([
+        { row: 15, col: 3 },
+        { row: 3, col: 15 },
+      ]);
+      expect(game.currentColor).toBe(Color.White);
+
+      // White plays first after handicap; then Black; then undo.
+      game.playMove({ row: 4, col: 4 });   // W
+      game.playMove({ row: 10, col: 10 }); // B
+      expect(game.undo()).toBe(true);
+
+      // White's move should be intact; Black's undone; handicap stones still there.
+      expect(game.moveHistory).toHaveLength(1);
+      expect(game.board.get({ row: 15, col: 3 })).toBe(Color.Black);
+      expect(game.board.get({ row: 3, col: 15 })).toBe(Color.Black);
+      expect(game.board.get({ row: 4, col: 4 })).toBe(Color.White);
+      expect(game.board.get({ row: 10, col: 10 })).toBe(Color.Empty);
+      expect(game.currentColor).toBe(Color.Black); // Black to play next
+    });
+
+    it('replays recorded move color, not currentColor (handicap White-first)', () => {
+      const game = new Game(0.5, 9);
+      game.setHandicap([{ row: 4, col: 4 }]);
+      game.playMove({ row: 0, col: 0 }); // W
+      game.playMove({ row: 8, col: 8 }); // B
+      game.playMove({ row: 1, col: 1 }); // W
+      game.undo();
+
+      // After undoing W's last move, the first replayed move (originally W
+      // at 0,0) must still be White, not Black.
+      expect(game.board.get({ row: 0, col: 0 })).toBe(Color.White);
+      expect(game.board.get({ row: 8, col: 8 })).toBe(Color.Black);
+      expect(game.board.get({ row: 1, col: 1 })).toBe(Color.Empty);
+      expect(game.currentColor).toBe(Color.White);
+    });
+
+    it('non-handicap undo unchanged: rebuilds from Black-first', () => {
+      const game = new Game();
+      game.playMove({ row: 3, col: 3 });   // B
+      game.playMove({ row: 15, col: 15 }); // W
+      game.playMove({ row: 3, col: 15 });  // B
+      game.undo();
+      expect(game.board.get({ row: 3, col: 3 })).toBe(Color.Black);
+      expect(game.board.get({ row: 15, col: 15 })).toBe(Color.White);
+      expect(game.board.get({ row: 3, col: 15 })).toBe(Color.Empty);
+      expect(game.currentColor).toBe(Color.Black);
+    });
   });
 
   describe('SGF', () => {
@@ -137,6 +187,39 @@ describe('Game', () => {
 
       const sgf = game.toSGF();
       expect(sgf).toContain(';W[]');
+    });
+
+    it('emits HA + AB tags for handicap stones', () => {
+      const game = new Game(0.5, 19);
+      game.setHandicap([
+        { row: 15, col: 3 },
+        { row: 3, col: 15 },
+        { row: 15, col: 15 },
+      ]);
+      game.playMove({ row: 4, col: 4 }); // W
+
+      const sgf = game.toSGF();
+      expect(sgf).toContain('HA[3]');
+      expect(sgf).toContain('AB[dp][pd][pp]');
+      expect(sgf).toContain(';W[ee]');
+    });
+
+    it('round-trips a handicap game (export → import)', () => {
+      const original = new Game(0.5, 19);
+      original.setHandicap([
+        { row: 15, col: 3 },
+        { row: 3, col: 15 },
+      ]);
+      original.playMove({ row: 4, col: 4 }); // W
+      original.playMove({ row: 10, col: 10 }); // B
+
+      const re = Game.fromSGF(original.toSGF());
+      expect(re.handicapStones).toHaveLength(2);
+      expect(re.board.get({ row: 15, col: 3 })).toBe(Color.Black);
+      expect(re.board.get({ row: 3, col: 15 })).toBe(Color.Black);
+      expect(re.board.get({ row: 4, col: 4 })).toBe(Color.White);
+      expect(re.board.get({ row: 10, col: 10 })).toBe(Color.Black);
+      expect(re.currentColor).toBe(Color.White); // W to play next
     });
   });
 

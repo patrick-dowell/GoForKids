@@ -26,6 +26,11 @@ export class Game {
   komi: number;
   consecutivePasses: number;
   result: GameResult | null;
+  /** Handicap stones placed at game setup (all Black). Kept separate from
+   *  moveHistory because they're SGF "setup stones" (AB), not numbered
+   *  moves — but undo's rebuild needs them so they don't vanish, and
+   *  SGF export needs to emit AB tags for them. */
+  handicapStones: Point[];
 
   constructor(komi: number = DEFAULT_KOMI, size: number = BOARD_SIZE) {
     this.board = new Board(size);
@@ -35,6 +40,20 @@ export class Game {
     this.komi = komi;
     this.consecutivePasses = 0;
     this.result = null;
+    this.handicapStones = [];
+  }
+
+  /** Place handicap stones at setup. All stones are Black, and White
+   *  moves first afterwards (per standard handicap rules). Must be
+   *  called before any playMove/pass; idempotent on the same set. */
+  setHandicap(stones: Point[]): void {
+    this.handicapStones = stones.slice();
+    for (const p of stones) {
+      this.board.grid[p.row * this.board.size + p.col] = Color.Black;
+    }
+    if (stones.length > 0) {
+      this.currentColor = Color.White;
+    }
   }
 
   /** Get the current move number (1-indexed) */
@@ -143,11 +162,29 @@ export class Game {
     const size = this.board.size;
     const moves = this.moveHistory.slice(0, -1);
     this.board = new Board(size);
-    this.currentColor = Color.Black;
     this.moveHistory = [];
     this.consecutivePasses = 0;
 
+    // Restore handicap setup so the stones don't vanish on undo (TestFlight
+    // beta bug #8, 2026-05-14). Also sets currentColor to White if there's
+    // a handicap, so the very first replay move belongs to the right side.
+    if (this.handicapStones.length > 0) {
+      for (const p of this.handicapStones) {
+        this.board.grid[p.row * size + p.col] = Color.Black;
+      }
+      this.currentColor = Color.White;
+    } else {
+      this.currentColor = Color.Black;
+    }
+
     for (const move of moves) {
+      // Force currentColor to match the recorded move color. The replay
+      // loop used to rely on currentColor flipping naturally via playMove,
+      // which silently swapped W/B in handicap games (where W moves first)
+      // and any other future scenario that starts with W.
+      // MoveRecord.color is technically `Color`, but in practice the
+      // engine only ever records Black or White moves — narrow here.
+      this.currentColor = move.color as Stone;
       if (move.point) {
         this.playMove(move.point);
       } else {
@@ -182,6 +219,16 @@ export class Game {
     sgf += `SZ[${this.board.size}]`;
     sgf += `KM[${this.komi}]`;
     sgf += `RU[Japanese]`;
+    if (this.handicapStones.length > 0) {
+      sgf += `HA[${this.handicapStones.length}]`;
+      // AB = Add Black (setup stones). Must precede any numbered moves.
+      sgf += 'AB';
+      for (const p of this.handicapStones) {
+        const col = String.fromCharCode(97 + p.col);
+        const row = String.fromCharCode(97 + p.row);
+        sgf += `[${col}${row}]`;
+      }
+    }
 
     if (this.result) {
       const winner = this.result.winner === Color.Black ? 'B' : 'W';
@@ -216,12 +263,31 @@ export class Game {
 
     const game = new Game(komi, size);
 
+    // AB = Add Black setup stones (handicap). Must apply before any moves.
+    const abMatch = sgf.match(/AB((?:\[[a-z]{2}\])+)/);
+    if (abMatch) {
+      const stoneRegex = /\[([a-z]{2})\]/g;
+      const stones: Point[] = [];
+      let m: RegExpExecArray | null;
+      while ((m = stoneRegex.exec(abMatch[1])) !== null) {
+        const coords = m[1];
+        const col = coords.charCodeAt(0) - 97;
+        const row = coords.charCodeAt(1) - 97;
+        stones.push({ row, col });
+      }
+      if (stones.length > 0) game.setHandicap(stones);
+    }
+
     // Extract moves. SGF coords use 'a'..'s' for 19 (and subsets for smaller boards).
     const moveRegex = /;([BW])\[([a-z]{0,2})\]/g;
     let match: RegExpExecArray | null;
 
     while ((match = moveRegex.exec(sgf)) !== null) {
       const coords = match[2];
+      // The recorded color drives the move; without this, fromSGF would
+      // play W first as Black on handicap games (the same currentColor
+      // assumption that bit Game.undo's replay loop pre-fix).
+      game.currentColor = match[1] === 'B' ? Color.Black : Color.White;
       if (coords.length === 2) {
         const col = coords.charCodeAt(0) - 97;
         const row = coords.charCodeAt(1) - 97;
