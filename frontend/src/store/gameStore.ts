@@ -802,8 +802,22 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (lessonContext) {
       lessonAutoPass(get, set);
       const after = get();
-      if (after.phase !== 'playing') return;            // game ended via auto-passes
-      if (after.currentColor === playerColor) return;   // player's turn now, no AI move needed
+      // Either early-exit clears aiThinking. `playMove` sets it synchronously
+      // when the player's move would trigger an AI response — but if
+      // lessonAutoPass handled the bot's pass internally and we return
+      // here without calling api.getAIMove, no later code clears the flag.
+      // That left the UI in a "bot thinking" lock that looked like a
+      // freeze when the bot passed on the 5×5 tutorial (regression hit
+      // post-revert of the resign branch — the resign path side-stepped
+      // it by flipping phase to 'finished').
+      if (after.phase !== 'playing') {
+        set({ aiThinking: false });
+        return;
+      }
+      if (after.currentColor === playerColor) {
+        set({ aiThinking: false });
+        return;
+      }
     }
 
     set({ aiThinking: true });
