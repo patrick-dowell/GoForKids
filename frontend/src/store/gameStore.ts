@@ -378,6 +378,11 @@ function lessonAutoPass(
   const stone = s.currentColor as Color.Black | Color.White;
   if (s._game.board.hasLegalMove(stone)) return;
 
+  // Remember which side is about to auto-pass. Used below to surface the
+  // BotPassedModal — same UX as the selector-driven bot-pass path — when
+  // the bot side passed AND the game is still on after the pass.
+  const wasBotPass = s.currentColor !== s.playerColor;
+
   s._game.pass();
   playPassSound();
 
@@ -423,7 +428,16 @@ function lessonAutoPass(
 
   // Pass didn't end the game — commit state, sync the backend, and recurse
   // to check whether the OTHER side also has no legal moves.
-  set({ ...snapshot(s._game), scoreHistory: passHistory });
+  set({
+    ...snapshot(s._game),
+    scoreHistory: passHistory,
+    // Bot pass while the game continues → surface the "The bot passed!"
+    // modal so the player understands what happened and can choose
+    // Keep playing vs. Pass & end. If the player auto-passes (i.e. it's
+    // the player's turn here in recursion), this stays false — pressing
+    // a modal on themselves makes no sense.
+    botJustPassed: wasBotPass,
+  });
   if (s.gameId) {
     api.pass(s.gameId).catch((e) => console.warn('Auto-pass sync failed:', e));
   }
