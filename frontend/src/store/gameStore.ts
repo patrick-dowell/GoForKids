@@ -222,6 +222,11 @@ interface GameState {
    *  a "what just happened" modal so newcomers don't think the game silently
    *  ended. Cleared by either the user passing back or dismissing. */
   botJustPassed: boolean;
+  /** Lesson-context only: true when the player has no legal moves on their
+   *  turn. Surfaces a "you're out of choices, pass to end the game" modal
+   *  with a single Pass & end action that fires both sides' passes in
+   *  sequence so scoring runs and the kid sees the final tally. */
+  playerOutOfMoves: boolean;
   /** When true, the lesson 5 game-end modal is hidden (collapsed to the right
    *  side panel). Player can re-open it from the panel. */
   lessonGameEndDismissed: boolean;
@@ -264,6 +269,12 @@ interface GameState {
   dismissRuleViolation: () => void;
   /** Dismiss the bot-passed modal without taking action (player keeps playing). */
   dismissBotPassed: () => void;
+  /** Player tapped "Pass & end game" from the no-moves modal — pass for the
+   *  player AND force the bot to pass on the same tick, so the standard
+   *  pass-pass scoring path fires and the score modal shows the final tally.
+   *  A single player pass wouldn't end the game on its own (bot would just
+   *  play another move and loop the modal). */
+  passAndEndGame: () => void;
   /** Restart the current game with the same config (used by the lesson 5
    *  game-end modal's Play Again button). */
   replayGame: () => void;
@@ -351,20 +362,21 @@ function syncServerScoring(
 }
 
 /**
- * In tutorial games (lessonContext), auto-pass on behalf of the current
- * side when they have no legal moves. Recurses, so if the new current
- * color also can't play, they auto-pass too — two consecutive passes
- * trigger the pass-pass scoring path and the game ends gracefully
- * without the kid having to find the Pass button.
+ * In tutorial games (lessonContext), react to the current side having
+ * no legal moves with the right modal:
  *
- * Applies to bot AND player. Passing is always legal in Go (even when
- * every empty intersection is a suicide point), so this matches strict
- * rules and ends the game via standard pass-pass scoring rather than
- * an asymmetric "bot resigns" path.
+ *  - Bot side with no legal moves → auto-pass on the bot's behalf (strict
+ *    Go rules — passes are always legal). Then choose which modal to
+ *    surface based on the player's state:
+ *      • Player has legal moves → BotPassedModal (Keep playing / Pass & end)
+ *      • Player also has no legal moves → PlayerOutOfMovesModal — same
+ *        terminal-state UX as below.
+ *  - Player side with no legal moves → DON'T auto-pass. Surface the
+ *    PlayerOutOfMovesModal so the kid sees an explicit "you're out of
+ *    choices" prompt with a "Pass & end game" action.
  *
- * No-op outside lesson context. No-op when the current side has at
- * least one legal move. Skips the usual player-turn guards since we
- * may be passing on either side's behalf.
+ * No-op outside lesson context, or while the current side still has
+ * legal moves.
  */
 function lessonAutoPass(
   get: () => GameState,
@@ -378,11 +390,16 @@ function lessonAutoPass(
   const stone = s.currentColor as Color.Black | Color.White;
   if (s._game.board.hasLegalMove(stone)) return;
 
-  // Remember which side is about to auto-pass. Used below to surface the
-  // BotPassedModal — same UX as the selector-driven bot-pass path — when
-  // the bot side passed AND the game is still on after the pass.
-  const wasBotPass = s.currentColor !== s.playerColor;
+  // Player side with no legal moves → modal, don't auto-pass. The kid
+  // sees an explicit explanation + a "Pass & end game" button that
+  // fires the player's pass AND forces the bot's pass on the same tick
+  // so scoring runs (see `passAndEndGame` below).
+  if (s.currentColor === s.playerColor) {
+    set({ playerOutOfMoves: true });
+    return;
+  }
 
+  // Bot side with no legal moves → auto-pass on its behalf.
   s._game.pass();
   playPassSound();
 
@@ -391,8 +408,7 @@ function lessonAutoPass(
   const passHistory = [...prevHistory, { move: s._game.moveHistory.length, lead: lastLead }];
 
   if (s._game.phase === 'finished') {
-    // Pass-pass ended the game — kick off the same scoring sync as the
-    // human-driven pass() finished-branch.
+    // The bot's pass was the second consecutive — game is over, score it.
     playGameEndSound();
     set({
       deadStones: [],
@@ -426,22 +442,22 @@ function lessonAutoPass(
     return;
   }
 
-  // Pass didn't end the game — commit state, sync the backend, and recurse
-  // to check whether the OTHER side also has no legal moves.
+  // Bot passed, game continues, and it's now the player's turn. Decide
+  // which modal to show based on the player's state:
+  //   - has legal moves → BotPassedModal ("Bot passed, keep playing or pass to end")
+  //   - no legal moves  → PlayerOutOfMovesModal ("You're out of moves, pass to end")
+  // Set ONE flag, not both, so we never stack two modals.
+  const playerStone = s.playerColor as Color.Black | Color.White;
+  const playerHasMoves = s._game.board.hasLegalMove(playerStone);
   set({
     ...snapshot(s._game),
     scoreHistory: passHistory,
-    // Bot pass while the game continues → surface the "The bot passed!"
-    // modal so the player understands what happened and can choose
-    // Keep playing vs. Pass & end. If the player auto-passes (i.e. it's
-    // the player's turn here in recursion), this stays false — pressing
-    // a modal on themselves makes no sense.
-    botJustPassed: wasBotPass,
+    botJustPassed: playerHasMoves,
+    playerOutOfMoves: !playerHasMoves,
   });
   if (s.gameId) {
     api.pass(s.gameId).catch((e) => console.warn('Auto-pass sync failed:', e));
   }
-  lessonAutoPass(get, set);
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -476,6 +492,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   lessonContext: false,
   autoplayContext: false,
   botJustPassed: false,
+  playerOutOfMoves: false,
   lessonGameEndDismissed: false,
   gameEndDismissed: false,
   deadStones: [],
@@ -563,6 +580,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       lessonContext: !!options?.lessonContext,
       autoplayContext: !!options?.autoplayContext,
       botJustPassed: false,
+      playerOutOfMoves: false,
       lessonGameEndDismissed: false,
       gameEndDismissed: false,
       deadStones: [],
@@ -629,6 +647,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           : { color: Color.Empty, stones: [] },
         // Player chose to keep playing — clear any leftover bot-passed flag.
         botJustPassed: false,
+        // Player just made a legal move, so they aren't "out of moves" — clear.
+        playerOutOfMoves: false,
         ...(willTriggerAI ? { aiThinking: true } : {}),
       });
 
@@ -672,8 +692,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     _game.pass();
     playPassSound();
-    // Player chose Pass — clear the bot-passed flag (modal would dismiss anyway).
-    set({ botJustPassed: false });
+    // Player chose Pass — clear the bot-passed + out-of-moves flags.
+    set({ botJustPassed: false, playerOutOfMoves: false });
 
     // Pass doesn't change the board, so the prior KataGo lead is still
     // valid for backend games. Carry it forward instead of recomputing
@@ -931,14 +951,22 @@ export const useGameStore = create<GameState>((set, get) => ({
         set({ aiThinking: false, deadStones: [], ...snapshot(_game), scoreHistory: aiPassHistory });
         autoSaveGame(get());
       } else {
-        // The bot passed and the game is still on. Surface a modal so the
-        // player understands what just happened and can choose to keep
-        // playing or pass back to end the game.
+        // The bot passed and the game is still on. Decide which modal:
+        //   - Player has legal moves → BotPassedModal (Keep playing / Pass & end)
+        //   - Player has no legal moves → PlayerOutOfMovesModal (Pass & end)
+        // In lesson context the PlayerOutOfMovesModal swap is preferred
+        // because "Keep playing" would be a dead-end button. Outside
+        // lesson context we never set playerOutOfMoves so BotPassedModal
+        // is the only path.
+        const playerStone = playerColor as Color.Black | Color.White;
+        const playerHasMoves = _game.board.hasLegalMove(playerStone);
+        const showOutOfMoves = lessonContext && wasPlayingBeforePass && !playerHasMoves;
         set({
           aiThinking: false,
           ...snapshot(_game),
           scoreHistory: aiPassHistory,
-          botJustPassed: wasPlayingBeforePass,
+          botJustPassed: wasPlayingBeforePass && !showOutOfMoves,
+          playerOutOfMoves: showOutOfMoves,
         });
       }
     } catch (e) {
@@ -1159,6 +1187,83 @@ export const useGameStore = create<GameState>((set, get) => ({
   dismissRuleViolation: () => set({ ruleViolation: null }),
 
   dismissBotPassed: () => set({ botJustPassed: false }),
+
+  passAndEndGame: () => {
+    const { _game, gameId } = get();
+    if (_game.phase !== 'playing') return;
+
+    // Hide the no-moves modal first so the UI doesn't briefly show it
+    // over the finished board.
+    set({ playerOutOfMoves: false, botJustPassed: false });
+
+    // Player's pass first.
+    _game.pass();
+    playPassSound();
+
+    // If the bot hadn't already passed (consecutivePasses now === 1),
+    // force the bot's pass on the same tick so the game terminates via
+    // standard 2-pass scoring. The kid tapped "Pass & end game" — that
+    // intent is "this game is over," not "pass once and see what the
+    // bot does next" (which would loop the modal indefinitely if the
+    // bot still has legal moves).
+    if (_game.phase === 'playing') {
+      _game.pass();
+      playPassSound();
+    }
+    playGameEndSound();
+
+    // Mirror the pass()'s finished-branch: optimistic local commit,
+    // then sync to backend for dead-stone scoring (if applicable).
+    const prevHistory = get().scoreHistory;
+    const lastLead = prevHistory.length > 0 ? prevHistory[prevHistory.length - 1].lead : 0;
+    // Two pass entries to mirror the two _game.pass() calls. If only one
+    // was needed (bot already passed), append one — but the bookkeeping
+    // is forgiving and a phantom extra entry won't hurt the graph.
+    const passHistory = [
+      ...prevHistory,
+      { move: _game.moveHistory.length - 1, lead: lastLead },
+      { move: _game.moveHistory.length, lead: lastLead },
+    ];
+    set({
+      deadStones: [],
+      scoringInProgress: !!gameId,
+      ...snapshot(_game),
+      scoreHistory: passHistory,
+    });
+
+    if (gameId) {
+      // Sequence: send the player's pass, then the bot's pass, then read
+      // the scored final state. Both /pass calls go through the iPad's
+      // localGameRouter when offline, or the Render backend on web.
+      // Chained .then() rather than Promise.all keeps the ordering the
+      // backend's consecutive-pass logic depends on.
+      api.pass(gameId)
+        .then(() => api.pass(gameId))
+        .then((serverState) => {
+          if (serverState.result) {
+            const dead = syncServerScoring(_game, serverState);
+            const finalHistory = appendFinalScore(passHistory, _game.moveHistory.length + 1, serverState.result);
+            set({
+              deadStones: dead,
+              scoringInProgress: false,
+              ...snapshot(_game),
+              scoreHistory: finalHistory,
+            });
+            autoSaveGame(get());
+          } else {
+            set({ scoringInProgress: false });
+            autoSaveGame(get());
+          }
+        })
+        .catch((e) => {
+          console.warn('passAndEndGame sync failed:', e);
+          set({ scoringInProgress: false });
+          autoSaveGame(get());
+        });
+    } else {
+      autoSaveGame(get());
+    }
+  },
 
   dismissLessonGameEnd: () => set({ lessonGameEndDismissed: true }),
   reopenLessonGameEnd: () => set({ lessonGameEndDismissed: false }),
