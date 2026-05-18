@@ -1,5 +1,108 @@
 # Development Journal
 
+## Session 19 — May 17, 2026
+
+First TestFlight beta cycle. The friends-and-family build went out
+mid-week; 9 bugs surfaced across the next two days of real-device play
+(iPad + iPhone Pro Max + iPhone 17 simulator). Closed 8 of them across
+two sprints with zero new regressions in the 118-test suite. The
+remaining open item (#9, heat / battery on iPhone) is held for a
+later profiling session — the bug entry stays open until Xcode
+Instruments confirms the suspected on-device KataGo inference cost.
+
+### Sprint 1 — quick wins (5 bugs)
+
+All UI / state-flow fixes, no engine work. Shipped together in commit
+22a3fc1 then rebased onto main with a 5×5-tutorial follow-up
+(`6e35a3b`) that switched the bot's no-legal-moves behavior from
+resign to auto-pass per playtest preference (strict-Go-rules path,
+also avoids any risk of the pass-pass scoring race we hadn't ruled out).
+
+- **Auto-play game-end modal: dismiss + score breakdown.** The new
+  ranked-Play modal lacked a Close button and the standard score-
+  breakdown rows, so players couldn't get past it to inspect the
+  final board. Reused the existing `ScoreSide` component (exported
+  from `GameEndModal`), wired the existing `gameStore.gameEndDismissed`
+  flag, and added a new `AutoPlayGameEndPanel` "See results" pill in
+  the side panel post-dismiss to reopen.
+- **Profile scroll on iPhone WKWebView portrait.** `.profile-view`
+  had `overflow-x: hidden` with no height cap, which per CSS spec
+  implicitly turns `overflow-y` into `auto` but leaves nothing to
+  scroll against. Switched to explicit `height: 100dvh + overflow-y:
+  auto + -webkit-overflow-scrolling: touch`. Merged with a
+  contemporaneous safe-area-inset PR (`1f9c2b2`) — both fixes
+  preserved.
+- **Replay close button routes to home.** `replayStore.close()`
+  alone left the user on the in-progress game underneath (showHome
+  was still false from when Library was opened). Replaced inline
+  store reference with a required `onClose` prop; App's new handler
+  calls `closeReplay()` then `setShowHome(true)`.
+- **Replay controls layout on iPhone portrait.** The floating
+  settings gear (`bottom: 72px` in narrow mode to clear Pass/Resign)
+  was overlapping the Speed-control row's right edge. Added an
+  `.app-replay` modifier class toggled on `replayActive` and a
+  `bottom: 14px` override so the gear sits at the bottom-right
+  corner in replay mode; combined with `padding-bottom` on
+  `.replay-controls` so Download SGF + hint clear the gear when
+  fully scrolled.
+- **5×5 tutorial bot freeze on suicide-only positions.** Original
+  fix resigned for the bot to skip a suspected pass-pass async race;
+  per playtest preference, switched to auto-pass on the bot's behalf
+  (strict Go rules — passes are always legal). `lessonAutoPass` now
+  treats bot and player symmetrically; recursive pass-pass termination
+  ends the game via the standard scoring path.
+
+### Sprint 1.5 — iPhone simulator follow-ups (2 bugs)
+
+Caught during the user's iPhone Pro Max + iPhone 17 simulator pass.
+
+- **Pro Max: "← Home" overlaps lesson dot (1) in lesson view.** The
+  narrow breakpoint's `auto 1fr` grid wasn't constraining the
+  `.learn-progress` flex container because `justify-self: end`
+  (inherited from the default rule) sized it to its 376px content
+  width, overflowing leftward into the back-button cell. Override
+  to `justify-self: stretch` so `overflow-x: auto` can do its job.
+- **Homepage bot roster crops both ends on iPhone.** `.home-content`
+  is `align-items: center`, so `.home-bots` (sized to its 455px row
+  content) centered out of bounds equally on both sides. First cut
+  added `align-self: stretch + min-width: 0` but left Storm/Void
+  scrolled off-screen; final fix shrinks avatars 44→32px and gap
+  12→4px so all 8 fit centered on a ~400px viewport without scroll.
+
+### Sprint 2 — handicap undo + Pro layout audit
+
+- **Undo doesn't restore handicap stones (and silently swaps W/B).**
+  Two bugs in one. Handicap stones weren't tracked anywhere
+  accessible to `Game.undo()`'s board-rebuild, so they vanished. AND
+  the replay loop pinned `currentColor = Color.Black` at the start
+  and let `playMove` flip it naturally — which silently played the
+  recorded W moves as B in handicap games (where White moves first).
+  Fix: new `handicapStones: Point[]` field + `setHandicap()` method
+  on `Game`. `undo()` now re-places handicap stones post-rebuild and
+  sets `currentColor = move.color as Stone` before each replay step.
+  Same color-of-record discipline applied to `fromSGF`. `toSGF` now
+  emits `HA[n]` + `AB[xx][yy]...` tags so handicap survives library
+  save/load and replay. `localGameRouter`'s pre-existing undo
+  workaround removed — Game handles it natively now. 5 new
+  `Game.test.ts` tests lock in handicap-undo, color-replay,
+  non-handicap regression, AB emission, and SGF round-trip.
+- **iPhone Pro layout audit — closed via cumulative work.** The
+  Pro-specific complaints (homepage bot roster, lesson header
+  overlap) were both fixed in Sprint 1.5. Audit at 393×852 (iPhone
+  Pro / Pro Max) of home / new-game / game UI / lessons / profile /
+  library / replay all clean. Bug stays closed unless a fresh repro
+  surfaces a new cut-off location.
+
+### Workflow notes
+
+- Worktree-then-rebase-onto-main flow kept the main branch's working
+  tree intact for the iOS Xcode "Bundle React frontend" run script
+  (which reads from `~/Projects/GoForKids/frontend`, not the
+  worktree). Cycle each session: edit in worktree → push to remote
+  main → `git pull --ff-only` in main repo → rebuild in Xcode.
+- One conflict during rebase (`ProfileView.css`) merged my
+  scroll-fix with `1f9c2b2`'s safe-area padding — kept both.
+
 ## Session 18 — May 13, 2026
 
 Auto-play (feature 22) + Profile page (feature 23) shipped together
