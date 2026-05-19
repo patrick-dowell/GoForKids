@@ -93,6 +93,46 @@ Caught during the user's iPhone Pro Max + iPhone 17 simulator pass.
   library / replay all clean. Bug stays closed unless a fresh repro
   surfaces a new cut-off location.
 
+### Late-day follow-ups (May 17 → 18): 5×5 tutorial polish
+
+The 5×5 tutorial bug (#3 in the TestFlight batch) needed three more
+iterations on top of Sprint 1's "switch resign to pass" revert before
+the flow felt right end-to-end. Each was a single small commit; all
+came from the user playing the lesson on iPad and reporting what was
+off. Useful pattern to remember: the original "freeze" symptom was a
+composite of three orthogonal problems that the resign branch hid by
+side-stepping each one — the more correct strict-Go-rules pass path
+exposed them in turn.
+
+1. **aiThinking flag leak** (5a6308b). `playMove` synchronously sets
+   `aiThinking: true` to lock the UI for the upcoming bot turn. When
+   `lessonAutoPass` handled the bot's pass internally and
+   `requestAIMove` early-exited because the bot's turn was now done,
+   nothing in the early-return path cleared the flag. UI stayed in
+   "bot thinking" lock → looked like a freeze even though the bot had
+   passed cleanly. The resign branch sidestepped this because phase
+   flipped to `'finished'` and the game-end modal masked the locked UI.
+2. **Missing BotPassedModal trigger** (d213593). `lessonAutoPass`
+   was calling `_game.pass()` without setting `botJustPassed: true`,
+   so the explainer modal that the selector-driven bot-pass path
+   sets correctly was getting skipped on the auto-pass path. Capture
+   `wasBotPass = currentColor !== playerColor` before the pass, set
+   the flag on the non-finished commit. Recursion safety preserved.
+3. **Symmetric player-out-of-moves modal** (8a685e9). The original
+   `lessonAutoPass` also silently auto-passed when the *player* had
+   no legal moves — same silent-pass problem, opposite direction.
+   New `PlayerOutOfMovesModal` ("No more moves!" + single Pass-and-
+   end button) replaces the silent player auto-pass. The button
+   action `passAndEndGame` fires the player's pass AND forces the
+   bot's pass on the same tick so the standard 2-pass scoring path
+   runs and the score modal shows the final tally (a single player
+   pass wouldn't end the game on its own — the bot would just play
+   another move and loop the modal indefinitely if it still had
+   legal moves). `lessonAutoPass` and the selector-pass branch both
+   pick between `BotPassedModal` and `PlayerOutOfMovesModal` based
+   on whether the player still has legal moves, so exactly one
+   modal is on screen at a time.
+
 ### Workflow notes
 
 - Worktree-then-rebase-onto-main flow kept the main branch's working
@@ -102,6 +142,10 @@ Caught during the user's iPhone Pro Max + iPhone 17 simulator pass.
   main → `git pull --ff-only` in main repo → rebuild in Xcode.
 - One conflict during rebase (`ProfileView.css`) merged my
   scroll-fix with `1f9c2b2`'s safe-area padding — kept both.
+- The 5×5 tutorial follow-ups loop tightened the test-flight build
+  cadence: each iteration was one commit + one Xcode archive +
+  install on iPad + ~30s of lesson 5 play to confirm the next
+  symptom. Fast feedback worth the small upload-and-process cycle.
 
 ## Session 18 — May 13, 2026
 
@@ -2132,7 +2176,7 @@ Not worth further tuning right now — fixing H3 exactly requires either making 
 - [x] **Close button in replay routes to a new game instead of home** — fixed 2026-05-17 (Sprint 1, commit 22a3fc1). `replayStore.close()` alone only flipped `active: false`, leaving the App on the in-progress game underneath (showHome was still false from when the Library was opened). [ReplayControls](frontend/src/components/ReplayControls.tsx) now takes a required `onClose` prop; App's new `handleCloseReplay` calls `closeReplay()` then `setShowHome(true)` + `setShowStudy(false)` to explicitly route home.
 - [ ] **Download SGF doesn't work on iOS** — TestFlight beta 2026-05-14. Download SGF action no-ops on iPad/iPhone. WKWebView doesn't natively handle the standard `Blob` URL + `<a download>` flow that works in browsers; needs a native bridge that posts the SGF text to Swift and surfaces a `UIActivityViewController` (share sheet) for Save to Files / AirDrop, similar to the other iOS native bridges already in `localGameRouter`.
 - [x] **Profile page not scrollable in iPhone portrait** — fixed 2026-05-17 (Sprint 1, commit 22a3fc1). `.profile-view` had `min-height: 100vh + overflow-x: hidden` with no height cap, which per CSS spec implicitly turns `overflow-y` into `auto` but leaves nothing to scroll against on iOS WKWebView. Switched [ProfileView.css](frontend/src/components/ProfileView.css) to explicit `height: 100dvh; overflow-y: auto; -webkit-overflow-scrolling: touch` (with `overflow-x: hidden` kept). Verified `scrollHeight 1125 > clientHeight 812` in mobile preview. Merge with the contemporaneous safe-area-inset PR (1f9c2b2) preserved both fixes.
-- [x] **5×5 tutorial: White bot freezes when every move is suicide** — fixed 2026-05-17 (Sprint 1 + revert in commit 6e35a3b). Sprint 1's first cut had the bot resign on its behalf to avoid a suspected pass-pass race, but the reporter preferred strict Go rules behavior (passing is always legal even when every empty intersection is a suicide point). Final fix in [gameStore.ts:lessonAutoPass](frontend/src/store/gameStore.ts): when the current side has no legal moves, auto-pass on its behalf — applies to bot and player symmetrically. Recursion handles the pass-pass game-end via the existing scoring path. If a real pass-pass race surfaces in a future iPad repro, the root cause is the async sequencing inside `lessonAutoPass` (back-to-back `api.pass` without await), not the choice between pass and resign.
+- [x] **5×5 tutorial: White bot freezes when every move is suicide** — fixed across five iterations 2026-05-17 → 2026-05-18. (1) Sprint 1 (22a3fc1) had the bot resign on its behalf to avoid a suspected pass-pass race. (2) Per playtest preference, reverted to auto-pass (6e35a3b) — strict Go rules. (3) That exposed an `aiThinking` flag leak: `playMove` synchronously sets `aiThinking: true` to trigger the AI turn; when `lessonAutoPass` handled the bot's pass and `requestAIMove` early-exited, the flag was never cleared, leaving the UI in a "bot thinking" lock that looked like a freeze (5a6308b). (4) Once the freeze cleared, the explainer modal didn't pop because `lessonAutoPass` was calling `_game.pass()` without setting `botJustPassed: true` — restored (d213593). (5) Finally, the symmetric case (player out of legal moves) was silently auto-passing for them with no UI feedback; replaced with a new `PlayerOutOfMovesModal` ("No more moves!" + single Pass-and-end button) and a `passAndEndGame` action that fires both sides' passes in sequence so scoring runs and the kid sees the final tally (8a685e9). The selector-driven bot-pass path also got the swap so `BotPassedModal` ↔ `PlayerOutOfMovesModal` are picked correctly based on whether the player still has legal moves.
 - [x] **iPhone Pro Max: "← Home" overlaps lesson dot (1) in lesson view header** — observed + fixed 2026-05-17 (commit 046b85e). In the narrow breakpoint the `.learn-header` grid drops to `auto 1fr` (back btn | progress). The default `.learn-progress { justify-self: end }` sized the flex container to its content width (~376px), which overflowed leftward into the back-button cell and visually overlapped dot (1) on 430pt-wide Pro Max portrait. Override to `justify-self: stretch` in [LearnView.css](frontend/src/components/LearnView.css) constrains it to its grid column so `overflow-x: auto` actually scrolls the dots past the fold.
 - [x] **Homepage bot roster row bleeds off-screen on iPhone** — observed + fixed 2026-05-17 (commits 773fdde, 6b5c6b6). `.home-content` is `align-items: center`, so `.home-bots` was sizing to its (~455px) bot row content and centering it inside the narrower viewport pushed it off-screen equally on both sides (Seedling left + Void right cropped on iPhone 17 portrait). First commit added `align-self: stretch + min-width: 0` to `.home-bots` to constrain to parent width; that fixed the overflow but left Storm/Void scrolled off-screen. Second commit ([HomePage.css](frontend/src/components/HomePage.css) narrow block) shrank avatars 44→32px, gap 12→4px, and dropped label fonts 1px each so all 8 bots fit centered on ~400px-wide phones without horizontal scroll.
 - [x] **iPhone Pro (non–Pro Max) layout is cut off** — addressed via cumulative Sprint 1 + Sprint 2 CSS fixes (Sprint 2 audit at 393×852, 2026-05-17). The Pro-width complaints surfaced on iPhone 17 simulator (homepage bot roster bleeding equally off both sides, fixed in 6b5c6b6 / 773fdde) and Pro Max (lesson header dots overlapping Home, fixed in 046b85e). Audit at 393×852 of home / new-game dialog / game UI / lessons / profile / library / replay all render cleanly with no cropping. If a future Pro-specific repro surfaces a NEW cut-off location, reopen with the specific view + viewport coords.
