@@ -252,7 +252,26 @@ profiles:
       pass_threshold: 0.15
 
   9x9:
+    # Feature 24 — final state 2026-05-19. Six profiles validated via
+    # multiple bot-vs-bot iterations (DEVJOURNAL has the full history).
+    # Five distinct effective strength tiers:
+    #   30k anchor — KataGo lbio=true visits=4
+    #   15k (new)  — KataGo lbio=false visits=6 (middle-tier, real rank
+    #                ~15-22k pending playtest)
+    #   9k  (new)  — KataGo lbio=false visits=9 (transition tier, real
+    #                rank ~10-12k pending playtest)
+    #   6k  anchor — KataGo lbio=false visits=12
+    #   3k  (new)  — KataGo lbio=false visits=30 (validated this session)
+    #   1d  anchor — KataGo lbio=false visits=50 (clean sigmoid komi
+    #                response per Phase 1)
+    # 18k and 12k slots are filled by stones/komi in the auto-play ladder
+    # — no separate profiles. Heuristic-path attempts (save_atari_chance)
+    # all landed at 30k tier; the lbio=true cliff and the heuristic floor
+    # converge at the same ~30k effective strength. Detailed validation
+    # margins are in data/calibration_logs_b28/9x9_final_validation_*.
     "30k":
+      # Playtest-validated anchor (2026-05-18). Do not retune without
+      # explicit playtest confirmation that 30k feels wrong.
       max_point_loss: 30.0
       mistake_freq: 0.70
       policy_weight: 0.08
@@ -268,36 +287,67 @@ profiles:
       clarity_prior: 1.1
       clarity_score_gap: 999.0
     "15k":
-      # b28 calibration round 1: b20-clone landed at 36.7% (CI 21.9-54.5%,
-      # margin -16.30) over 30 games. b28-side losing by big margins —
-      # catastrophic mistake injection at 8 visits. Bumping visits 8 -> 12
-      # to give MCTS more headroom; if still under-band, consider
-      # max_point_loss 22 -> 18 to cap mistake magnitude.
-      max_point_loss: 22.0
-      mistake_freq: 0.55
-      policy_weight: 0.18
-      randomness: 0.75
-      random_move_chance: 0.12
-      local_bias: 0.45
-      local_bias_in_opening: true
+      # FINAL 2026-05-19 (feature 24). Sourced from v2 18k profile (KataGo
+      # path, visits=6, lbio=false). v2 test: beat 30k 97% with avg margin
+      # -82 from 30k's perspective (a near-saturated stomp on 9x9 where
+      # max margin is ~88). Loses ~97% to visits=10+ profiles (which all
+      # cluster at 6k tier). Empirically a middle-tier bot — exact rank
+      # uncertain (15-22k range) pending human playtest. Labeled 15k as a
+      # reasonable provisional name.
+      #
+      # Earlier heuristic-path attempts (save_atari_chance 0.35-0.92) all
+      # collapsed to 30k tier (see DEVJOURNAL feature 24 history). KataGo
+      # lbio=false visits=6-8 is the only profile shape that lands in the
+      # middle band.
+      max_point_loss: 28.0
+      mistake_freq: 0.72
+      policy_weight: 0.15
+      randomness: 0.78
+      random_move_chance: 0.16
+      local_bias: 0.30
+      local_bias_in_opening: false
       first_line_chance: 0.0
-      visits: 12
+      visits: 6
       min_candidates: 10
       opening_moves: 3
       pass_threshold: 0.10
-      clarity_prior: 1.1
-      clarity_score_gap: 999.0
+    "9k":
+      # NEW 2026-05-19 (feature 24) — speculative midpoint between new 15k
+      # (visits=6, middle tier) and 6k anchor (visits=12, 6k tier). The v2
+      # data shows a cliff between visits=8 (still middle) and visits=10
+      # (already 6k tier). visits=9 is the untested critical value — this
+      # profile tests whether the cliff is smooth enough to land at ~9k
+      # effective. Every knob is halfway between new 15k and 6k.
+      # Validation matrix in calibrate_9x9_ladder.py phase "fv".
+      max_point_loss: 23.0
+      mistake_freq: 0.63
+      policy_weight: 0.20
+      randomness: 0.71
+      random_move_chance: 0.12
+      local_bias: 0.24
+      local_bias_in_opening: false
+      first_line_chance: 0.0
+      visits: 9
+      min_candidates: 9
+      opening_moves: 4
+      pass_threshold: 0.10
+    # NOTE: 18k and 12k intentionally omitted as 9x9 profiles. Feature 24
+    # design: 18k and 12k rungs in the auto-play ladder are served by
+    # (15k bot + komi) and (6k bot + handicap stones) respectively. The
+    # b28 9x9 profile space produces 5 distinct strength tiers (30k, 15k,
+    # 9k, 6k, 3k, 1d after this iteration); other rungs come from stones
+    # and komi bridging. Custom-match dropdown therefore doesn't offer
+    # 18k or 12k on 9x9 — see frontend/src/components/NewGameDialog.tsx.
     "6k":
-      # b28 calibration:
+      # Playtest-validated anchor. b28 calibration history:
       #   v1 visits=12 mistake=0.45: 66.0% n=50, margin +25.58
       #   v2 visits=8  mistake=0.45: 66.7% n=30, margin +12.00
       #   v3 visits=12 mistake=0.55: 60.0% n=30, margin +17.30
       #   v4 visits=8  mistake=0.55: 63.3% n=30, margin +19.70
       # All four iterations cluster 60-67% — combined 74/120 = 61.7% (CI
       # 52.6-70.0%), out of band but in sanity band. Locked at v3 (best of
-      # the four). 6k is the strongest 9x9 bot we expose so being slightly
-      # over-strength is acceptable — picking 6k means the kid expects the
-      # toughest 9x9 fight, so a 60%-rate b28 is functionally on-mission.
+      # the four). 6k Phase 0 (feature 24, 2026-05-18) confirmed strength
+      # via 30k v 6k=100% 6k, 15k v 6k=100% 6k, 6k v 1d=87% 1d at -25 avg.
       max_point_loss: 18.0
       mistake_freq: 0.55
       policy_weight: 0.25
@@ -309,7 +359,26 @@ profiles:
       min_candidates: 8
       opening_moves: 4
       pass_threshold: 0.10
+    "3k":
+      # NEW 2026-05-18 (feature 24). Halfway between 6k and 1d on every
+      # knob. Visits 30 (between 6k's 12 and 1d's 50). High enough visit
+      # count to be komi-responsive (Phase 1 showed komi works at 50+
+      # visits cleanly; 30 should be in the "works but less clean" band).
+      max_point_loss: 13.0
+      mistake_freq: 0.40
+      policy_weight: 0.38
+      randomness: 0.52
+      random_move_chance: 0.05
+      local_bias: 0.12
+      first_line_chance: 0.0
+      visits: 30
+      min_candidates: 7
+      opening_moves: 4
+      pass_threshold: 0.10
     "1d":
+      # Playtest-validated anchor. Phase 1 (feature 24) confirmed clean
+      # sigmoid komi response: +14 -> 15%, +7 -> 40%, 0 -> 80%, -7 -> 85%,
+      # -14 -> 95% over 20 games per cell.
       max_point_loss: 8.0
       mistake_freq: 0.22
       policy_weight: 0.50

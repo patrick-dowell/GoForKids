@@ -1,6 +1,8 @@
 .PHONY: help up down logs rebuild shell test-katago native-backend native-frontend \
         calibrate-up calibrate-up-sanity calibrate-down calibrate-status \
-        calibrate calibrate-sanity
+        calibrate calibrate-sanity \
+        9x9-ladder-up 9x9-ladder-down 9x9-ladder-status \
+        9x9-ladder-dry-run 9x9-ladder-overnight 9x9-ladder-profile-validation
 
 help:
 	@echo "GoForKids dev commands"
@@ -22,6 +24,14 @@ help:
 	@echo "  make calibrate-status     Show paired-backend status + recent log lines"
 	@echo "  make calibrate RANK=15k BOARD=9 GAMES=100 [DUMP_SGF=1]"
 	@echo "  make calibrate-sanity BOARD=9   Bring up sanity pair, 100-game match, tear down"
+	@echo ""
+	@echo "  9×9 ladder calibration (feature 24 — Phase 0 + Phase 1):"
+	@echo "  make 9x9-ladder-up           Single b28 backend on :8200 for the ladder run"
+	@echo "  make 9x9-ladder-down         Stop the 9x9-ladder backend"
+	@echo "  make 9x9-ladder-status       Process + log status"
+	@echo "  make 9x9-ladder-dry-run      Print matrix + estimated wall time"
+	@echo "  make 9x9-ladder-overnight    Phase 0 + Phase 1 trusted (30k/6k/1d) [INCLUDE_15K=1]"
+	@echo "  make 9x9-ladder-profile-validation  Adjacent-pair matrix for new 18k/15k/12k/9k/3k (~1.5h)"
 
 up:
 	docker compose up --build
@@ -216,3 +226,86 @@ calibrate-sanity:
 	    --old-url http://localhost:$(CAL_PORT_OLD) \
 	    --new-url http://localhost:$(CAL_PORT_NEW); \
 	$(MAKE) --no-print-directory calibrate-down
+
+
+# ---------- 9×9 ladder calibration (feature 24) ----------
+#
+# Single backend running b28 + b28.yaml on a dedicated port (8200) so it
+# doesn't collide with `make calibrate-up` (which uses 8100/8101) or
+# `make native-backend` (which uses 8000). PID/log live in the same
+# /tmp + data/calibration_logs_b28 dirs as the other calibration runs.
+
+LADDER_PORT     ?= 8200
+LADDER_OUT_DIR  ?= $(CAL_LOG_DIR)/9x9_ladder_$(shell date +%Y-%m-%d)
+
+9x9-ladder-up:
+	@echo "Bringing up single b28 backend for 9×9 ladder calibration:"
+	$(call _calibrate_launch,ladder,$(LADDER_PORT),$(KATAGO_B28),$(CURDIR)/data/profiles/b28.yaml)
+	@printf "Waiting for backend to come up"; \
+	for i in $$(seq 1 60); do \
+	    if curl -sf http://localhost:$(LADDER_PORT)/health > /dev/null 2>&1; then \
+	        echo " ✓ /health"; break; \
+	    fi; \
+	    printf "."; sleep 1; \
+	    if [ $$i -eq 60 ]; then \
+	        echo " ✗ timed out — check $(CAL_LOG_DIR)/backend-ladder.log"; exit 1; \
+	    fi; \
+	done; \
+	GAME=$$(curl -sf -X POST "http://localhost:$(LADDER_PORT)/api/games" \
+	    -H "Content-Type: application/json" \
+	    -d '{"target_rank":"15k","mode":"casual","komi":7.5,"player_color":"black","handicap":0,"board_size":9}'); \
+	GID=$$(printf '%s' "$$GAME" | python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["game_id"])'); \
+	AI=$$(curl -sf -X POST "http://localhost:$(LADDER_PORT)/api/games/$$GID/ai-move" --max-time 30); \
+	SL=$$(printf '%s' "$$AI" | python3 -c 'import json,sys;print(json.loads(sys.stdin.read()).get("score_lead"))'); \
+	if [ "$$SL" = "None" ] || [ -z "$$SL" ]; then \
+	    echo "ERROR: backend alive but score_lead null — KataGo not running, would silently measure stub AI."; \
+	    echo "  See $(CAL_LOG_DIR)/backend-ladder.log"; exit 1; \
+	fi; \
+	echo "  KataGo move smoke: score_lead=$$SL ✓"; \
+	echo "  log: tail -f $(CAL_LOG_DIR)/backend-ladder.log"
+
+9x9-ladder-down:
+	@pidf='$(CAL_RUN_DIR)'/ladder.pid; \
+	if [ -f "$$pidf" ]; then \
+	    pid=$$(cat "$$pidf"); \
+	    if kill -0 "$$pid" 2>/dev/null; then \
+	        kill "$$pid" && echo "stopped backend-ladder (pid $$pid)"; \
+	        for j in 1 2 3 4 5; do kill -0 "$$pid" 2>/dev/null || break; sleep 1; done; \
+	        kill -9 "$$pid" 2>/dev/null || true; \
+	    else \
+	        echo "backend-ladder pid $$pid not running"; \
+	    fi; \
+	    rm -f "$$pidf"; \
+	fi
+
+9x9-ladder-status:
+	@pidf='$(CAL_RUN_DIR)'/ladder.pid; \
+	if [ -f "$$pidf" ] && kill -0 $$(cat "$$pidf") 2>/dev/null; then \
+	    echo "backend-ladder: pid $$(cat $$pidf) ✓ on :$(LADDER_PORT)"; \
+	else \
+	    echo "backend-ladder: not running"; \
+	fi
+	@log='$(CAL_LOG_DIR)'/backend-ladder.log; \
+	if [ -f "$$log" ]; then \
+	    echo ""; echo "--- last 8 lines of backend-ladder ---"; tail -8 "$$log"; \
+	fi
+
+9x9-ladder-dry-run:
+	@./backend/venv/bin/python data/calibrate_9x9_ladder.py \
+	    --port $(LADDER_PORT) --output-dir $(LADDER_OUT_DIR) --dry-run \
+	    $(if $(INCLUDE_15K),--include-15k-phase1,)
+
+# Phase 0 + Phase 1 (trusted profiles 30k/6k/1d). Add INCLUDE_15K=1 to also
+# sweep 15k Phase 1 (~2.5h extra). Assumes `make 9x9-ladder-up` already ran.
+9x9-ladder-overnight:
+	@./backend/venv/bin/python data/calibrate_9x9_ladder.py \
+	    --port $(LADDER_PORT) --output-dir $(LADDER_OUT_DIR) \
+	    $(if $(INCLUDE_15K),--include-15k-phase1,)
+
+# Profile validation — adjacent-rank bot-vs-bot for the new 18k/15k/12k/9k/3k
+# candidate profiles. Tells us which speculative guesses landed in the
+# 60-90% strength-gap band and which need another tuning pass. ~1.5h.
+9x9-ladder-profile-validation:
+	@./backend/venv/bin/python data/calibrate_9x9_ladder.py \
+	    --port $(LADDER_PORT) --output-dir $(LADDER_OUT_DIR) \
+	    --phases pv

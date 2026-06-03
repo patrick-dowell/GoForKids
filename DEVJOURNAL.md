@@ -1,5 +1,143 @@
 # Development Journal
 
+## Session 20 — May 18-19, 2026
+
+Feature 24 — 9×9 ranked-mode foundations. Beta feedback: 19×19 too
+intimidating, even Sprout 18k + H9 feels hard for new players. Need a
+gentler on-ramp via 9×9. This session built out the bot ladder for 9×9
+since that's prerequisite for the ranked-mode UX, and uncovered a much
+harder profile-design problem than expected.
+
+### Phase 0+1 — anchor validation + komi sweep (overnight, finished in 3.7h)
+
+650 games via `data/calibrate_9x9_ladder.py` orchestrator (new this
+session). Phase 0: cross-rank ordering across the 4 existing 9×9 profiles
+(30k/15k/6k/1d). Phase 1: same-profile-vs-self komi sweep across 5 values
+(+14/+7/0/-7/-14) to measure komi-per-rank slope per profile.
+
+Findings:
+- 30k/6k/1d rank ordering validated; old 15k confirmed broken
+  (15k-v-6k margin -84 was nearly identical to 30k-v-6k margin -89, i.e.
+  15k got stomped same as 30k).
+- **Komi response scales with visit count.** 30k (4 visits) and 6k
+  (12 visits) were komi-deaf across the full sweep range. 1d (50 visits)
+  produced a clean sigmoid curve (15→40→80→85→95%). Means komi-based
+  fine handicap only works for high-visit profiles.
+
+### Profile design iterations (5 attempts)
+
+**v1 (KataGo, small knob deltas):** 18k v 15k = 50/50 (no gap), 15k v 12k
+= 12k 93% (cliff). Discovered the `local_bias_in_opening` knob was a
+15-20 rank cliff — kills any profile that uses it.
+
+**v2 (KataGo, lbio=false everywhere, visit-spread 6/8/10/11):** v2 18k
+(visits=6) finally produced a real middle-tier bot — beat 30k 97% with
+avg margin -82.7 (near-saturated stomp on 9×9). But middle-vs-middle
+distinctions stayed flat: 18k v 15k = 50/50. Cliff still at visits 8→10.
+
+**v3 (heuristic path, `use_katago: false`):** Discovered the
+`_select_beginner_move` code path that bypasses KataGo entirely. Tuned
+via `save_atari_chance` + `capture_chance`. Validation showed clean
+curve internally (save_atari=0.55 → 0.75 produced 77% gap) but the
+*entire* heuristic curve sat in the 28-35k effective range. Heuristic
+at max-firing (save_atari=0.92) still lost 97% to KataGo 6k.
+
+**v4 relabel attempt:** tried renaming the v3 heuristic profiles to
+match perceived effective strength. Failed — 30k v "new 18k"
+(save_atari=0.75) was 50/50, confirming heuristic profiles cluster at
+30k tier regardless of internal differentiation.
+
+**Final (v5):** sourced new 15k from v2-18k (KataGo visits=6, lbio=false,
+mf=0.72) — the only profile shape that lands a real middle bot. Added
+visits=9 as speculative 9k — turned out to land at ~10-12k effective
+(small but real gap from new 15k, 7-point margin from 6k).
+
+### Final 9×9 profile set (b28.yaml)
+
+5 distinct effective strength tiers:
+
+| Rank | Profile shape | Validation |
+|------|---------------|------------|
+| 30k  | KataGo lbio=true visits=4 | playtest + bot anchor |
+| 15k  | KataGo lbio=false visits=6 mf=0.72 | middle-tier, ~15-22k effective (precise rank pending playtest) |
+| 9k   | KataGo lbio=false visits=9 mf=0.63 | transition tier, ~10-12k effective |
+| 6k   | KataGo lbio=false visits=12 mf=0.55 | playtest + bot anchor |
+| 3k   | KataGo lbio=false visits=30 mf=0.40 | validated this session (70% vs 6k, 80% vs 1d) |
+| 1d   | KataGo lbio=false visits=50 mf=0.22 | playtest + bot anchor |
+
+**18k and 12k slots intentionally left as ladder-only rungs** — served by
+(15k bot + komi) and (6k bot + handicap stones) in feature 22's 9×9
+ranked-mode design.
+
+### Files touched
+
+- `data/profiles/b28.yaml` — 9×9 block rewritten (added 9k, retuned 15k,
+  added 3k, dropped old broken 15k, dropped speculative heuristic 18k)
+- `backend/app/ai/profile_loader.py` — split `REQUIRED_KEYS` from a new
+  `HEURISTIC_REQUIRED_KEYS` so `use_katago: false` profiles can omit
+  KataGo-only knobs (used during v3 experiments; harmless to keep)
+- `data/calibrate_9x9_ladder.py` — new 360-line orchestrator. Supports
+  4 matrix phases: `0,1` (Phase 0+1), `pv` (full adjacent-pair
+  validation), `rv` (relabel validation), `fv` (final 4-pair validation).
+  Resumable via results.csv append, writes summary.md per pairing.
+- `Makefile` — 5 new targets: `9x9-ladder-{up,down,status,dry-run,
+  overnight,profile-validation}` plus the b28-only single-backend launch
+- `frontend/src/components/NewGameDialog.tsx` — 9k and 3k now appear in
+  the 9×9 custom-match dropdown (sizes: NINETEEN_ONLY → NINE_AND_NINETEEN)
+- `feature_plans/24_9x9_ladder.md` — new feature plan doc, captures the
+  full komi-vs-stones design tradeoffs + Phase 0/1 results
+- `feature_plans/README.md` — added feature 24 row
+
+Calibration logs in `data/calibration_logs_b28/9x9_*` (5 separate runs,
+~1200 games total wall-clock).
+
+### Lessons worth keeping
+
+1. **Bot-vs-bot win rate is a saturated signal at large rank gaps.**
+   Anything weaker than ~10k loses to 6k at 95%+. Use margin (avg points
+   from B's perspective) instead. Phase 0 margins like 6k v 1d = -25.9
+   tell us "real Go game with one side winning"; -85+ tells us "stomp,
+   one side got wiped off the board."
+
+2. **The b28 9×9 profile space has structural cliffs.** Visits is the
+   dominant strength dial in the lbio=false tier, but the transition
+   from "middle" to "6k-like real Go" happens sharply between visits=8
+   and visits=10. visits=9 (this session's "9k") landed close to the
+   transition but the cliff is real — can't fill the 12k-9k middle
+   with a single KataGo profile shape.
+
+3. **Heuristic path (`use_katago: false`) sits firmly in 30k tier
+   regardless of knob tuning.** Even max-firing heuristic
+   (save_atari=0.92, capture=0.82) lost 97% to KataGo 6k. Curves
+   internally (save_atari 0.55→0.75 differentiates clearly) but the
+   whole curve is in 28-35k range. Useful as a 30k-flavor variant; not
+   useful for filling the middle of the ladder.
+
+4. **Worktree edits hit main repo when given absolute paths.** Edit tool
+   with `/Users/patrickdowell/Projects/GoForKids/...` writes to main
+   repo, not worktree. Use the explicit worktree path
+   (`/Users/patrickdowell/Projects/GoForKids/.claude/worktrees/<name>/...`)
+   for changes that should travel with the branch. This session's edits
+   landed in main repo first; copied to worktree at the end to make the
+   branch reflect the work.
+
+### Open / followup
+
+- humanSL (KataGo's human-policy model) is the right long-term solution
+  for filling the 9k-15k gap with rank-realistic bots. Requires
+  infrastructure work: download humanSL model file (~50-300MB), add
+  `humanProfile` to KataGo analysis config, plumb a `humanSLProfile`
+  param through move_selector. Estimated 4-6h. File as separate feature
+  plan.
+
+- Playtest 9×9 15k and 9k to determine true effective ranks. Current
+  labels are provisional based on bot-vs-bot margin readings. Real rank
+  could be 12k-22k for "15k" and 8-13k for "9k."
+
+- Next session: 9×9 ranked play mode UI. Per feature 24's design, will
+  use the new 6-profile set plus stones/komi bridging to build the
+  10-12 rung ladder.
+
 ## Session 19 — May 17, 2026
 
 First TestFlight beta cycle. The friends-and-family build went out

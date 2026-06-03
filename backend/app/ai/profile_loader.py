@@ -25,9 +25,10 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# Profile knobs that every rank profile must define. These are the ones
-# `move_selector.py` reads without a `.get(..., default)` — missing them
-# would crash the bot at runtime, so we want a clean error at load time.
+# Profile knobs that every KataGo-path rank profile must define. These are
+# the ones `move_selector.py:_select_kata_move` reads without a
+# `.get(..., default)` — missing them would crash the bot at runtime, so we
+# want a clean error at load time.
 REQUIRED_KEYS: tuple[str, ...] = (
     "max_point_loss",
     "mistake_freq",
@@ -39,6 +40,16 @@ REQUIRED_KEYS: tuple[str, ...] = (
     "visits",
     "min_candidates",
     "opening_moves",
+)
+
+# Profile knobs that every heuristic-path (use_katago: false) profile must
+# define. _select_beginner_move uses .get(..., default) for these but we
+# still want to require an explicit value at load time so the YAML is the
+# source of truth instead of accidentally inheriting the function defaults.
+HEURISTIC_REQUIRED_KEYS: tuple[str, ...] = (
+    "save_atari_chance",
+    "capture_chance",
+    "local_bias",
 )
 
 # Knobs that are read with a default in move_selector.py — present in some
@@ -85,7 +96,12 @@ def _validate_profile(size: int, rank: str, profile: dict) -> None:
     if not isinstance(profile, dict):
         raise ValueError(f"profile {where} is not a mapping: {type(profile).__name__}")
 
-    missing = [k for k in REQUIRED_KEYS if k not in profile]
+    # Heuristic-path profiles (use_katago: false) route through
+    # _select_beginner_move which doesn't touch KataGo. They only need the
+    # heuristic-relevant knobs.
+    is_heuristic = profile.get("use_katago") is False
+    required = HEURISTIC_REQUIRED_KEYS if is_heuristic else REQUIRED_KEYS
+    missing = [k for k in required if k not in profile]
     if missing:
         raise ValueError(f"profile {where} missing required keys: {missing}")
 

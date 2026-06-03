@@ -36,6 +36,7 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 | 21 | [iPhone (Pro Max) support](21_iphone_support.md) | 🟡 Beta | Medium | 10 |
 | 22 | [Auto-play (matchmaker + ranked progression)](22_auto_play.md) | 📝 Planned | High | 01, 23 |
 | 23 | [Profile page](23_profile_page.md) | 📝 Planned | High | 22, 11 |
+| 24 | [9×9 ranked ladder (komi-based)](24_9x9_ladder.md) | 📝 Planned | High | 22, 23 |
 
 ## Suggested sequencing
 
