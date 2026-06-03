@@ -1,6 +1,13 @@
 import { useAutoPlayStore } from '../store/autoPlayStore';
 import { Avatar, BOT_AVATARS } from './Avatar';
-import { WINS_TO_PROMOTE, nextRung, effectiveMatchup, type Matchup } from '../autoplay/matchmaker';
+import {
+  WINS_TO_PROMOTE,
+  nextRung,
+  effectiveMatchup,
+  hasLadder,
+  type Matchup,
+  type BoardSize,
+} from '../autoplay/matchmaker';
 import './AutoPlayView.css';
 
 interface AutoPlayViewProps {
@@ -10,26 +17,40 @@ interface AutoPlayViewProps {
   onStart: (matchup: Matchup) => void;
 }
 
+/** Standard even-game komi used for the "head start" framing on komi rungs.
+ *  Matches the 9×9 ladder's even rung (feature 24). */
+const STANDARD_KOMI = 7;
+
+/** Board sizes shown as pills on the match-picker, in display order. */
+const BOARD_OPTIONS: BoardSize[] = [9, 13, 19];
+
 /**
  * Match-picker card shown when the player taps Play from the homepage.
- * Reads the current rung from the auto-play store, picks the matchup
+ * Reads the current rung + board from the auto-play store, picks the matchup
  * deterministically (linear ladder), and starts the game when the player
  * confirms. Same view is shown between auto-play games — the player
  * returns here after each match.
  */
 export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
+  const boardSize = useAutoPlayStore((s) => s.boardSize);
+  const setBoardSize = useAutoPlayStore((s) => s.setBoardSize);
   const rungState = useAutoPlayStore((s) => s.rungState);
   // Compute derived values outside the selector — selectors that return
   // freshly-allocated objects each render trigger React's "getSnapshot
   // should be cached" warning and infinite re-renders.
-  const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak);
+  const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak, boardSize);
   const atWall = rungState.winsAtCurrentRung >= WINS_TO_PROMOTE;
 
   const botInfo = BOT_AVATARS[matchup.bot] ?? BOT_AVATARS['15k'];
-  const next = nextRung(rungState.currentRung);
+  const next = nextRung(rungState.currentRung, boardSize);
   const winsRemaining = Math.max(0, WINS_TO_PROMOTE - rungState.winsAtCurrentRung);
 
   const handicapLine = (() => {
+    if (matchup.kind === 'komi') {
+      const headStart = STANDARD_KOMI - (matchup.komi ?? STANDARD_KOMI);
+      if (headStart <= 0) return 'Even game — standard komi.';
+      return `You start ${headStart} ${headStart === 1 ? 'point' : 'points'} ahead.`;
+    }
     if (matchup.handicap === 0) return 'Even game — no handicap.';
     if (matchup.handicap === 1) return 'You take 1 stone (+1 advantage).';
     return `You take ${matchup.handicap} stones (+${matchup.handicap} advantage).`;
@@ -55,14 +76,39 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
         <button className="autoplay-back-btn" onClick={onExit} aria-label="Back to home">
           ← Home
         </button>
-        <div className="autoplay-rank-chip" aria-label={`Current rank ${rungState.currentRung}`}>
-          <span className="autoplay-rank-chip-label">19×19</span>
+        <div className="autoplay-rank-chip" aria-label={`Current rank ${rungState.currentRung} on ${boardSize}×${boardSize}`}>
+          <span className="autoplay-rank-chip-label">{boardSize}×{boardSize}</span>
           <span className="autoplay-rank-chip-rank">{rungState.currentRung}</span>
         </div>
       </header>
 
       <main className="autoplay-main">
         <div className="autoplay-card">
+          <div className="autoplay-board-pills" role="tablist" aria-label="Board size">
+            {BOARD_OPTIONS.map((size) => {
+              const enabled = hasLadder(size);
+              const selected = size === boardSize;
+              return (
+                <button
+                  key={size}
+                  role="tab"
+                  aria-selected={selected}
+                  className={
+                    'autoplay-board-pill' +
+                    (selected ? ' autoplay-board-pill-active' : '') +
+                    (enabled ? '' : ' autoplay-board-pill-disabled')
+                  }
+                  disabled={!enabled}
+                  title={enabled ? `${size}×${size}` : `${size}×${size} — coming soon`}
+                  onClick={() => enabled && setBoardSize(size)}
+                >
+                  {size}×{size}
+                  {!enabled && <span className="autoplay-board-pill-soon">soon</span>}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="autoplay-eyebrow">Today's match</div>
 
           <div className="autoplay-bot">
@@ -90,7 +136,7 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
           <button
             className="autoplay-play-btn"
             onClick={handleStart}
-            disabled={!botInfo.validated}
+            disabled={!matchup.validated}
           >
             <span className="autoplay-play-icon">▶</span>
             Play

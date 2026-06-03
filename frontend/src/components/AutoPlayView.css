@@ -235,3 +235,52 @@
 .autoplay-play-icon {
   font-size: 16px;
 }
+
+/* --- Board-size pills (feature 24: 9×9 / 13×13 / 19×19 chooser) --- */
+.autoplay-board-pills {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  justify-content: center;
+}
+
+.autoplay-board-pill {
+  position: relative;
+  flex: 1 1 0;
+  max-width: 110px;
+  padding: 9px 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #c0c8d4;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.autoplay-board-pill:hover:not(.autoplay-board-pill-disabled):not(.autoplay-board-pill-active) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e6edf3;
+}
+
+.autoplay-board-pill-active {
+  color: #0d1117;
+  background: linear-gradient(135deg, #ffd166, #d4a045);
+  border-color: rgba(255, 209, 102, 0.6);
+}
+
+.autoplay-board-pill-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.autoplay-board-pill-soon {
+  display: block;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8b949e;
+  margin-top: 2px;
+}

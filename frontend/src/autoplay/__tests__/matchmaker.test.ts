@@ -11,35 +11,38 @@ import {
   nextRung,
   isNextRungValidated,
   freshState,
+  ladderRungs,
+  startingRung,
+  hasLadder,
 } from '../matchmaker';
 
-describe('matchupForRung', () => {
+describe('matchupForRung (19×19)', () => {
   it('30k is even vs the 30k bot', () => {
-    expect(matchupForRung('30k')).toEqual({ bot: '30k', handicap: 0, validated: true });
+    expect(matchupForRung('30k')).toEqual({ kind: 'stones', bot: '30k', handicap: 0, validated: true });
   });
 
   it('27k is H9 vs 18k bot — the first big jump after the 30k start', () => {
-    expect(matchupForRung('27k')).toEqual({ bot: '18k', handicap: 9, validated: true });
+    expect(matchupForRung('27k')).toEqual({ kind: 'stones', bot: '18k', handicap: 9, validated: true });
   });
 
   it('19k is H1 vs 18k bot, the last rung before 18k even', () => {
-    expect(matchupForRung('19k')).toEqual({ bot: '18k', handicap: 1, validated: true });
+    expect(matchupForRung('19k')).toEqual({ kind: 'stones', bot: '18k', handicap: 1, validated: true });
   });
 
   it('18k is even vs 18k bot', () => {
-    expect(matchupForRung('18k')).toEqual({ bot: '18k', handicap: 0, validated: true });
+    expect(matchupForRung('18k')).toEqual({ kind: 'stones', bot: '18k', handicap: 0, validated: true });
   });
 
   it('17k transitions to the next bot (15k) with H2', () => {
-    expect(matchupForRung('17k')).toEqual({ bot: '15k', handicap: 2, validated: true });
+    expect(matchupForRung('17k')).toEqual({ kind: 'stones', bot: '15k', handicap: 2, validated: true });
   });
 
   it('5k uses the 3k bot, currently unvalidated', () => {
-    expect(matchupForRung('5k')).toEqual({ bot: '3k', handicap: 2, validated: false });
+    expect(matchupForRung('5k')).toEqual({ kind: 'stones', bot: '3k', handicap: 2, validated: false });
   });
 
   it('1d (top of ladder) is currently unvalidated', () => {
-    expect(matchupForRung('1d')).toEqual({ bot: '1d', handicap: 0, validated: false });
+    expect(matchupForRung('1d')).toEqual({ kind: 'stones', bot: '1d', handicap: 0, validated: false });
   });
 
   it('throws on an unknown rung', () => {
@@ -47,7 +50,7 @@ describe('matchupForRung', () => {
   });
 });
 
-describe('LADDER_RUNGS', () => {
+describe('LADDER_RUNGS (19×19)', () => {
   it('starts at 30k and ends at 1d', () => {
     expect(LADDER_RUNGS[0]).toBe('30k');
     expect(LADDER_RUNGS[LADDER_RUNGS.length - 1]).toBe('1d');
@@ -76,7 +79,7 @@ describe('LADDER_RUNGS', () => {
   });
 });
 
-describe('nextRung', () => {
+describe('nextRung (19×19)', () => {
   it('returns the next rung up', () => {
     expect(nextRung('30k')).toBe('27k');
     expect(nextRung('19k')).toBe('18k');
@@ -88,7 +91,7 @@ describe('nextRung', () => {
   });
 });
 
-describe('isNextRungValidated', () => {
+describe('isNextRungValidated (19×19)', () => {
   it('true when the next rung uses a calibrated bot', () => {
     expect(isNextRungValidated('30k')).toBe(true);  // 27k → 18k bot
     expect(isNextRungValidated('7k')).toBe(true);   // 6k → 6k bot
@@ -103,7 +106,7 @@ describe('isNextRungValidated', () => {
   });
 });
 
-describe('applyResult', () => {
+describe('applyResult (19×19)', () => {
   it('loss: increments lossStreak, no other change', () => {
     const out = applyResult({ currentRung: '30k', winsAtCurrentRung: 1, lossStreak: 0 }, 'loss');
     expect(out.state).toEqual({ currentRung: '30k', winsAtCurrentRung: 1, lossStreak: 1 });
@@ -171,28 +174,28 @@ describe('applyResult', () => {
   });
 });
 
-describe('effectiveMatchup (anti-frustration safeguard)', () => {
+describe('effectiveMatchup (anti-frustration safeguard, 19×19)', () => {
   it('lossStreak below threshold: returns base matchup', () => {
     expect(effectiveMatchup('18k', SAFEGUARD_LOSS_THRESHOLD - 1)).toEqual({
-      bot: '18k', handicap: 0, validated: true,
+      kind: 'stones', bot: '18k', handicap: 0, validated: true,
     });
   });
 
   it('lossStreak at threshold: adds +2 stones', () => {
     expect(effectiveMatchup('18k', SAFEGUARD_LOSS_THRESHOLD)).toEqual({
-      bot: '18k', handicap: 2, validated: true,
+      kind: 'stones', bot: '18k', handicap: 2, validated: true,
     });
   });
 
   it('lossStreak above threshold: still +2 stones (no stacking)', () => {
     expect(effectiveMatchup('18k', SAFEGUARD_LOSS_THRESHOLD + 5)).toEqual({
-      bot: '18k', handicap: 2, validated: true,
+      kind: 'stones', bot: '18k', handicap: 2, validated: true,
     });
   });
 
   it('27k safeguard is a no-op (already at H9, the engine cap)', () => {
     expect(effectiveMatchup('27k', SAFEGUARD_LOSS_THRESHOLD)).toEqual({
-      bot: '18k', handicap: 9, validated: true,
+      kind: 'stones', bot: '18k', handicap: 9, validated: true,
     });
   });
 
@@ -201,7 +204,7 @@ describe('effectiveMatchup (anti-frustration safeguard)', () => {
   });
 });
 
-describe('isSafeguardActive', () => {
+describe('isSafeguardActive (19×19)', () => {
   it('false below threshold', () => {
     expect(isSafeguardActive('18k', 0)).toBe(false);
     expect(isSafeguardActive('18k', SAFEGUARD_LOSS_THRESHOLD - 1)).toBe(false);
@@ -217,12 +220,125 @@ describe('isSafeguardActive', () => {
   });
 });
 
-describe('freshState', () => {
+describe('freshState (19×19 default)', () => {
   it('starts at 30k with no progress', () => {
     expect(freshState()).toEqual({
       currentRung: '30k',
       winsAtCurrentRung: 0,
       lossStreak: 0,
     });
+  });
+});
+
+/* ========================================================================= *
+ * 9×9 hybrid ladder — feature 24.
+ * ========================================================================= */
+
+describe('9×9 ladder structure', () => {
+  it('exists for 9×9, not for 13×13', () => {
+    expect(hasLadder(9)).toBe(true);
+    expect(hasLadder(19)).toBe(true);
+    expect(hasLadder(13)).toBe(false);
+  });
+
+  it('runs weakest→strongest from 30k to 1d', () => {
+    const rungs = ladderRungs(9);
+    expect(rungs[0]).toBe('30k');
+    expect(rungs[rungs.length - 1]).toBe('1d');
+    expect(startingRung(9)).toBe('30k');
+  });
+
+  it('is the 9-rung chain bridging the 6 real 9×9 profiles', () => {
+    expect(ladderRungs(9)).toEqual(['30k', '18k', '15k', '12k', '9k', '6k', '3k', '1k', '1d']);
+  });
+
+  it('every rung names a bot with a real 9×9 profile (never 18k/12k bots)', () => {
+    const REAL_9X9_PROFILES = new Set(['30k', '15k', '9k', '6k', '3k', '1d']);
+    for (const rung of ladderRungs(9)) {
+      const m = matchupForRung(rung, 9);
+      expect(REAL_9X9_PROFILES.has(m.bot), `${rung} → bot ${m.bot}`).toBe(true);
+    }
+  });
+
+  it('throws when asked for the uncalibrated 13×13 ladder', () => {
+    expect(() => ladderRungs(13)).toThrow();
+  });
+});
+
+describe('9×9 matchups — hybrid stones/komi bridges (per b28.yaml design)', () => {
+  it('real-profile rungs are even-game stones vs their own bot', () => {
+    expect(matchupForRung('30k', 9)).toEqual({ kind: 'stones', bot: '30k', handicap: 0, validated: true });
+    expect(matchupForRung('15k', 9)).toEqual({ kind: 'stones', bot: '15k', handicap: 0, validated: true });
+    expect(matchupForRung('1d', 9)).toEqual({ kind: 'stones', bot: '1d', handicap: 0, validated: true });
+  });
+
+  it('18k rung bridges off the 15k bot + komi head start', () => {
+    expect(matchupForRung('18k', 9)).toEqual({ kind: 'komi', bot: '15k', handicap: 0, komi: 2, validated: true });
+  });
+
+  it('12k rung bridges off the 6k bot + handicap stones', () => {
+    expect(matchupForRung('12k', 9)).toEqual({ kind: 'stones', bot: '6k', handicap: 2, validated: true });
+  });
+
+  it('1k rung bridges off the 1d bot + komi (grounded in the 1d sweep)', () => {
+    expect(matchupForRung('1k', 9)).toEqual({ kind: 'komi', bot: '1d', handicap: 0, komi: 4, validated: true });
+  });
+
+  it('all rungs are validated (every bridge bot has a real 9×9 profile)', () => {
+    for (const rung of ladderRungs(9)) {
+      expect(matchupForRung(rung, 9).validated, rung).toBe(true);
+    }
+  });
+});
+
+describe('9×9 navigation + promotion', () => {
+  it('nextRung walks the bridged chain', () => {
+    expect(nextRung('30k', 9)).toBe('18k');
+    expect(nextRung('6k', 9)).toBe('3k');
+    expect(nextRung('3k', 9)).toBe('1k');
+    expect(nextRung('1d', 9)).toBeNull();
+  });
+
+  it('every non-top rung promotes (no validation wall on 9×9)', () => {
+    expect(isNextRungValidated('6k', 9)).toBe(true);
+    expect(isNextRungValidated('1k', 9)).toBe(true);
+    expect(isNextRungValidated('1d', 9)).toBe(false);  // top
+  });
+
+  it('three wins from 30k promotes to 18k on 9×9', () => {
+    const s = freshState(9);
+    let out = applyResult(s, 'win', 9);
+    out = applyResult(out.state, 'win', 9);
+    out = applyResult(out.state, 'win', 9);
+    expect(out.promoted).toBe(true);
+    expect(out.fromRung).toBe('30k');
+    expect(out.state.currentRung).toBe('18k');
+  });
+});
+
+describe('9×9 safeguard — komi rungs ease via komi, stones rungs via stones', () => {
+  it('komi rung below threshold returns base komi', () => {
+    expect(effectiveMatchup('18k', SAFEGUARD_LOSS_THRESHOLD - 1, 9)).toEqual({
+      kind: 'komi', bot: '15k', handicap: 0, komi: 2, validated: true,
+    });
+  });
+
+  it('komi rung at threshold drops komi by ~1 rank toward the player', () => {
+    // base komi 2 − 6 = −4 (lower komi ⇒ more Black/player advantage)
+    expect(effectiveMatchup('18k', SAFEGUARD_LOSS_THRESHOLD, 9)).toEqual({
+      kind: 'komi', bot: '15k', handicap: 0, komi: -4, validated: true,
+    });
+  });
+
+  it('stones rung still eases via +2 stones', () => {
+    expect(effectiveMatchup('15k', SAFEGUARD_LOSS_THRESHOLD, 9)).toEqual({
+      kind: 'stones', bot: '15k', handicap: 2, validated: true,
+    });
+  });
+
+  it('isSafeguardActive fires for both stones and komi rungs', () => {
+    expect(isSafeguardActive('15k', SAFEGUARD_LOSS_THRESHOLD, 9)).toBe(true);
+    expect(isSafeguardActive('18k', SAFEGUARD_LOSS_THRESHOLD, 9)).toBe(true);
+    expect(isSafeguardActive('18k', SAFEGUARD_LOSS_THRESHOLD - 1, 9)).toBe(false);
   });
 });

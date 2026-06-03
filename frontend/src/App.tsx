@@ -24,6 +24,7 @@ import { useLibraryStore, type SavedGame } from './store/libraryStore';
 import { useReplayStore } from './store/replayStore';
 import { useSettingsStore } from './store/settingsStore';
 import { useAutoPlayStore } from './store/autoPlayStore';
+import { type Matchup } from './autoplay/matchmaker';
 import { useProfileStore } from './store/profileStore';
 import { LESSONS } from './learn/lessons';
 import { BOT_AVATARS } from './components/Avatar';
@@ -242,16 +243,20 @@ function App() {
     setShowHome(true);
   };
 
-  const handleStartAutoPlayGame = (matchup: { bot: string; handicap: number }) => {
+  const handleStartAutoPlayGame = (matchup: Matchup) => {
     // Switch out of the match-picker so the game UI takes over, then mark
     // the game pending so the game-end effect records the result back into
-    // the auto-play store.
+    // the auto-play store. Board size comes from the auto-play store (the
+    // player picks it on the match-picker); komi rungs (9×9 strong end,
+    // feature 24) pass an explicit komi, stones rungs pass handicap.
     setShowAutoPlay(false);
+    const boardSize = useAutoPlayStore.getState().boardSize;
     useAutoPlayStore.getState().setGamePending(true);
     newGame({
-      boardSize: 19,
+      boardSize,
       targetRank: matchup.bot,
       handicap: matchup.handicap,
+      komi: matchup.kind === 'komi' ? matchup.komi : undefined,
       useBackend: true,
       isRanked: false,
       gameMode: 'ai',
