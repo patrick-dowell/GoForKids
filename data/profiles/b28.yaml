@@ -299,15 +299,26 @@ profiles:
       # collapsed to 30k tier (see DEVJOURNAL feature 24 history). KataGo
       # lbio=false visits=6-8 is the only profile shape that lands in the
       # middle band.
+      #
+      # 2026-06-04 — weakened per playtest: 15k beat an adult tester twice
+      # and felt too strong / the ladder reached it too fast. Goal: dull
+      # move QUALITY without changing its mistake character (the serious
+      # blunders read as fair for ~15k, so randomness / mistake_freq /
+      # max_point_loss are deliberately UNCHANGED). Levers moved:
+      #   visits 6 -> 5         (less reading)
+      #   policy_weight 0.15 -> 0.12  (leans less on KataGo's strong policy)
+      #   local_bias 0.30 -> 0.38     (more myopic, less whole-board play)
+      # PENDING bot-vs-bot revalidation vs 30k (should still stomp) and 6k
+      # (should still lose), plus a human playtest to confirm it eased.
       max_point_loss: 28.0
       mistake_freq: 0.72
-      policy_weight: 0.15
+      policy_weight: 0.12
       randomness: 0.78
       random_move_chance: 0.16
-      local_bias: 0.30
+      local_bias: 0.38
       local_bias_in_opening: false
       first_line_chance: 0.0
-      visits: 6
+      visits: 5
       min_candidates: 10
       opening_moves: 3
       pass_threshold: 0.10
