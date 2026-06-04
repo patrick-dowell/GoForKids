@@ -435,9 +435,14 @@ class GameManager:
                 last_opponent_move = record.point
                 break
 
+        # If the opponent's last action was a pass, settle the game cleanly
+        # (deeper search + no mistake injection) so the bot passes back instead
+        # of filling its own territory.
+        opponent_passed = game.consecutive_passes >= 1
         point = await select_ai_move(
             game.board, game.current_color, rank,
             last_opponent_move=last_opponent_move,
+            opponent_passed=opponent_passed,
         )
 
         if point is None:

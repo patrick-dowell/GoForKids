@@ -178,7 +178,18 @@ export interface SelectAiMoveOptions {
    *  preferred move is pass, fall back to the best legal non-pass
    *  candidate. Used by the lesson-context game flow. */
   neverPass?: boolean;
+  /** When true, the opponent just passed: settle the game cleanly — analyze
+   *  at SETTLE_VISITS and play KataGo's honest top move (or pass) WITHOUT
+   *  mistake injection, so the bot passes at a settled position instead of
+   *  filling its own territory. Mirrors the backend's `opponent_passed`. */
+  opponentPassed?: boolean;
 }
+
+/** Deep visit count for "settle cleanly" moves after the opponent passes.
+ *  Low-visit rank profiles never search `pass` enough to trust it; a deep
+ *  search lets KataGo surface pass at a settled position. Matches the
+ *  Python `SETTLE_VISITS`. */
+const SETTLE_VISITS = 100;
 
 export async function selectAiMove(
   board: Board,
@@ -222,7 +233,10 @@ async function selectAiMoveInner(
   }
 
   try {
-    const analysis = await analyze(profile.visits);
+    // Opponent passed → settle cleanly: deeper search so pass surfaces, and
+    // selectWithKataGo skips mistake injection (see options.opponentPassed there).
+    const visits = options.opponentPassed ? Math.max(profile.visits, SETTLE_VISITS) : profile.visits;
+    const analysis = await analyze(visits);
     return selectWithKataGo(board, color, profile, analysis, lastOpponentMove, options);
   } catch {
     // KataGo unreachable — fall back to a random legal move so the game
@@ -360,6 +374,13 @@ function selectWithKataGo(
     best.scoreLead - passCand.scoreLead < passThreshold
   ) {
     return null;
+  }
+
+  // Opponent passed and a real move still beats passing (handled above): play
+  // KataGo's honest top move WITHOUT mistake injection — a mistake here is
+  // exactly what fills own territory at game's end.
+  if (options.opponentPassed) {
+    return best.move;
   }
 
   // --- Tactical clarity gate ---

@@ -305,8 +305,17 @@ async function getAIMoveViaBridge(
     };
   };
 
+  // Opponent passed iff their last action left no stone (a pass carries no
+  // point) and we're past the opening — the stone-count guard avoids a false
+  // positive on a handicap game's first move, which also has no prior opponent
+  // stone. Routes the selector through its "settle cleanly" path.
+  const opponentPassed = state.last_move == null && moves.length >= state.board_size;
+
   const tBeforeSelect = performance.now();
-  const chosen = await selectAiMove(board, color, targetRank, lastOpponentMove, analyze, options);
+  const chosen = await selectAiMove(board, color, targetRank, lastOpponentMove, analyze, {
+    neverPass: options?.neverPass,
+    opponentPassed,
+  });
   const tAfterSelect = performance.now();
 
   if (chosen === null) {

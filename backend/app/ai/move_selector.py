@@ -135,23 +135,34 @@ def _count_stones(board: Board) -> int:
     return sum(1 for c in board.grid if c != Color.EMPTY)
 
 
+# Visit count for "settle the game cleanly" moves (after the opponent passes).
+# Low-visit rank profiles never search `pass` enough to trust it; bumping to a
+# deep search lets KataGo surface pass at a settled position so the bot passes
+# back instead of filling its own territory.
+SETTLE_VISITS = 100
+
+
 async def select_ai_move(
     board: Board, color: Color, target_rank: str,
     last_opponent_move: Optional[Point] = None,
+    opponent_passed: bool = False,
 ) -> Optional[Point]:
     """Select a move for the AI at the given target rank.
 
     `last_opponent_move` is the location of the most recent opponent stone, used
     as a preferred anchor for local-bias play (beginner bots respond locally).
+    `opponent_passed` routes through a "settle cleanly" path (deeper search, no
+    mistake injection) so the bot passes at a settled position instead of
+    filling its own territory.
     """
-    move = await _select_ai_move_inner(board, color, target_rank, last_opponent_move)
+    move = await _select_ai_move_inner(board, color, target_rank, last_opponent_move, opponent_passed)
 
     # Safety check: NEVER fill your own eye. No human above 30k does this.
     if move and _is_eye_fill(board, color, move):
         logger.info(f"[{target_rank}] Rejected eye-filling move at ({move.row},{move.col})")
         # Try to find a non-eye-filling alternative
         for _ in range(5):
-            alt = await _select_ai_move_inner(board, color, target_rank, last_opponent_move)
+            alt = await _select_ai_move_inner(board, color, target_rank, last_opponent_move, opponent_passed)
             if alt and not _is_eye_fill(board, color, alt):
                 return alt
         # All attempts fill eyes — just pass
@@ -164,6 +175,7 @@ async def select_ai_move(
 async def _select_ai_move_inner(
     board: Board, color: Color, target_rank: str,
     last_opponent_move: Optional[Point] = None,
+    opponent_passed: bool = False,
 ) -> Optional[Point]:
     """Inner move selection (before eye-fill safety check)."""
     profile = get_profile(target_rank, board.size)
@@ -293,8 +305,14 @@ async def _select_with_katago(
     try:
         board_2d = board.to_2d()
         player = "B" if color == Color.BLACK else "W"
+        # Opponent passed → settle cleanly: deeper search so KataGo reliably
+        # surfaces `pass` at a settled position (low-visit profiles never search
+        # pass enough to trust it). Mistake injection is also skipped below.
+        analysis_visits = (
+            max(profile["visits"], SETTLE_VISITS) if opponent_passed else profile["visits"]
+        )
         analysis = await engine.analyze(
-            board_2d, player, max_visits=profile["visits"], size=board.size,
+            board_2d, player, max_visits=analysis_visits, size=board.size,
         )
 
         # Diagnostic logging: dump KataGo's full candidate list during the
@@ -403,6 +421,12 @@ async def _select_with_katago(
                 f"thr={pass_threshold})"
             )
             return None
+
+        # Opponent passed and a real move still beats passing (handled above):
+        # play KataGo's honest top move WITHOUT mistake injection — injecting a
+        # mistake here is exactly what fills own territory at game's end.
+        if opponent_passed:
+            return Point(best.move[0], best.move[1])
 
         # --- Tactical clarity gate ---
         # If KataGo is clearly confident about one move, skip mistake
