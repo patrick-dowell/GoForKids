@@ -413,3 +413,11 @@
     display: none;
   }
 }
+
+/* Two ladder rank chips side by side (feature 24). */
+.home-rank-chips {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}

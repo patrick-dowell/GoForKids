@@ -17,10 +17,6 @@ interface AutoPlayViewProps {
   onStart: (matchup: Matchup) => void;
 }
 
-/** Standard even-game komi used for the "head start" framing on komi rungs.
- *  Matches the 9×9 ladder's even rung (feature 24). */
-const STANDARD_KOMI = 7;
-
 /** Board sizes shown as pills on the match-picker, in display order. */
 const BOARD_OPTIONS: BoardSize[] = [9, 13, 19];
 
@@ -45,16 +41,17 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
   const next = nextRung(rungState.currentRung, boardSize);
   const winsRemaining = Math.max(0, WINS_TO_PROMOTE - rungState.winsAtCurrentRung);
 
-  const handicapLine = (() => {
-    if (matchup.kind === 'komi') {
-      const headStart = STANDARD_KOMI - (matchup.komi ?? STANDARD_KOMI);
-      if (headStart <= 0) return 'Even game — standard komi.';
-      return `You start ${headStart} ${headStart === 1 ? 'point' : 'points'} ahead.`;
+  const colorLine = matchup.playerColor === 'white' ? 'You play ⚪ White' : 'You play ⚫ Black';
+  const detailLine = (() => {
+    if (matchup.handicap > 0) {
+      const who = matchup.playerColor === 'white' ? 'Bot starts' : 'You start';
+      return `${who} with ${matchup.handicap} stone${matchup.handicap === 1 ? '' : 's'}.`;
     }
-    if (matchup.handicap === 0) return 'Even game — no handicap.';
-    if (matchup.handicap === 1) return 'You take 1 stone (+1 advantage).';
-    return `You take ${matchup.handicap} stones (+${matchup.handicap} advantage).`;
+    if (matchup.komi === 0) return 'No komi — you have the edge.';
+    if (matchup.komi === undefined) return 'Even game.';
+    return `Even game · ${matchup.komi} komi.`;
   })();
+  const handicapLine = `${colorLine} · ${detailLine}`;
 
   const promotionLine = atWall
     ? `You've reached the top of the calibrated ladder. The ${next ?? 'next'} bot isn't ready yet — keep playing for fun.`

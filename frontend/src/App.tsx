@@ -24,7 +24,7 @@ import { useLibraryStore, type SavedGame } from './store/libraryStore';
 import { useReplayStore } from './store/replayStore';
 import { useSettingsStore } from './store/settingsStore';
 import { useAutoPlayStore } from './store/autoPlayStore';
-import { type Matchup } from './autoplay/matchmaker';
+import { type Matchup, type BoardSize } from './autoplay/matchmaker';
 import { useProfileStore } from './store/profileStore';
 import { LESSONS } from './learn/lessons';
 import { BOT_AVATARS } from './components/Avatar';
@@ -221,7 +221,13 @@ function App() {
     setShowNewGame(true);
   };
 
-  const handleStartProfile = () => {
+  const handleStartProfile = (boardSize?: BoardSize) => {
+    // A board chip on the home screen opens THAT ladder's profile — switch the
+    // active board so ProfileView (which reads the active board) shows it. The
+    // typeof guard ignores a leaked click-event from the generic Profile button.
+    if (typeof boardSize === 'number') {
+      useAutoPlayStore.getState().setBoardSize(boardSize);
+    }
     setShowHome(false);
     setShowAutoPlay(false);
     setShowNewGame(false);
@@ -256,11 +262,11 @@ function App() {
       boardSize,
       targetRank: matchup.bot,
       handicap: matchup.handicap,
-      komi: matchup.kind === 'komi' ? matchup.komi : undefined,
+      komi: matchup.komi,
       useBackend: true,
       isRanked: false,
       gameMode: 'ai',
-      playerColor: Color.Black,
+      playerColor: matchup.playerColor === 'white' ? Color.White : Color.Black,
       playerAvatar: useProfileStore.getState().avatar,
       autoplayContext: true,
     });

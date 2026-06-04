@@ -1,8 +1,34 @@
-# 24 — 9×9 ranked ladder (komi-based fine-grained handicap)
+# 24 — 9×9 ranked ladder (points-model player-advantage ramp)
 
-**Status:** 📝 Planned
+**Status:** 🚧 Built + playtested on device (2026-06-04) — pending bot-vs-bot validation of rung labels
 **Priority:** High (top response to beta feedback that 19×19 is intimidating)
 **Scope (first cut):** 9×9 auto-play ladder only
+
+## As-built (2026-06-04) — supersedes the komi-only plan below
+
+The original plan (below) assumed komi alone could fine-grain the whole ladder.
+Playtest data killed that: komi only responds for high-visit bots (1d), and the
+six real profiles are unevenly spaced. The shipped ladder is a **23-rung
+points-model ramp** instead — one continuous "player advantage in points" axis
+built from bot + **player color** + handicap stones + komi:
+
+- Levers (playtest-calibrated): 1 rank ≈ 4 pts; 2-stone handicap ≈ 14 pts ≈
+  3.5–4 ranks; 6.5 komi ≈ 2 ranks; 3.5 komi ≈ 1 rank. **No 1-stone handicap on
+  9×9** (≈ no-komi) — min handicap is 2. Each bot ramps no-komi → 3.5 → 6.5;
+  stones + playing White bridge between bots. ~2-rank steps to 15k, ~1-rank to 1d.
+- `Matchup` is now `{ bot, playerColor, handicap, komi }` (the player can play
+  White, handing the bot the stones). Rung table: `frontend/src/autoplay/matchmaker.ts` `SPECS_9`.
+- Only the six real 9×9 profiles (30k/15k/9k/6k/3k/1d) are ever named as bots.
+- ⚠️ **Engine dependency:** rung 12k (2 stones + 3.5 komi) needs the engine to
+  honor an explicit komi on a handicap game — currently forced to 0.5 in
+  gameStore.ts, localGameRouter.ts, and backend state.py. Until fixed, 12k plays
+  at komi 0.5.
+- Bots now **settle the endgame cleanly** instead of filling their own territory
+  (see DEVJOURNAL Session 21 — "settle cleanly" path triggered after the
+  opponent passes).
+- Home screen shows both ladders (9×9 / 19×19) as independent per-board chips;
+  Profile is board-parameterized. Labels + bridge values are intuited/playtest-
+  seeded; the 30k↔15k handoff is the seam to watch.
 
 ## Context
 

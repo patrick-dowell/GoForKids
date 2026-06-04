@@ -1,22 +1,22 @@
 /**
- * Auto-play matchmaker — feature 22 (19×19) + feature 24 (9×9 hybrid).
+ * Auto-play matchmaker — feature 22 (19×19) + feature 24 (9×9).
  *
  * A per-board linear ladder where each rung is a fixed matchup chosen so the
  * matchup's effective strength equals the player's rank. Promotion is
  * deterministic: win 3 games at any rung → next rung. Losses are no-ops.
  *
- * Handicap mechanism is board-dependent (feature 24 finding):
- *   - 19×19: stones. One stone ≈ 1 rank — smooth.
- *   - 9×9 weak end (30k–6k): stones. Komi is INERT for low-visit bots
- *     (30k/6k komi sweeps were flat), so the profiles themselves are the
- *     rungs; stones are the handicap + anti-frustration dimension.
- *   - 9×9 strong end (3k–1d): komi. High-visit bots respond cleanly to komi
- *     (the 1d sweep is a clean sigmoid, ~5–7 komi ≈ 1 rank), so komi gives
- *     fine-grained sub-rungs the chunky 9×9 stone (≈2–3 ranks/stone) cannot.
+ * A rung's difficulty is set by FOUR levers, which together form a single
+ * continuous "how much help does the human get" axis:
+ *   - which bot (stronger bot ⇒ harder),
+ *   - player color (Black moves first = easier; White hands the bot the
+ *     initiative AND any handicap stones),
+ *   - handicap stones (always Black's: the player's advantage when the player
+ *     is Black, the bot's when the player is White),
+ *   - komi (added to White's score; the engine forces 0.5 when handicap > 0).
  *
- * `Matchup` carries a `kind` tag + always-present `handicap` and an optional
- * `komi`. The always-present `handicap` keeps existing 19×19 consumers (which
- * read `.handicap`) working unchanged; komi rungs report `handicap: 0`.
+ * 9×9 (feature 24) uses this to ramp smoothly across just two bots near the
+ * bottom: e.g. 30k bot Black+no-komi (easiest) → … → 30k bot you-White+2
+ * stones → hand off to the 15k bot at its easy end (you-Black+2 stones) → …
  */
 
 /** A rank label on the auto-play ladder, e.g. "30k", "27k", ..., "1d". */
@@ -25,19 +25,23 @@ export type Rung = string;
 /** Board sizes with an auto-play ladder. 13×13 is not yet calibrated. */
 export type BoardSize = 9 | 13 | 19;
 
+/** The color the human plays on a rung. */
+export type PlayerColor = 'black' | 'white';
+
 export interface Matchup {
-  /** Which handicap mechanism this rung uses. */
-  kind: 'stones' | 'komi';
-  /** Bot rank label, e.g. "30k", "18k", ..., "1d". */
+  /** Bot rank label, e.g. "30k", "15k", ..., "1d". */
   bot: string;
-  /** Handicap stones the player takes (0 = even). Always present; 0 for komi
-   *  rungs so existing 19×19 consumers can keep reading `.handicap`. */
+  /** Color the human plays. Black (default) moves first; White hands the
+   *  early initiative — and any handicap stones — to the bot. */
+  playerColor: PlayerColor;
+  /** Handicap stones, always placed for Black (0 = none). The player's
+   *  advantage when the player is Black; the bot's when the player is White. */
   handicap: number;
-  /** Komi (added to White's score; LOWER ⇒ Black/player advantage). Only
-   *  meaningful when `kind === 'komi'`; undefined for stones rungs. */
+  /** Explicit komi (added to White's score). Undefined ⇒ the engine's default
+   *  for the board. The engine forces komi 0.5 whenever handicap > 0. */
   komi?: number;
-  /** True when the underlying bot has a calibrated profile on this board.
-   *  False rungs hold the player at the prior rung instead of promoting. */
+  /** True when the bot has a calibrated profile on this board. False rungs
+   *  hold the player at the prior rung instead of promoting onto them. */
   validated: boolean;
 }
 
@@ -45,73 +49,103 @@ export interface Matchup {
  * Rung specs — internal table format, one per board.
  * ------------------------------------------------------------------------- */
 
-type StonesSpec = readonly [rung: Rung, bot: string, kind: 'stones', handicap: number];
-type KomiSpec = readonly [rung: Rung, bot: string, kind: 'komi', komi: number];
-type RungSpec = StonesSpec | KomiSpec;
+interface RungSpec {
+  rung: Rung;
+  bot: string;
+  /** Defaults to 'black'. */
+  playerColor?: PlayerColor;
+  /** Defaults to 0. */
+  handicap?: number;
+  /** Explicit komi for non-handicap rungs; omit to use the engine default. */
+  komi?: number;
+}
 
-/** 19×19 ladder — stones throughout (feature 22). */
+/** 19×19 ladder — stones throughout, player always Black (feature 22). */
 const SPECS_19: ReadonlyArray<RungSpec> = [
-  ['30k', '30k', 'stones', 0],
-  ['27k', '18k', 'stones', 9],
-  ['26k', '18k', 'stones', 8],
-  ['25k', '18k', 'stones', 7],
-  ['24k', '18k', 'stones', 6],
-  ['23k', '18k', 'stones', 5],
-  ['22k', '18k', 'stones', 4],
-  ['21k', '18k', 'stones', 3],
-  ['20k', '18k', 'stones', 2],
-  ['19k', '18k', 'stones', 1],
-  ['18k', '18k', 'stones', 0],
-  ['17k', '15k', 'stones', 2],
-  ['16k', '15k', 'stones', 1],
-  ['15k', '15k', 'stones', 0],
-  ['14k', '12k', 'stones', 2],
-  ['13k', '12k', 'stones', 1],
-  ['12k', '12k', 'stones', 0],
-  ['11k', '9k', 'stones', 2],
-  ['10k', '9k', 'stones', 1],
-  ['9k', '9k', 'stones', 0],
-  ['8k', '6k', 'stones', 2],
-  ['7k', '6k', 'stones', 1],
-  ['6k', '6k', 'stones', 0],
-  ['5k', '3k', 'stones', 2],
-  ['4k', '3k', 'stones', 1],
-  ['3k', '3k', 'stones', 0],
-  ['2k', '1d', 'stones', 2],
-  ['1k', '1d', 'stones', 1],
-  ['1d', '1d', 'stones', 0],
+  { rung: '30k', bot: '30k', handicap: 0 },
+  { rung: '27k', bot: '18k', handicap: 9 },
+  { rung: '26k', bot: '18k', handicap: 8 },
+  { rung: '25k', bot: '18k', handicap: 7 },
+  { rung: '24k', bot: '18k', handicap: 6 },
+  { rung: '23k', bot: '18k', handicap: 5 },
+  { rung: '22k', bot: '18k', handicap: 4 },
+  { rung: '21k', bot: '18k', handicap: 3 },
+  { rung: '20k', bot: '18k', handicap: 2 },
+  { rung: '19k', bot: '18k', handicap: 1 },
+  { rung: '18k', bot: '18k', handicap: 0 },
+  { rung: '17k', bot: '15k', handicap: 2 },
+  { rung: '16k', bot: '15k', handicap: 1 },
+  { rung: '15k', bot: '15k', handicap: 0 },
+  { rung: '14k', bot: '12k', handicap: 2 },
+  { rung: '13k', bot: '12k', handicap: 1 },
+  { rung: '12k', bot: '12k', handicap: 0 },
+  { rung: '11k', bot: '9k', handicap: 2 },
+  { rung: '10k', bot: '9k', handicap: 1 },
+  { rung: '9k', bot: '9k', handicap: 0 },
+  { rung: '8k', bot: '6k', handicap: 2 },
+  { rung: '7k', bot: '6k', handicap: 1 },
+  { rung: '6k', bot: '6k', handicap: 0 },
+  { rung: '5k', bot: '3k', handicap: 2 },
+  { rung: '4k', bot: '3k', handicap: 1 },
+  { rung: '3k', bot: '3k', handicap: 0 },
+  { rung: '2k', bot: '1d', handicap: 2 },
+  { rung: '1k', bot: '1d', handicap: 1 },
+  { rung: '1d', bot: '1d', handicap: 0 },
 ];
 
+/** Even-game (EVEN) and half-step (HALF) komi on 9×9. Patrick's points model
+ *  (playtest-calibrated 2026-06-04): 1 rank ≈ 4 pts; a 2-stone handicap ≈ 14
+ *  pts ≈ 3.5–4 ranks; EVEN komi (6.5) ≈ 2 ranks; HALF komi (3.5) ≈ 1 rank.
+ *  NOTE: there is no 1-stone handicap on 9×9 — a single stone ≈ no-komi, so the
+ *  minimum real handicap is 2 stones. The ladder fills stone gaps with komi. */
+const KOMI_EVEN = 6.5;
+const KOMI_HALF = 3.5;
+
 /**
- * 9×9 hybrid ladder — feature 24. FIRST CUT.
+ * 9×9 ladder — feature 24, full 23-rung points-model ramp (Patrick's design,
+ * 2026-06-04). Difficulty is one continuous "player advantage in points" axis
+ * from bot + color + handicap stones (≥2, ≈7 pts/stone) + komi. Only the six
+ * real 9×9 profiles (30k/15k/9k/6k/3k/1d) are ever named as bots.
  *
- * IMPORTANT: only SIX bots have calibrated 9×9 profiles in b28.yaml —
- * 30k, 15k, 9k, 6k, 3k, 1d. 18k and 12k are deliberately NOT 9×9 profiles
- * (the backend `get_profile` would silently fall back to their 19×19
- * profiles). Per the b28.yaml design note, the 18k/12k *rungs* are bridged:
- *   - 18k rung = 15k bot + komi (player head start)
- *   - 12k rung = 6k bot + handicap stones
- * Every rung below therefore names a bot that has a real 9×9 profile.
+ * ⚠️ ENGINE DEPENDENCY: rung 12k combines a handicap (2 stones) WITH a custom
+ * komi (3.5). The engine forces komi=0.5 whenever handicap>0 (frontend
+ * gameStore + localGameRouter, AND backend state.py). Until all three honor an
+ * explicit komi, 12k plays at komi 0.5 — collapsing toward 10k. Marked † below.
  *
- * Mechanism follows the visit-count finding (komi responds only at high
- * visits): stones bridge the low-visit bots (30k/15k/6k), komi bridges the
- * high-visit bots (1d). The 1d komi values are grounded in the Phase 1 sweep
- * (komi 7/4/1 ≈ Black 40%/58%/78%; standard 9×9 komi ≈ 7).
- *
- * Bridge values (the komi/stone amounts on 18k, 12k, 1k) are FIRST CUT
- * pending the Phase 3 bridging tests — see feature_plans/24_9x9_ladder.md.
- * Known rough spot: 9k → 6k is a noisy cliff (6k won 57–97% across runs).
+ * Labels and point values are intuited/playtest-seeded, PENDING further
+ * validation. "Play black or white" rungs (even, 6.5 komi) default to Black.
+ * Top rung is 1d; clearing it = the "2 dan" graduation (no 2d bot to calibrate).
  */
 const SPECS_9: ReadonlyArray<RungSpec> = [
-  ['30k', '30k', 'stones', 0], // real 30k profile, even
-  ['18k', '15k', 'komi', 2],   // bridge: 15k bot, player ~+5 head start (FIRST CUT)
-  ['15k', '15k', 'stones', 0], // real 15k profile, even
-  ['12k', '6k', 'stones', 2],  // bridge: 6k bot, player takes 2 stones (FIRST CUT, per b28 note)
-  ['9k', '9k', 'stones', 0],   // real 9k profile, even
-  ['6k', '6k', 'stones', 0],   // real 6k profile, even
-  ['3k', '3k', 'stones', 0],   // real 3k profile, even
-  ['1k', '1d', 'komi', 4],     // bridge: 1d bot, player ~+3 head start (FIRST CUT)
-  ['1d', '1d', 'stones', 0],   // real 1d profile, even — top of ladder
+  // 30k bot
+  { rung: '30k', bot: '30k', playerColor: 'black', handicap: 0, komi: 0 },              // no komi
+  { rung: '28k', bot: '30k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },      // 6.5 komi
+  { rung: '25k', bot: '30k', playerColor: 'white', handicap: 2 },                       // White, bot +2 stones
+  // 15k bot
+  { rung: '23k', bot: '15k', playerColor: 'black', handicap: 4 },                       // you +4 stones
+  { rung: '21k', bot: '15k', playerColor: 'black', handicap: 3 },                       // you +3 stones
+  { rung: '19k', bot: '15k', playerColor: 'black', handicap: 2 },                       // you +2 stones
+  { rung: '17k', bot: '15k', playerColor: 'black', handicap: 0, komi: 0 },              // no komi
+  { rung: '15k', bot: '15k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },      // even
+  { rung: '14k', bot: '15k', playerColor: 'white', handicap: 0, komi: KOMI_HALF },      // White, 3.5 komi
+  // 9k bot
+  { rung: '13k', bot: '9k', playerColor: 'black', handicap: 2 },                        // you +2 stones
+  { rung: '12k', bot: '9k', playerColor: 'black', handicap: 2, komi: KOMI_HALF },       // † you +2 + 3.5 komi
+  { rung: '11k', bot: '9k', playerColor: 'black', handicap: 0, komi: 0 },               // no komi
+  { rung: '10k', bot: '9k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },       // 3.5 komi
+  { rung: '9k', bot: '9k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },        // even
+  // 6k bot
+  { rung: '8k', bot: '6k', playerColor: 'black', handicap: 0, komi: 0 },                // no komi
+  { rung: '7k', bot: '6k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },        // 3.5 komi
+  { rung: '6k', bot: '6k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },        // even
+  // 3k bot
+  { rung: '5k', bot: '3k', playerColor: 'black', handicap: 0, komi: 0 },                // no komi
+  { rung: '4k', bot: '3k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },        // 3.5 komi
+  { rung: '3k', bot: '3k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },        // even
+  // 1d bot
+  { rung: '2k', bot: '1d', playerColor: 'black', handicap: 0, komi: 0 },                // no komi
+  { rung: '1k', bot: '1d', playerColor: 'black', handicap: 0, komi: KOMI_HALF },        // 3.5 komi
+  { rung: '1d', bot: '1d', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },        // even — top (clear = 2 dan)
 ];
 
 /* ------------------------------------------------------------------------- *
@@ -128,9 +162,9 @@ interface Ladder {
   validatedBots: ReadonlySet<string>;
   /** Engine cap on handicap stones for this board (matches `MAX_HANDICAP_BY_SIZE`). */
   maxHandicap: number;
-  /** Stones added by the anti-frustration safeguard (stones rungs). */
+  /** Stones added/removed by the anti-frustration safeguard. */
   safeguardBonusStones: number;
-  /** Komi points shifted toward Black by the safeguard (komi rungs). ~1 rank. */
+  /** Komi points shifted toward Black by the safeguard (~1 rank). */
   safeguardBonusKomi: number;
 }
 
@@ -144,7 +178,7 @@ function buildLadder(
     safeguardBonusKomi: number;
   },
 ): Ladder {
-  const rungs = specs.map((s) => s[0]);
+  const rungs = specs.map((s) => s.rung);
   return {
     boardSize,
     startingRung: rungs[0],
@@ -163,8 +197,7 @@ const LADDERS: Record<BoardSize, Ladder | undefined> = {
     safeguardBonusKomi: 6,
   }),
   9: buildLadder(9, SPECS_9, {
-    // The six bots with real 9×9 profiles in b28.yaml (validated 2026-05-19).
-    // 18k/12k are NOT here — their rungs bridge off 15k/6k (see SPECS_9).
+    // The six bots with real 9×9 profiles in b28.yaml.
     validatedBots: new Set(['30k', '15k', '9k', '6k', '3k', '1d']),
     maxHandicap: 5,
     safeguardBonusStones: 2,
@@ -180,10 +213,13 @@ function ladderFor(boardSize: BoardSize): Ladder {
 }
 
 function specToMatchup(spec: RungSpec, ladder: Ladder): Matchup {
-  if (spec[2] === 'stones') {
-    return { kind: 'stones', bot: spec[1], handicap: spec[3], validated: ladder.validatedBots.has(spec[1]) };
-  }
-  return { kind: 'komi', bot: spec[1], handicap: 0, komi: spec[3], validated: ladder.validatedBots.has(spec[1]) };
+  return {
+    bot: spec.bot,
+    playerColor: spec.playerColor ?? 'black',
+    handicap: spec.handicap ?? 0,
+    komi: spec.komi,
+    validated: ladder.validatedBots.has(spec.bot),
+  };
 }
 
 /* ------------------------------------------------------------------------- *
@@ -205,7 +241,7 @@ export const STARTING_RUNG: Rung = '30k';
 
 /** Ordered 19×19 rungs, weakest → strongest. Back-compat export; prefer
  *  `ladderRungs(boardSize)` for board-aware code. */
-export const LADDER_RUNGS: ReadonlyArray<Rung> = SPECS_19.map((s) => s[0]);
+export const LADDER_RUNGS: ReadonlyArray<Rung> = SPECS_19.map((s) => s.rung);
 
 /** Ordered rungs for a board, weakest (index 0) → strongest. */
 export function ladderRungs(boardSize: BoardSize = 19): ReadonlyArray<Rung> {
@@ -229,36 +265,44 @@ export function hasLadder(boardSize: BoardSize): boolean {
 /** Look up the base matchup (no safeguard) for a rung on a board. */
 export function matchupForRung(rung: Rung, boardSize: BoardSize = 19): Matchup {
   const ladder = ladderFor(boardSize);
-  const spec = ladder.specs.find((s) => s[0] === rung);
+  const spec = ladder.specs.find((s) => s.rung === rung);
   if (!spec) throw new Error(`Unknown rung "${rung}" on ${boardSize}×${boardSize}`);
   return specToMatchup(spec, ladder);
 }
 
 /** Effective matchup for a player given their rung and current loss streak.
- *  Safeguard: +stones (stones rungs, capped at the board's MAX_HANDICAP) or
- *  −komi (komi rungs — lower komi shifts the score toward Black/the player). */
+ *  The safeguard always eases the matchup toward the player along the same
+ *  difficulty axis the rung lives on:
+ *    - komi rung (Black, komi > 0.5): drop komi toward 0,
+ *    - Black with stones (or even): give the player more stones,
+ *    - White (bot holds the stones): take stones back off the bot. */
 export function effectiveMatchup(rung: Rung, lossStreak: number, boardSize: BoardSize = 19): Matchup {
   const ladder = ladderFor(boardSize);
   const base = matchupForRung(rung, boardSize);
   if (lossStreak < SAFEGUARD_LOSS_THRESHOLD) return base;
 
-  if (base.kind === 'stones') {
-    const boosted = Math.min(ladder.maxHandicap, base.handicap + ladder.safeguardBonusStones);
-    if (boosted === base.handicap) return base;
-    return { ...base, handicap: boosted };
+  // Ease a komi-only rung by dropping komi toward the player.
+  if (base.handicap === 0 && base.komi !== undefined && base.komi > 0.5) {
+    return { ...base, komi: Math.max(0, base.komi - ladder.safeguardBonusKomi) };
   }
-  // komi rung: lower komi ⇒ more player (Black) advantage.
-  return { ...base, komi: (base.komi ?? 0) - ladder.safeguardBonusKomi };
+  // Player is White and the bot (Black) holds the handicap — reduce it.
+  if (base.playerColor === 'white') {
+    const reduced = Math.max(0, base.handicap - ladder.safeguardBonusStones);
+    if (reduced === base.handicap) return base;
+    return { ...base, handicap: reduced };
+  }
+  // Player is Black — give the player more stones (capped at the engine max).
+  const boosted = Math.min(ladder.maxHandicap, base.handicap + ladder.safeguardBonusStones);
+  if (boosted === base.handicap) return base;
+  return { ...base, handicap: boosted };
 }
 
-/** True when `effectiveMatchup` would differ from the base matchup (i.e. the
- *  safeguard is currently affecting the matchup). */
+/** True when `effectiveMatchup` would differ from the base matchup. */
 export function isSafeguardActive(rung: Rung, lossStreak: number, boardSize: BoardSize = 19): boolean {
   if (lossStreak < SAFEGUARD_LOSS_THRESHOLD) return false;
   const base = matchupForRung(rung, boardSize);
   const eff = effectiveMatchup(rung, lossStreak, boardSize);
-  if (base.kind === 'stones') return eff.handicap > base.handicap;
-  return (eff.komi ?? 0) < (base.komi ?? 0);
+  return eff.handicap !== base.handicap || eff.komi !== base.komi;
 }
 
 /* ------------------------------------------------------------------------- *

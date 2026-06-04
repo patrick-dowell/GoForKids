@@ -1,5 +1,85 @@
 # Development Journal
 
+## Session 21 — June 4, 2026
+
+Feature 24 took its real shape tonight: the 9×9 ranked ladder went from a
+bot-bouncing first cut to a 23-rung points-model ramp; the 15k bot got weakened
+off playtest feedback; a long-standing endgame bug (bots filling their own
+territory instead of passing) got fixed at the root; and the home screen +
+profile became per-ladder. All verified building clean (TS `tsc` + 117 tests +
+production build; Python `py_compile`) and playtested on device.
+
+### Ladder redesign — the points model
+
+The first playable 9×9 ladder (commit 234ce66) bridged the six real profiles
+(30k/15k/9k/6k/3k/1d) with a mix of even games + occasional komi/stones.
+Playtest verdict: it "jumped around" — the bots are unevenly spaced (big cliffs
+30k→15k and 15k→6k) and it swapped bots almost every rung. Reworked into one
+continuous "player advantage in points" axis across overlapping bots:
+
+- **The player can now play White** — a new rung dimension. When the player is
+  White the handicap stones go to the *bot*, letting a single bot cover a wider
+  rank range (you-Black+stones at the easy end → you-White at the hard end).
+  `Matchup` became `{ bot, playerColor, handicap, komi }` (dropped the earlier
+  stones|komi `kind` tag). `playerColor` is threaded through the store →
+  AutoPlayView copy → App's `newGame`.
+- **Points calibration (playtest):** 1 rank ≈ 4 pts; a 2-stone handicap ≈ 14 pts
+  ≈ 3.5–4 ranks; 6.5 komi ≈ 2 ranks; 3.5 komi ≈ 1 rank. There is **no 1-stone
+  handicap on 9×9** — one stone ≈ no-komi — so the minimum real handicap is 2.
+  The ladder fills the chunky stone gaps with komi (no-komi → 3.5 → 6.5 against
+  each bot): ~2-rank steps to 15k, ~1-rank steps from there to 1d. 23 rungs,
+  30k → 1d; clearing the top = a "2 dan" graduation (no 2d bot to calibrate).
+- **Engine dependency (one rung):** 12k (2 stones + 3.5 komi) needs the engine
+  to honor an explicit komi on a handicap game; today komi is forced to 0.5 in
+  three places (gameStore.ts, localGameRouter.ts, backend state.py). Until
+  fixed, 12k plays at komi 0.5 (collapses toward 10k). Deferred — it's a scoring
+  change to make with the backend up and a scoring test in front of us.
+
+Labels (28k/25k/23k/…) and the exact bridge values are intuited/playtest-seeded,
+pending bot-vs-bot validation; the 30k↔15k handoff is the seam to watch.
+
+### 15k weakened
+
+Playtest: 15k beat an adult tester twice and the ladder reached it too fast.
+Goal: dull move QUALITY without touching its mistake character (the blunders
+read as fair for ~15k). In b28.yaml 9×9 15k — visits 6→5, policy_weight
+0.15→0.12, local_bias 0.30→0.38; randomness / mistake_freq / max_point_loss
+left UNCHANGED. Three knobs at once is the exact pattern that over-weakened the
+*old* 15k, so this is pending bot-vs-bot revalidation (should still stomp 30k,
+still lose to 6k); if it overshot, revert `visits` to 6 first.
+
+### Bots filling their own territory at game's end — fixed
+
+Resurfaced on 9×9 playtest: after the player passes, the bot plays pointless
+moves in its own territory instead of passing back. Root cause was NOT a missing
+fix — the "drop candidates worse than pass" filter exists on both the Python and
+on-device TS paths. It's gated on KataGo surfacing a `pass` candidate with ≥4
+visits, which the 9×9 bots' tiny visit counts (6–9) almost never produce, so the
+filter silently no-ops and mistake injection fills territory. It only ever
+worked on 19×19 because those bots search deeper — a visit-count *effectiveness*
+gap, not a code gap.
+
+Fix (mirrors the existing Finish-Game path): when the opponent just passed,
+route the bot through a "settle cleanly" path — analyze at `SETTLE_VISITS=100`
+so pass reliably surfaces, AND skip mistake injection (play KataGo's honest top
+move or pass). Signal: Python `consecutive_passes >= 1`; TS `last_move == null`
+past the opening (a pass carries no point), with a stone-count guard against a
+handicap game's first move. Off by default everywhere → normal play and
+bot-vs-bot calibration unchanged. Files: move_selector.py, state.py,
+moveSelector.ts, client.ts. **Verified on device: bots now end games cleanly.**
+
+### Home screen + profile went per-ladder
+
+Bug: the home rank chip hardcoded "19×19" but read the *active* board's rung, so
+after picking 9×9 it showed "19×19" with the 9×9 rank; ProfileView had the same
+19×19-hardcoding (label + `effectiveMatchup`/`nextRung`/`applyResult`/
+`LADDER_RUNGS` all defaulting to board 19). Fixed by showing two independent
+chips — 9×9 and 19×19, each reading its own board's rung (active from
+`rungState`, other from its `slots` entry) — and making ProfileView
+board-parameterized end to end (label, rank card, rank graph, dev tools).
+Tapping a chip sets that board active and opens its profile. **Verified on
+device.**
+
 ## Session 20 — May 18-19, 2026
 
 Feature 24 — 9×9 ranked-mode foundations. Beta feedback: 19×19 too

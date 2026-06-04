@@ -3,12 +3,13 @@ import { Avatar, PLAYER_AVATARS, type PlayerAvatarType } from './Avatar';
 import { useProfileStore } from '../store/profileStore';
 import { useAutoPlayStore, type HistoryEntry } from '../store/autoPlayStore';
 import {
-  LADDER_RUNGS,
   WINS_TO_PROMOTE,
   applyResult,
   effectiveMatchup,
   freshState,
+  ladderRungs,
   nextRung,
+  type BoardSize,
   type Rung,
   type RungState,
 } from '../autoplay/matchmaker';
@@ -25,6 +26,8 @@ export function ProfileView({ onExit }: ProfileViewProps) {
   const setAvatar = useProfileStore((s) => s.setAvatar);
   const setDisplayName = useProfileStore((s) => s.setDisplayName);
 
+  // The active board's slot — set by the home-screen chip that opened this view.
+  const boardSize = useAutoPlayStore((s) => s.boardSize);
   const rungState = useAutoPlayStore((s) => s.rungState);
   const history = useAutoPlayStore((s) => s.history);
   const promotionEvents = useAutoPlayStore((s) => s.promotionEvents);
@@ -66,9 +69,9 @@ export function ProfileView({ onExit }: ProfileViewProps) {
           onSetDisplayName={setDisplayName}
         />
 
-        <CurrentRankCard rungState={rungState} history={history} />
+        <CurrentRankCard rungState={rungState} history={history} boardSize={boardSize} />
 
-        <RankGraph history={history} />
+        <RankGraph history={history} boardSize={boardSize} />
 
         <AvatarPickerSection avatar={avatar} onSelect={setAvatar} />
 
@@ -76,6 +79,7 @@ export function ProfileView({ onExit }: ProfileViewProps) {
           open={advancedOpen}
           onToggle={toggleAdvanced}
           rungState={rungState}
+          boardSize={boardSize}
           shadowRating={shadowRating}
           history={history}
           promotionEvents={promotionEvents}
@@ -141,16 +145,22 @@ function ProfileHeader({
 
 /* ---------- Current Rank Card ---------- */
 
-function CurrentRankCard({ rungState, history }: { rungState: RungState; history: HistoryEntry[] }) {
-  const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak);
-  const next = nextRung(rungState.currentRung);
+function CurrentRankCard({ rungState, history, boardSize }: { rungState: RungState; history: HistoryEntry[]; boardSize: BoardSize }) {
+  const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak, boardSize);
+  const next = nextRung(rungState.currentRung, boardSize);
   const atWall = rungState.winsAtCurrentRung >= WINS_TO_PROMOTE;
   const recentResults = history.slice(-10);
 
-  const handicapLine =
-    matchup.handicap === 0
-      ? `Playing ${matchup.bot} bot even`
-      : `Playing ${matchup.bot} bot with +${matchup.handicap} stone${matchup.handicap === 1 ? '' : 's'}`;
+  const color = matchup.playerColor === 'white' ? '⚪ White' : '⚫ Black';
+  const detail =
+    matchup.handicap > 0
+      ? `${matchup.playerColor === 'white' ? 'bot' : 'you'} +${matchup.handicap} stone${matchup.handicap === 1 ? '' : 's'}`
+      : matchup.komi === 0
+        ? 'no komi'
+        : matchup.komi === undefined
+          ? 'even'
+          : `${matchup.komi} komi`;
+  const handicapLine = `Playing ${matchup.bot} bot as ${color} · ${detail}`;
 
   const winsLine = atWall
     ? `You've earned promotion — the ${next ?? 'next'} bot isn't calibrated yet, so you're held at ${rungState.currentRung}.`
@@ -158,7 +168,7 @@ function CurrentRankCard({ rungState, history }: { rungState: RungState; history
 
   return (
     <section className="profile-section profile-rank-card">
-      <div className="profile-section-eyebrow">19×19 — Auto-play</div>
+      <div className="profile-section-eyebrow">{boardSize}×{boardSize} — Auto-play</div>
       <div className="profile-rank-big">{rungState.currentRung}</div>
       <div className="profile-rank-matchup">{handicapLine}</div>
 
@@ -210,18 +220,20 @@ function chipTooltip(entry: HistoryEntry): string {
  * y-value = rung-index-at-game-start. Promotions show up as step-ups
  * between consecutive points.
  */
-function rankSeries(history: HistoryEntry[]): number[] {
-  let state: RungState = freshState();
-  const rungIndices: number[] = [LADDER_RUNGS.indexOf(state.currentRung)];
+function rankSeries(history: HistoryEntry[], boardSize: BoardSize): number[] {
+  const rungs = ladderRungs(boardSize);
+  let state: RungState = freshState(boardSize);
+  const rungIndices: number[] = [rungs.indexOf(state.currentRung)];
   for (const entry of history) {
-    const out = applyResult(state, entry.result);
+    const out = applyResult(state, entry.result, boardSize);
     state = out.state;
-    rungIndices.push(LADDER_RUNGS.indexOf(state.currentRung));
+    rungIndices.push(rungs.indexOf(state.currentRung));
   }
   return rungIndices;
 }
 
-function RankGraph({ history }: { history: HistoryEntry[] }) {
+function RankGraph({ history, boardSize }: { history: HistoryEntry[]; boardSize: BoardSize }) {
+  const rungs = ladderRungs(boardSize);
   const W = 580;
   const H = 200;
   const padL = 50;
@@ -231,9 +243,9 @@ function RankGraph({ history }: { history: HistoryEntry[] }) {
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
 
-  const series = rankSeries(history);
+  const series = rankSeries(history, boardSize);
   const maxX = Math.max(1, series.length - 1);
-  const maxRung = LADDER_RUNGS.length - 1;
+  const maxRung = rungs.length - 1;
 
   const xAt = (i: number) => padL + (i / maxX) * plotW;
   // Invert Y so stronger (higher rung index) plots at the top.
@@ -255,7 +267,7 @@ function RankGraph({ history }: { history: HistoryEntry[] }) {
   const promotions: { x: number; y: number; rung: Rung }[] = [];
   for (let i = 1; i < series.length; i++) {
     if (series[i] > series[i - 1]) {
-      promotions.push({ x: xAt(i), y: yAt(series[i]), rung: LADDER_RUNGS[series[i]] });
+      promotions.push({ x: xAt(i), y: yAt(series[i]), rung: rungs[series[i]] });
     }
   }
 
@@ -263,7 +275,7 @@ function RankGraph({ history }: { history: HistoryEntry[] }) {
   const yLabels = ['30k', '15k', '6k', '1d'];
   const yLabelPositions = yLabels.map((label) => ({
     label,
-    y: yAt(LADDER_RUNGS.indexOf(label)),
+    y: yAt(rungs.indexOf(label)),
   }));
 
   return (
@@ -336,6 +348,7 @@ function AdvancedSection({
   open,
   onToggle,
   rungState,
+  boardSize,
   shadowRating,
   history,
   promotionEvents,
@@ -345,6 +358,7 @@ function AdvancedSection({
   open: boolean;
   onToggle: () => void;
   rungState: RungState;
+  boardSize: BoardSize;
   shadowRating: { mu: number; phi: number; sigma: number };
   history: HistoryEntry[];
   promotionEvents: { from: Rung; to: Rung; ts: number }[];
@@ -360,10 +374,11 @@ function AdvancedSection({
       {open && (
         <div className="profile-advanced-body">
           <GlickoBlock rating={shadowRating} />
-          <MatchmakerBlock rungState={rungState} />
+          <MatchmakerBlock rungState={rungState} boardSize={boardSize} />
           <RecentResultsBlock history={history} promotionEvents={promotionEvents} />
           <DevToolsBlock
             rungState={rungState}
+            boardSize={boardSize}
             onReset={onReset}
             onSetRung={onSetRung}
           />
@@ -392,9 +407,9 @@ function GlickoBlock({ rating }: { rating: { mu: number; phi: number; sigma: num
   );
 }
 
-function MatchmakerBlock({ rungState }: { rungState: RungState }) {
-  const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak);
-  const base = effectiveMatchup(rungState.currentRung, 0);
+function MatchmakerBlock({ rungState, boardSize }: { rungState: RungState; boardSize: BoardSize }) {
+  const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak, boardSize);
+  const base = effectiveMatchup(rungState.currentRung, 0, boardSize);
   const safeguardActive = matchup.handicap !== base.handicap;
   return (
     <div className="profile-advanced-block">
@@ -456,10 +471,12 @@ function RecentResultsBlock({
 
 function DevToolsBlock({
   rungState,
+  boardSize,
   onReset,
   onSetRung,
 }: {
   rungState: RungState;
+  boardSize: BoardSize;
   onReset: () => void;
   onSetRung: (rung: Rung) => void;
 }) {
@@ -521,7 +538,7 @@ function DevToolsBlock({
           value={selectedRung}
           onChange={(e) => setSelectedRung(e.target.value)}
         >
-          {LADDER_RUNGS.map((r) => (
+          {ladderRungs(boardSize).map((r) => (
             <option key={r} value={r}>{r}</option>
           ))}
         </select>
