@@ -1,5 +1,35 @@
 # Development Journal
 
+## Session 22 — June 5, 2026
+
+Short session: two playtest bugs fixed (the user reached 8k on the 9×9 ladder,
+so it's holding up in real play). Also captured a batch of ranked-polish
+feedback for upcoming work — promotion should feel more earned (N-win threshold
+scaling 3→5, no auto-demotion, a loss streak resets rung progress, optional
+manual derank); games feel repetitive (always Black, near-identical openings —
+fix via color variety on the symmetric "even" rungs + opening variety); and a
+rewards arc (shareable profile, animated/anime-style avatars) for later.
+
+### Two bug fixes
+
+- **Profile dev tools did nothing on device.** "Set rank" / "Reset rank" used
+  `window.confirm` / `window.prompt`, which silently no-op in WKWebView (no
+  native JS-panel delegate → `confirm` returns false, `prompt` returns null), so
+  the guards never passed. Replaced with inline confirmation: Set rung acts
+  directly (reversible, dev-only); Reset arms on the first tap ("Tap again to
+  confirm") and fires on the second, disarming on blur.
+- **Stale game-end screen floated over a new game.** Both end modals
+  (`GameEndModal`, `AutoPlayGameEndModal`) gate on `gameEndDismissed`, but Quit
+  (`setShowHome(true)`) and `handleOpenNewGame` never dismissed it — so the
+  finished game lingered in the store and re-rendered under the New Game dialog
+  (the user's screenshot: an old "Void (1d) wins" panel over the dialog). Fix:
+  `handleOpenNewGame` now dismisses the end state before opening the dialog
+  (covers both modal types, since they share the flag); Quit and the auto-play
+  Home handler also dismiss for hygiene.
+
+117 tests, tsc clean, build OK. Both need a quick device confirm (B1 is
+inherently a WKWebView behavior; B2 is the modal flow).
+
 ## Session 21 — June 4, 2026
 
 Feature 24 took its real shape tonight: the 9×9 ranked ladder went from a

@@ -215,6 +215,10 @@ function App() {
   };
 
   const handleOpenNewGame = () => {
+    // Dismiss any lingering game-end modal from the previous (finished) game so
+    // it doesn't re-render over the New Game dialog. The finished game stays in
+    // the store until the new game replaces it; without this it pops back up.
+    useGameStore.getState().dismissGameEnd();
     setShowHome(false);
     setShowAutoPlay(false);
     setShowProfile(false);
@@ -279,6 +283,7 @@ function App() {
   };
 
   const handleAutoPlayHome = () => {
+    useGameStore.getState().dismissGameEnd();
     setShowAutoPlay(false);
     setShowHome(true);
   };
@@ -505,7 +510,7 @@ function App() {
         onMoveOn={handleMoveOnFromLessonGame}
         onNextLesson={nextLessonAfterGame !== null ? handleNextLessonAfterGame : undefined}
       />
-      <GameEndModal onQuit={() => setShowHome(true)} />
+      <GameEndModal onQuit={() => { useGameStore.getState().dismissGameEnd(); setShowHome(true); }} />
       <AutoPlayGameEndModal
         onNextMatch={handleNextAutoPlayMatch}
         onHome={handleAutoPlayHome}

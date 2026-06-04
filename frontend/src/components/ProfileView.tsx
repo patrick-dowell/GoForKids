@@ -481,6 +481,7 @@ function DevToolsBlock({
   onSetRung: (rung: Rung) => void;
 }) {
   const [selectedRung, setSelectedRung] = useState<Rung>(rungState.currentRung);
+  const [resetArmed, setResetArmed] = useState(false);
 
   const exportPayload = () => {
     const raw = localStorage.getItem('goforkids.autoplay.v1') || '{}';
@@ -513,17 +514,21 @@ function DevToolsBlock({
     input.click();
   };
 
+  // window.confirm/prompt silently no-op in WKWebView (no native JS-panel
+  // delegate), so confirmation is inline: Set rung acts directly (reversible,
+  // dev-only); Reset arms on the first tap and fires on the second.
   const handleReset = () => {
-    const v = window.prompt('Type RESET to wipe auto-play state and start over at 30k.');
-    if (v === 'RESET') {
-      onReset();
+    if (!resetArmed) {
+      setResetArmed(true);
+      return;
     }
+    setResetArmed(false);
+    onReset();
   };
 
   const handleSetRung = () => {
     if (selectedRung === rungState.currentRung) return;
-    const ok = window.confirm(`Snap auto-play state to ${selectedRung}? Wins-toward-promotion will reset to 0.`);
-    if (ok) onSetRung(selectedRung);
+    onSetRung(selectedRung);
   };
 
   return (
@@ -551,7 +556,13 @@ function DevToolsBlock({
         <span className="profile-dev-label">Storage</span>
         <button className="profile-dev-btn" onClick={exportPayload}>Export JSON</button>
         <button className="profile-dev-btn" onClick={importPayload}>Import JSON</button>
-        <button className="profile-dev-btn profile-dev-btn-danger" onClick={handleReset}>Reset to 30k…</button>
+        <button
+          className="profile-dev-btn profile-dev-btn-danger"
+          onClick={handleReset}
+          onBlur={() => setResetArmed(false)}
+        >
+          {resetArmed ? 'Tap again to confirm' : 'Reset to 30k…'}
+        </button>
       </div>
     </div>
   );
