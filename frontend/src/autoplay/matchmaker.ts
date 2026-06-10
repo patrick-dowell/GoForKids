@@ -317,6 +317,45 @@ export function isSafeguardActive(rung: Rung, lossStreak: number, boardSize: Boa
   return eff.handicap !== base.handicap || eff.komi !== base.komi;
 }
 
+/** True when a rung is color-symmetric — an even game (no stones, full komi)
+ *  plays the same for either color, so the ladder may vary who the player is.
+ *  Komi-edge rungs (0 / 3.5) and handicap rungs encode a specific color's
+ *  advantage and are never flipped; nor are spec'd-White rungs (already
+ *  non-default). */
+export function isColorSymmetric(rung: Rung, boardSize: BoardSize = 19): boolean {
+  const base = matchupForRung(rung, boardSize);
+  return (
+    base.playerColor === 'black' &&
+    base.handicap === 0 &&
+    (base.komi === undefined || base.komi === KOMI_EVEN)
+  );
+}
+
+/**
+ * The matchup to actually play for the next game — `effectiveMatchup` plus
+ * color variety (feature 25 follow-up, Session 22 feedback: "always Black" got
+ * repetitive). On color-symmetric rungs the player alternates Black/White by
+ * games already played at the rung (deterministic — no stored randomness).
+ *
+ * Variety pauses in two cases, both kid-first:
+ *  - the starting rung: a brand-new player's first games stay consistent;
+ *  - while the safeguard is active: its komi-easing assumes the player is
+ *    Black, and a struggling kid gets the familiar setup back anyway.
+ */
+export function gameMatchup(
+  rung: Rung,
+  lossStreak: number,
+  gamesAtRung: number,
+  boardSize: BoardSize = 19,
+): Matchup {
+  const eff = effectiveMatchup(rung, lossStreak, boardSize);
+  if (lossStreak >= SAFEGUARD_LOSS_THRESHOLD) return eff;
+  if (rung === startingRung(boardSize)) return eff;
+  if (!isColorSymmetric(rung, boardSize)) return eff;
+  if (gamesAtRung % 2 === 0) return eff;
+  return { ...eff, playerColor: eff.playerColor === 'black' ? 'white' : 'black' };
+}
+
 /* ------------------------------------------------------------------------- *
  * Ladder navigation.
  * ------------------------------------------------------------------------- */

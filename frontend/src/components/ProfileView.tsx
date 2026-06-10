@@ -6,6 +6,7 @@ import {
   winsToPromote,
   applyResult,
   effectiveMatchup,
+  gameMatchup,
   freshState,
   ladderRungs,
   nextRung,
@@ -148,7 +149,10 @@ function ProfileHeader({
 /* ---------- Current Rank Card ---------- */
 
 function CurrentRankCard({ rungState, history, boardSize, onDerank }: { rungState: RungState; history: HistoryEntry[]; boardSize: BoardSize; onDerank: () => void }) {
-  const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak, boardSize);
+  // gameMatchup (not effectiveMatchup): the card previews the NEXT game, and
+  // color variety is part of that matchup.
+  const gamesAtRung = history.filter((h) => h.rung === rungState.currentRung).length;
+  const matchup = gameMatchup(rungState.currentRung, rungState.lossStreak, gamesAtRung, boardSize);
   const next = nextRung(rungState.currentRung, boardSize);
   const prev = prevRung(rungState.currentRung, boardSize);
   const winsNeeded = winsToPromote(rungState.currentRung, boardSize);

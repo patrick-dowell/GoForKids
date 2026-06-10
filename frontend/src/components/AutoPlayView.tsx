@@ -3,7 +3,7 @@ import { Avatar, BOT_AVATARS } from './Avatar';
 import {
   winsToPromote,
   nextRung,
-  effectiveMatchup,
+  gameMatchup,
   hasLadder,
   type Matchup,
   type BoardSize,
@@ -31,10 +31,14 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
   const boardSize = useAutoPlayStore((s) => s.boardSize);
   const setBoardSize = useAutoPlayStore((s) => s.setBoardSize);
   const rungState = useAutoPlayStore((s) => s.rungState);
+  const history = useAutoPlayStore((s) => s.history);
   // Compute derived values outside the selector — selectors that return
   // freshly-allocated objects each render trigger React's "getSnapshot
   // should be cached" warning and infinite re-renders.
-  const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak, boardSize);
+  // `history` only changes on recordResult, so the color-variety parity is
+  // stable for the whole pick-play-record cycle of a game.
+  const gamesAtRung = history.filter((h) => h.rung === rungState.currentRung).length;
+  const matchup = gameMatchup(rungState.currentRung, rungState.lossStreak, gamesAtRung, boardSize);
   const winsNeeded = winsToPromote(rungState.currentRung, boardSize);
   const atWall = rungState.winsAtCurrentRung >= winsNeeded;
 

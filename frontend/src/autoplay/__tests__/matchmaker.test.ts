@@ -17,6 +17,8 @@ import {
   hasLadder,
   winsToPromote,
   lossSetbackActive,
+  isColorSymmetric,
+  gameMatchup,
 } from '../matchmaker';
 
 describe('matchupForRung (19×19)', () => {
@@ -165,6 +167,51 @@ describe('loss setback from 12k (feature 25)', () => {
   it('a win still resets the loss streak in the setback tier', () => {
     const out = applyResult({ currentRung: '12k', winsAtCurrentRung: 1, lossStreak: 3 }, 'win', 9);
     expect(out.state).toEqual({ currentRung: '12k', winsAtCurrentRung: 2, lossStreak: 0 });
+  });
+});
+
+describe('color variety on symmetric rungs (feature 25 follow-up)', () => {
+  it('identifies color-symmetric rungs on 9×9 — even (6.5 komi) only', () => {
+    expect(isColorSymmetric('28k', 9)).toBe(true);
+    expect(isColorSymmetric('15k', 9)).toBe(true);
+    expect(isColorSymmetric('9k', 9)).toBe(true);
+    expect(isColorSymmetric('1d', 9)).toBe(true);
+    expect(isColorSymmetric('30k', 9)).toBe(false); // komi 0 — Black's edge
+    expect(isColorSymmetric('10k', 9)).toBe(false); // 3.5 komi — Black's edge
+    expect(isColorSymmetric('14k', 9)).toBe(false); // spec'd White rung
+    expect(isColorSymmetric('19k', 9)).toBe(false); // handicap stones
+  });
+
+  it('identifies color-symmetric rungs on 19×19 — even games (engine-default komi)', () => {
+    expect(isColorSymmetric('18k')).toBe(true);
+    expect(isColorSymmetric('30k')).toBe(true); // symmetric, but excluded as starting rung below
+    expect(isColorSymmetric('1d')).toBe(true);
+    expect(isColorSymmetric('17k')).toBe(false); // handicap stones
+  });
+
+  it('alternates the player color by games already played at the rung', () => {
+    expect(gameMatchup('15k', 0, 0, 9).playerColor).toBe('black');
+    expect(gameMatchup('15k', 0, 1, 9).playerColor).toBe('white');
+    expect(gameMatchup('15k', 0, 2, 9).playerColor).toBe('black');
+    // The even game's komi rides along unchanged — symmetric by definition.
+    expect(gameMatchup('15k', 0, 1, 9).komi).toBe(6.5);
+  });
+
+  it('never flips non-symmetric rungs', () => {
+    expect(gameMatchup('30k', 0, 1, 9).playerColor).toBe('black'); // komi-0 rung
+    expect(gameMatchup('14k', 0, 0, 9).playerColor).toBe('white'); // spec'd White stays White
+    expect(gameMatchup('14k', 0, 1, 9).playerColor).toBe('white');
+    expect(gameMatchup('17k', 0, 1).playerColor).toBe('black');    // 19×19 stones
+  });
+
+  it('never flips the starting rung — brand-new players get consistency', () => {
+    expect(gameMatchup('30k', 0, 1).playerColor).toBe('black'); // 19×19 30k is symmetric but excluded
+  });
+
+  it('pauses variety while the safeguard is active (its easing assumes Black)', () => {
+    const m = gameMatchup('15k', SAFEGUARD_LOSS_THRESHOLD, 1, 9);
+    expect(m.playerColor).toBe('black');
+    expect(m.komi).toBe(0.5); // eased komi rung
   });
 });
 

@@ -39,9 +39,31 @@ build OK.
 unseen (styles written blind against the dark theme); play one 9×9 loss at
 ≥12k and one derank round-trip.
 
+**Second commit — color variety on the even rungs** (Session 22 feedback #2:
+"always plays Black" felt repetitive). New `gameMatchup(rung, lossStreak,
+gamesAtRung, board)` wraps `effectiveMatchup` and alternates the player's
+color on **color-symmetric rungs only** (no stones, full komi — the rungs the
+points model already marked "play black or white"), deterministically by
+games-played-at-rung parity (no stored randomness; history only changes on
+`recordResult`, so the pick is stable across re-renders). Komi-edge rungs
+(0 / 3.5), handicap rungs, and spec'd-White rungs never flip. Two kid-first
+pauses: the **starting rung** never varies (a brand-new player's first games
+stay consistent — relevant on 19×19 where 30k is an even game), and variety
+**pauses while the safeguard is active** (its komi-easing assumes Black, and a
+struggling kid gets the familiar setup back anyway). Consumers: AutoPlayView
+match picker + ProfileView rank card both preview the same next-game matchup.
+Verified: clean tsc, **133 tests** (6 new), build OK.
+
+Also locked by test this session (Patrick requirement): **one win after the
+safeguard returns the player to the base matchup** — already the behavior
+(every win zeroes `lossStreak`), now a regression guarantee. Noted design
+nuance, left as-is by choice: safeguard wins count toward promotion at full
+value (below 12k a struggling kid can climb on eased wins — kid-first intent;
+at 12k+ the loss setback makes it self-balancing).
+
 Design doc: [25_promotion_polish.md](feature_plans/25_promotion_polish.md).
-Still queued from Session 22: color variety (next up), opening variety,
-handicap+komi engine fix (rung 12k), rewards arc.
+Still queued from Session 22: opening variety (move-selector change, both
+inference paths), handicap+komi engine fix (rung 12k), rewards arc.
 
 ## Session 22 — June 5, 2026
 
