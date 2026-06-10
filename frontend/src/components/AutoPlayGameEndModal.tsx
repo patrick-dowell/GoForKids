@@ -1,7 +1,7 @@
 import { useGameStore } from '../store/gameStore';
 import { useAutoPlayStore } from '../store/autoPlayStore';
 import { Color } from '../engine/types';
-import { WINS_TO_PROMOTE, nextRung } from '../autoplay/matchmaker';
+import { winsToPromote, lossSetbackActive, nextRung } from '../autoplay/matchmaker';
 import { ScoreSide } from './GameEndModal';
 import './AutoPlayGameEndModal.css';
 // Pulls in the shared lesson-end-* close button, scoreboard, and panel styles.
@@ -37,9 +37,10 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
   const dismiss = useGameStore((s) => s.dismissGameEnd);
   const showRankUp = useAutoPlayStore((s) => s.showRankUp);
   const rungState = useAutoPlayStore((s) => s.rungState);
+  const boardSize = useAutoPlayStore((s) => s.boardSize);
   const pendingFromRung = useAutoPlayStore((s) => s.pendingFromRung);
   // Compute derived outside the selector to avoid React's getSnapshot warning.
-  const atWall = rungState.winsAtCurrentRung >= WINS_TO_PROMOTE;
+  const atWall = rungState.winsAtCurrentRung >= winsToPromote(rungState.currentRung, boardSize);
 
   if (!autoplayContext || phase !== 'finished' || !result) return null;
   // Stay hidden while the rank-up overlay is sitting on top — the spec wants
@@ -57,9 +58,15 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
   // state instead of the usual wins-toward-next-rung text: all three
   // progress segments lit gold, "Congrats on reaching N" copy.
   const justPromoted = pendingFromRung !== null;
-  const next = nextRung(rungState.currentRung);
-  const filledSegs = justPromoted ? WINS_TO_PROMOTE : rungState.winsAtCurrentRung;
-  const winsRemaining = Math.max(0, WINS_TO_PROMOTE - rungState.winsAtCurrentRung);
+  const next = nextRung(rungState.currentRung, boardSize);
+  // When this game just caused a promotion, the celebration bar shows the bar
+  // the player actually completed — the FROM rung's threshold, fully lit.
+  const winsNeeded = winsToPromote(
+    justPromoted && pendingFromRung ? pendingFromRung : rungState.currentRung,
+    boardSize,
+  );
+  const filledSegs = justPromoted ? winsNeeded : rungState.winsAtCurrentRung;
+  const winsRemaining = Math.max(0, winsNeeded - rungState.winsAtCurrentRung);
 
   const progressLine = (() => {
     if (justPromoted) {
@@ -71,11 +78,16 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
     if (winsRemaining === 0) {
       return `Promoted to ${rungState.currentRung}.`;
     }
-    if (winsRemaining === WINS_TO_PROMOTE) {
-      return `Win ${WINS_TO_PROMOTE} games at ${rungState.currentRung} to promote.`;
+    if (winsRemaining === winsNeeded) {
+      return `Win ${winsNeeded} games at ${rungState.currentRung} to promote.`;
     }
-    return `${rungState.winsAtCurrentRung} of ${WINS_TO_PROMOTE} wins toward promotion.`;
+    return `${rungState.winsAtCurrentRung} of ${winsNeeded} wins toward promotion.`;
   })();
+
+  // Feature 25: from 12k up, a loss sets progress back one win. Surface the
+  // rule right when it bites so the shrinking bar never feels mysterious.
+  const showSetbackNote =
+    result.winner !== playerColor && !justPromoted && lossSetbackActive(rungState.currentRung, boardSize);
 
   return (
     <div className="autoplay-end-overlay" role="dialog" aria-modal="true" onClick={dismiss}>
@@ -124,7 +136,7 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
 
         <div className="autoplay-end-progress">
           <div className="autoplay-end-progress-bar">
-            {Array.from({ length: WINS_TO_PROMOTE }).map((_, i) => (
+            {Array.from({ length: winsNeeded }).map((_, i) => (
               <div
                 key={i}
                 className={'autoplay-end-progress-seg' + (i < filledSegs ? ' autoplay-end-progress-seg-filled' : '')}
@@ -132,6 +144,11 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
             ))}
           </div>
           <div className="autoplay-end-progress-label">{progressLine}</div>
+          {showSetbackNote && (
+            <div className="autoplay-end-progress-note">
+              At {rungState.currentRung}, a loss sets your progress back one win.
+            </div>
+          )}
         </div>
 
         <div className="autoplay-end-actions">

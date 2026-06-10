@@ -142,3 +142,10 @@
   transform: translateY(-1px);
   box-shadow: 0 6px 22px rgba(88, 166, 255, 0.4);
 }
+
+/* Feature 25 — loss-setback note under the progress bar */
+.autoplay-end-progress-note {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.7;
+}

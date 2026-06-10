@@ -7,6 +7,7 @@ import {
   effectiveMatchup,
   matchupForRung,
   freshState,
+  prevRung,
 } from '../autoplay/matchmaker';
 import {
   type Rating,
@@ -98,6 +99,12 @@ interface AutoPlayState {
   /** Snap the active board to a specific rung. Clears `winsAtCurrentRung`
    *  and `lossStreak`. History and promotion events are preserved. */
   setRung: (rung: Rung) => void;
+
+  /** Voluntary player-facing derank (feature 25): step down one rung on the
+   *  active board, clearing both counters. No-op at the bottom rung. Unlike
+   *  `setRung` (a calibration tool), the shadow rating is left untouched —
+   *  the player wants easier games, not a recalibration. */
+  derank: () => void;
 
   /** Load persisted state from localStorage. Called on app mount. */
   loadFromStorage: () => void;
@@ -258,6 +265,26 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
     set({
       rungState: newRungState,
       shadowRating: newShadow,
+      slots: newSlots,
+      showRankUp: false,
+      pendingFromRung: null,
+    });
+    persistSlots(newSlots);
+  },
+
+  derank: () => {
+    const { boardSize, rungState, history, promotionEvents, shadowRating, slots } = get();
+    const prev = prevRung(rungState.currentRung, boardSize);
+    if (!prev) return;
+    const newRungState: RungState = {
+      currentRung: prev,
+      winsAtCurrentRung: 0,
+      lossStreak: 0,
+    };
+    const slot: PersistedSlot = { rungState: newRungState, history, promotionEvents, shadowRating };
+    const newSlots = { ...slots, [boardKey(boardSize)]: slot };
+    set({
+      rungState: newRungState,
       slots: newSlots,
       showRankUp: false,
       pendingFromRung: null,

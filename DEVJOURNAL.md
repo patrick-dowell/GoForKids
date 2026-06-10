@@ -1,5 +1,48 @@
 # Development Journal
 
+## Session 23 — June 11, 2026 (midnight block)
+
+Feature 25: ranked promotion polish — the top item from the Session 22 feedback
+batch. Design finalized in-session, superseding the Session 22 sketch (per-loss
+setback instead of a loss-streak reset):
+
+- **Graduated promotion threshold** — `winsToPromote(rung, board)`: 3 wins
+  below 12k, 4 from 12k, 5 from 5k. On both current ladders that works out to
+  3 through 13k, 4 for 12k–6k, 5 for 5k–1d (the 12k/5k marker ranks exist on
+  both boards).
+- **Loss setback** — from 12k upward each loss sets `winsAtCurrentRung` back
+  one (floored at 0); the rung itself is never lost (no-auto-demotion stays
+  policy). Below 12k losses remain no-ops — pure kid-first early game. The
+  game-end modal surfaces the rule right when it bites ("At 9k, a loss sets
+  your progress back one win") so the shrinking bar never feels mysterious.
+- **Voluntary derank** — player-facing "Too tough? Move down a rank…" on the
+  Profile rank card (two-tap inline confirm — the WKWebView-safe pattern from
+  Session 22). New store action `derank()` steps down one rung, clears both
+  counters, and leaves the shadow rating untouched (comfort feature, not
+  recalibration). `prevRung()` added to the matchmaker.
+
+Also fixed a latent 9×9 bug found while wiring: `AutoPlayGameEndModal` called
+`nextRung()` without `boardSize`, so on the 9×9 ladder the "promote to X" copy
+was computed against the **19×19** ladder — and at rung 28k (which doesn't
+exist on 19×19) it would throw outright. The modal is now board-aware, and the
+post-promotion celebration bar shows the FROM-rung's threshold (the bar the
+player actually completed).
+
+Files: `matchmaker.ts` (+`winsToPromote` / `lossSetbackActive` / `prevRung`,
+new `applyResult` rules), `autoPlayStore.ts` (+`derank`), `AutoPlayView.tsx`,
+`AutoPlayGameEndModal.tsx`, `ProfileView.tsx` (+ both CSS files). Verified:
+clean tsc, **126 tests passing** (9 new: tier boundaries on both boards,
+setback floor / never-demotes, streak-reset-on-win, prevRung), production
+build OK.
+
+⚠️ Device pass still wanted: the derank button + setback note are visually
+unseen (styles written blind against the dark theme); play one 9×9 loss at
+≥12k and one derank round-trip.
+
+Design doc: [25_promotion_polish.md](feature_plans/25_promotion_polish.md).
+Still queued from Session 22: color variety (next up), opening variety,
+handicap+komi engine fix (rung 12k), rewards arc.
+
 ## Session 22 — June 5, 2026
 
 Short session: two playtest bugs fixed (the user reached 8k on the 9×9 ladder,

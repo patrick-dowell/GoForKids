@@ -1,7 +1,7 @@
 import { useAutoPlayStore } from '../store/autoPlayStore';
 import { Avatar, BOT_AVATARS } from './Avatar';
 import {
-  WINS_TO_PROMOTE,
+  winsToPromote,
   nextRung,
   effectiveMatchup,
   hasLadder,
@@ -35,11 +35,12 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
   // freshly-allocated objects each render trigger React's "getSnapshot
   // should be cached" warning and infinite re-renders.
   const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak, boardSize);
-  const atWall = rungState.winsAtCurrentRung >= WINS_TO_PROMOTE;
+  const winsNeeded = winsToPromote(rungState.currentRung, boardSize);
+  const atWall = rungState.winsAtCurrentRung >= winsNeeded;
 
   const botInfo = BOT_AVATARS[matchup.bot] ?? BOT_AVATARS['15k'];
   const next = nextRung(rungState.currentRung, boardSize);
-  const winsRemaining = Math.max(0, WINS_TO_PROMOTE - rungState.winsAtCurrentRung);
+  const winsRemaining = Math.max(0, winsNeeded - rungState.winsAtCurrentRung);
 
   const colorLine = matchup.playerColor === 'white' ? 'You play ⚪ White' : 'You play ⚫ Black';
   const detailLine = (() => {
@@ -55,8 +56,8 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
 
   const promotionLine = atWall
     ? `You've reached the top of the calibrated ladder. The ${next ?? 'next'} bot isn't ready yet — keep playing for fun.`
-    : winsRemaining === WINS_TO_PROMOTE
-      ? `Win ${WINS_TO_PROMOTE} games to promote to ${next ?? 'the next rung'}.`
+    : winsRemaining === winsNeeded
+      ? `Win ${winsNeeded} games to promote to ${next ?? 'the next rung'}.`
       : `Win ${winsRemaining} more to promote to ${next ?? 'the next rung'}.`;
 
   const handleStart = () => {
@@ -120,8 +121,8 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
 
           <div className="autoplay-progress">
             <div className="autoplay-progress-label">{promotionLine}</div>
-            <div className="autoplay-progress-bar" role="progressbar" aria-valuenow={rungState.winsAtCurrentRung} aria-valuemax={WINS_TO_PROMOTE}>
-              {Array.from({ length: WINS_TO_PROMOTE }).map((_, i) => (
+            <div className="autoplay-progress-bar" role="progressbar" aria-valuenow={rungState.winsAtCurrentRung} aria-valuemax={winsNeeded}>
+              {Array.from({ length: winsNeeded }).map((_, i) => (
                 <div
                   key={i}
                   className={'autoplay-progress-seg' + (i < rungState.winsAtCurrentRung ? ' autoplay-progress-seg-filled' : '')}

@@ -3,12 +3,13 @@ import { Avatar, PLAYER_AVATARS, type PlayerAvatarType } from './Avatar';
 import { useProfileStore } from '../store/profileStore';
 import { useAutoPlayStore, type HistoryEntry } from '../store/autoPlayStore';
 import {
-  WINS_TO_PROMOTE,
+  winsToPromote,
   applyResult,
   effectiveMatchup,
   freshState,
   ladderRungs,
   nextRung,
+  prevRung,
   type BoardSize,
   type Rung,
   type RungState,
@@ -34,6 +35,7 @@ export function ProfileView({ onExit }: ProfileViewProps) {
   const shadowRating = useAutoPlayStore((s) => s.shadowRating);
   const resetAutoPlay = useAutoPlayStore((s) => s.reset);
   const setRung = useAutoPlayStore((s) => s.setRung);
+  const derank = useAutoPlayStore((s) => s.derank);
 
   const [advancedOpen, setAdvancedOpen] = useState<boolean>(() => {
     try {
@@ -69,7 +71,7 @@ export function ProfileView({ onExit }: ProfileViewProps) {
           onSetDisplayName={setDisplayName}
         />
 
-        <CurrentRankCard rungState={rungState} history={history} boardSize={boardSize} />
+        <CurrentRankCard rungState={rungState} history={history} boardSize={boardSize} onDerank={derank} />
 
         <RankGraph history={history} boardSize={boardSize} />
 
@@ -145,11 +147,26 @@ function ProfileHeader({
 
 /* ---------- Current Rank Card ---------- */
 
-function CurrentRankCard({ rungState, history, boardSize }: { rungState: RungState; history: HistoryEntry[]; boardSize: BoardSize }) {
+function CurrentRankCard({ rungState, history, boardSize, onDerank }: { rungState: RungState; history: HistoryEntry[]; boardSize: BoardSize; onDerank: () => void }) {
   const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak, boardSize);
   const next = nextRung(rungState.currentRung, boardSize);
-  const atWall = rungState.winsAtCurrentRung >= WINS_TO_PROMOTE;
+  const prev = prevRung(rungState.currentRung, boardSize);
+  const winsNeeded = winsToPromote(rungState.currentRung, boardSize);
+  const atWall = rungState.winsAtCurrentRung >= winsNeeded;
   const recentResults = history.slice(-10);
+
+  // Voluntary derank (feature 25) — player-facing, so confirmation is the
+  // same inline two-tap used by the dev Reset button (window.confirm
+  // silently no-ops in WKWebView).
+  const [derankArmed, setDerankArmed] = useState(false);
+  const handleDerank = () => {
+    if (!derankArmed) {
+      setDerankArmed(true);
+      return;
+    }
+    setDerankArmed(false);
+    onDerank();
+  };
 
   const color = matchup.playerColor === 'white' ? '⚪ White' : '⚫ Black';
   const detail =
@@ -164,7 +181,7 @@ function CurrentRankCard({ rungState, history, boardSize }: { rungState: RungSta
 
   const winsLine = atWall
     ? `You've earned promotion — the ${next ?? 'next'} bot isn't calibrated yet, so you're held at ${rungState.currentRung}.`
-    : `${rungState.winsAtCurrentRung} of ${WINS_TO_PROMOTE} wins toward ${next ?? 'next rung'}`;
+    : `${rungState.winsAtCurrentRung} of ${winsNeeded} wins toward ${next ?? 'next rung'}`;
 
   return (
     <section className="profile-section profile-rank-card">
@@ -173,8 +190,8 @@ function CurrentRankCard({ rungState, history, boardSize }: { rungState: RungSta
       <div className="profile-rank-matchup">{handicapLine}</div>
 
       <div className="profile-progress-row">
-        <div className="profile-progress-bar" role="progressbar" aria-valuenow={rungState.winsAtCurrentRung} aria-valuemax={WINS_TO_PROMOTE}>
-          {Array.from({ length: WINS_TO_PROMOTE }).map((_, i) => (
+        <div className="profile-progress-bar" role="progressbar" aria-valuenow={rungState.winsAtCurrentRung} aria-valuemax={winsNeeded}>
+          {Array.from({ length: winsNeeded }).map((_, i) => (
             <div
               key={i}
               className={'profile-progress-seg' + (i < rungState.winsAtCurrentRung ? ' profile-progress-seg-filled' : '')}
@@ -183,6 +200,18 @@ function CurrentRankCard({ rungState, history, boardSize }: { rungState: RungSta
         </div>
         <div className="profile-progress-label">{winsLine}</div>
       </div>
+
+      {prev && (
+        <div className="profile-derank-row">
+          <button
+            className={'profile-derank-btn' + (derankArmed ? ' profile-derank-btn-armed' : '')}
+            onClick={handleDerank}
+            onBlur={() => setDerankArmed(false)}
+          >
+            {derankArmed ? `Tap again to move down to ${prev}` : 'Too tough? Move down a rank…'}
+          </button>
+        </div>
+      )}
 
       <div className="profile-recent-row">
         <div className="profile-recent-label">Recent results</div>

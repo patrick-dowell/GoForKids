@@ -3,7 +3,10 @@
  *
  * A per-board linear ladder where each rung is a fixed matchup chosen so the
  * matchup's effective strength equals the player's rank. Promotion is
- * deterministic: win 3 games at any rung → next rung. Losses are no-ops.
+ * deterministic: win N games at a rung → next rung, where N grows up the
+ * ladder (3 below 12k, 4 from 12k, 5 from 5k — feature 25). From 12k onward
+ * each loss also sets progress back one win (floored at 0; the rung itself is
+ * never lost). Below 12k losses are no-ops — pure kid-first.
  *
  * A rung's difficulty is set by FOUR levers, which together form a single
  * continuous "how much help does the human get" axis:
@@ -226,8 +229,17 @@ function specToMatchup(spec: RungSpec, ladder: Ladder): Matchup {
  * Constants.
  * ------------------------------------------------------------------------- */
 
-/** Wins required at any rung to promote. */
+/** Base wins required to promote at low rungs (below `FOUR_WIN_FROM`).
+ *  Prefer `winsToPromote(rung, boardSize)` — the threshold grows up the
+ *  ladder (feature 25: ranked promotion polish). */
 export const WINS_TO_PROMOTE = 3;
+
+/** From this rank (inclusive): 4 wins to promote, and each loss sets rung
+ *  progress back one win (see `lossSetbackActive`). */
+export const FOUR_WIN_FROM: Rung = '12k';
+
+/** From this rank (inclusive): 5 wins to promote. */
+export const FIVE_WIN_FROM: Rung = '5k';
 
 /** Loss streak that triggers the anti-frustration safeguard. */
 export const SAFEGUARD_LOSS_THRESHOLD = 5;
@@ -326,6 +338,38 @@ export function isNextRungValidated(rung: Rung, boardSize: BoardSize = 19): bool
   return matchupForRung(next, boardSize).validated;
 }
 
+/** Returns the rung below this one, or null at the bottom of the ladder. */
+export function prevRung(rung: Rung, boardSize: BoardSize = 19): Rung | null {
+  const ladder = ladderFor(boardSize);
+  const i = ladder.rungIndex.get(rung);
+  if (i === undefined) throw new Error(`Unknown rung "${rung}" on ${boardSize}×${boardSize}`);
+  if (i === 0) return null;
+  return ladder.rungs[i - 1];
+}
+
+/** True when `rung` sits at or above `marker` on this board's ladder. False
+ *  when the ladder has no such marker rank (e.g. a future 13×13 ladder). */
+function rungAtOrAbove(rung: Rung, marker: Rung, boardSize: BoardSize): boolean {
+  const ladder = ladderFor(boardSize);
+  const i = ladder.rungIndex.get(rung);
+  if (i === undefined) throw new Error(`Unknown rung "${rung}" on ${boardSize}×${boardSize}`);
+  const m = ladder.rungIndex.get(marker);
+  return m !== undefined && i >= m;
+}
+
+/** Wins required to promote off `rung`: 3 below 12k, 4 from 12k, 5 from 5k.
+ *  On both current ladders that's 3 through 13k, 4 for 12k–6k, 5 for 5k–1d. */
+export function winsToPromote(rung: Rung, boardSize: BoardSize = 19): number {
+  if (rungAtOrAbove(rung, FIVE_WIN_FROM, boardSize)) return 5;
+  if (rungAtOrAbove(rung, FOUR_WIN_FROM, boardSize)) return 4;
+  return WINS_TO_PROMOTE;
+}
+
+/** True when losses at `rung` set promotion progress back one win. */
+export function lossSetbackActive(rung: Rung, boardSize: BoardSize = 19): boolean {
+  return rungAtOrAbove(rung, FOUR_WIN_FROM, boardSize);
+}
+
 /* ------------------------------------------------------------------------- *
  * Rung state + promotion.
  * ------------------------------------------------------------------------- */
@@ -349,11 +393,13 @@ export interface ApplyResultOutcome {
 /**
  * Apply a single game result to the rung state. Pure.
  *
- * - Loss: increments `lossStreak`. Wins counter unchanged.
- * - Win below threshold: increments `winsAtCurrentRung`, resets `lossStreak`.
+ * - Loss: increments `lossStreak`. From `FOUR_WIN_FROM` (12k) upward it also
+ *   sets `winsAtCurrentRung` back one (floored at 0) — losses cost progress
+ *   but never the rung itself. Below 12k the wins counter is untouched.
+ * - Win below threshold (`winsToPromote`): increments wins, resets streak.
  * - Win that hits threshold: promotes to next rung (resets both counters).
  * - Win at validation wall or ladder top: holds at current rung with
- *   `winsAtCurrentRung` pinned at `WINS_TO_PROMOTE`.
+ *   `winsAtCurrentRung` pinned at the rung's threshold.
  */
 export function applyResult(
   state: RungState,
@@ -361,16 +407,20 @@ export function applyResult(
   boardSize: BoardSize = 19,
 ): ApplyResultOutcome {
   if (result === 'loss') {
+    const wins = lossSetbackActive(state.currentRung, boardSize)
+      ? Math.max(0, state.winsAtCurrentRung - 1)
+      : state.winsAtCurrentRung;
     return {
-      state: { ...state, lossStreak: state.lossStreak + 1 },
+      state: { ...state, winsAtCurrentRung: wins, lossStreak: state.lossStreak + 1 },
       promoted: false,
       fromRung: null,
     };
   }
 
+  const needed = winsToPromote(state.currentRung, boardSize);
   const newWins = state.winsAtCurrentRung + 1;
 
-  if (newWins < WINS_TO_PROMOTE) {
+  if (newWins < needed) {
     return {
       state: { ...state, winsAtCurrentRung: newWins, lossStreak: 0 },
       promoted: false,
@@ -385,7 +435,7 @@ export function applyResult(
     return {
       state: {
         ...state,
-        winsAtCurrentRung: WINS_TO_PROMOTE,
+        winsAtCurrentRung: needed,
         lossStreak: 0,
       },
       promoted: false,

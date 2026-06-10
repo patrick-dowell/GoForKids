@@ -9,11 +9,14 @@ import {
   isSafeguardActive,
   matchupForRung,
   nextRung,
+  prevRung,
   isNextRungValidated,
   freshState,
   ladderRungs,
   startingRung,
   hasLadder,
+  winsToPromote,
+  lossSetbackActive,
 } from '../matchmaker';
 
 describe('matchupForRung (19×19)', () => {
@@ -87,7 +90,7 @@ describe('nextRung / promotion (19×19)', () => {
     expect(isNextRungValidated('1d')).toBe(false);
   });
 
-  it('loss increments streak; three wins promote; losses do not delay wins', () => {
+  it('loss increments streak; three wins promote; losses do not delay wins below 12k', () => {
     expect(applyResult({ currentRung: '30k', winsAtCurrentRung: 1, lossStreak: 0 }, 'loss').state)
       .toEqual({ currentRung: '30k', winsAtCurrentRung: 1, lossStreak: 1 });
     const promo = applyResult({ currentRung: '30k', winsAtCurrentRung: WINS_TO_PROMOTE - 1, lossStreak: 0 }, 'win');
@@ -95,13 +98,87 @@ describe('nextRung / promotion (19×19)', () => {
     expect(promo.state.currentRung).toBe('27k');
   });
 
-  it('promotion holds at the validation wall (6k) and the ladder top (1d)', () => {
-    const wall = applyResult({ currentRung: '6k', winsAtCurrentRung: WINS_TO_PROMOTE - 1, lossStreak: 0 }, 'win');
+  it('promotion holds at the validation wall (6k) and the ladder top (1d), pinned at the rung threshold', () => {
+    const wall = applyResult({ currentRung: '6k', winsAtCurrentRung: winsToPromote('6k') - 1, lossStreak: 0 }, 'win');
     expect(wall.promoted).toBe(false);
-    expect(wall.state.currentRung).toBe('6k');
-    const top = applyResult({ currentRung: '1d', winsAtCurrentRung: WINS_TO_PROMOTE - 1, lossStreak: 0 }, 'win');
+    expect(wall.state).toEqual({ currentRung: '6k', winsAtCurrentRung: winsToPromote('6k'), lossStreak: 0 });
+    const top = applyResult({ currentRung: '1d', winsAtCurrentRung: winsToPromote('1d') - 1, lossStreak: 0 }, 'win');
     expect(top.promoted).toBe(false);
-    expect(top.state.currentRung).toBe('1d');
+    expect(top.state).toEqual({ currentRung: '1d', winsAtCurrentRung: winsToPromote('1d'), lossStreak: 0 });
+  });
+});
+
+/* ========================================================================= *
+ * Feature 25 — ranked promotion polish (2026-06-11).
+ * ========================================================================= */
+
+describe('graduated promotion thresholds (feature 25)', () => {
+  it('19×19: 3 below 12k, 4 from 12k, 5 from 5k', () => {
+    expect(winsToPromote('30k')).toBe(3);
+    expect(winsToPromote('13k')).toBe(3);
+    expect(winsToPromote('12k')).toBe(4);
+    expect(winsToPromote('6k')).toBe(4);
+    expect(winsToPromote('5k')).toBe(5);
+    expect(winsToPromote('1d')).toBe(5);
+  });
+
+  it('9×9: same rank boundaries', () => {
+    expect(winsToPromote('30k', 9)).toBe(3);
+    expect(winsToPromote('13k', 9)).toBe(3);
+    expect(winsToPromote('12k', 9)).toBe(4);
+    expect(winsToPromote('6k', 9)).toBe(4);
+    expect(winsToPromote('5k', 9)).toBe(5);
+    expect(winsToPromote('1d', 9)).toBe(5);
+  });
+
+  it('a 4-win rung promotes on the 4th win, not the 3rd', () => {
+    const third = applyResult({ currentRung: '12k', winsAtCurrentRung: 2, lossStreak: 0 }, 'win', 9);
+    expect(third.promoted).toBe(false);
+    expect(third.state.winsAtCurrentRung).toBe(3);
+    const fourth = applyResult(third.state, 'win', 9);
+    expect(fourth.promoted).toBe(true);
+    expect(fourth.state.currentRung).toBe('11k');
+  });
+});
+
+describe('loss setback from 12k (feature 25)', () => {
+  it('below 12k a loss leaves wins untouched', () => {
+    expect(lossSetbackActive('13k', 9)).toBe(false);
+    const out = applyResult({ currentRung: '13k', winsAtCurrentRung: 2, lossStreak: 0 }, 'loss', 9);
+    expect(out.state).toEqual({ currentRung: '13k', winsAtCurrentRung: 2, lossStreak: 1 });
+  });
+
+  it('from 12k each loss costs one win, floored at 0 — never the rung itself', () => {
+    expect(lossSetbackActive('12k', 9)).toBe(true);
+    const a = applyResult({ currentRung: '12k', winsAtCurrentRung: 2, lossStreak: 0 }, 'loss', 9);
+    expect(a.state).toEqual({ currentRung: '12k', winsAtCurrentRung: 1, lossStreak: 1 });
+    const b = applyResult(a.state, 'loss', 9);
+    expect(b.state).toEqual({ currentRung: '12k', winsAtCurrentRung: 0, lossStreak: 2 });
+    const c = applyResult(b.state, 'loss', 9);
+    expect(c.state).toEqual({ currentRung: '12k', winsAtCurrentRung: 0, lossStreak: 3 });
+  });
+
+  it('applies on 19×19 too', () => {
+    expect(applyResult({ currentRung: '9k', winsAtCurrentRung: 3, lossStreak: 0 }, 'loss').state.winsAtCurrentRung).toBe(2);
+  });
+
+  it('a win still resets the loss streak in the setback tier', () => {
+    const out = applyResult({ currentRung: '12k', winsAtCurrentRung: 1, lossStreak: 3 }, 'win', 9);
+    expect(out.state).toEqual({ currentRung: '12k', winsAtCurrentRung: 2, lossStreak: 0 });
+  });
+});
+
+describe('prevRung (feature 25 — voluntary derank)', () => {
+  it('returns the rung below, null at the bottom', () => {
+    expect(prevRung('27k')).toBe('30k');
+    expect(prevRung('30k')).toBeNull();
+    expect(prevRung('28k', 9)).toBe('30k');
+    expect(prevRung('30k', 9)).toBeNull();
+    expect(prevRung('1d', 9)).toBe('1k');
+  });
+
+  it('throws on a rung the board does not have', () => {
+    expect(() => prevRung('28k')).toThrow(); // 28k exists only on the 9×9 ladder
   });
 });
 
@@ -121,6 +198,19 @@ describe('effectiveMatchup safeguard (19×19 stones)', () => {
   it('is a no-op at the H9 engine cap (27k)', () => {
     expect(effectiveMatchup('27k', SAFEGUARD_LOSS_THRESHOLD).handicap).toBe(9);
     expect(isSafeguardActive('27k', SAFEGUARD_LOSS_THRESHOLD)).toBe(false);
+  });
+
+  it('one win after the safeguard returns the player to the base matchup (Patrick requirement, 2026-06-11)', () => {
+    // 5 straight losses at 18k → safeguard eases the matchup.
+    let state = { currentRung: '18k', winsAtCurrentRung: 0, lossStreak: 0 };
+    for (let i = 0; i < SAFEGUARD_LOSS_THRESHOLD; i++) state = applyResult(state, 'loss').state;
+    expect(isSafeguardActive(state.currentRung, state.lossStreak)).toBe(true);
+    expect(effectiveMatchup(state.currentRung, state.lossStreak).handicap).toBe(2);
+    // One win — streak resets, and the very next game is the real matchup again.
+    state = applyResult(state, 'win').state;
+    expect(state.lossStreak).toBe(0);
+    expect(isSafeguardActive(state.currentRung, state.lossStreak)).toBe(false);
+    expect(effectiveMatchup(state.currentRung, state.lossStreak)).toEqual(matchupForRung('18k'));
   });
 });
 
