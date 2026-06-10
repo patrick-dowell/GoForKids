@@ -518,7 +518,9 @@ export const useGameStore = create<GameState>((set, get) => ({
     // advantage feels real and the kid can win straight up.
     // 9x9/13x13 use 6.5, 19x19 uses 7.5.
     const defaultKomi = boardSize === 5 ? 0 : boardSize === 19 ? 7.5 : 6.5;
-    const komi = handicap > 0 ? 0.5 : (options?.komi ?? defaultKomi);
+    // Explicit komi wins even with handicap (feature 25: rung 12k = 2 stones
+    // + 3.5 komi). No explicit komi: handicap games stay at 0.5 as before.
+    const komi = options?.komi ?? (handicap > 0 ? 0.5 : defaultKomi);
     const game = new Game(komi, boardSize);
     const playerColor = options?.playerColor ?? Color.Black;
     const targetRank = options?.targetRank ?? '15k';

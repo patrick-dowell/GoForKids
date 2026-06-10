@@ -110,10 +110,10 @@ const KOMI_HALF = 3.5;
  * from bot + color + handicap stones (≥2, ≈7 pts/stone) + komi. Only the six
  * real 9×9 profiles (30k/15k/9k/6k/3k/1d) are ever named as bots.
  *
- * ⚠️ ENGINE DEPENDENCY: rung 12k combines a handicap (2 stones) WITH a custom
- * komi (3.5). The engine forces komi=0.5 whenever handicap>0 (frontend
- * gameStore + localGameRouter, AND backend state.py). Until all three honor an
- * explicit komi, 12k plays at komi 0.5 — collapsing toward 10k. Marked † below.
+ * Rung 12k combines a handicap (2 stones) WITH a custom komi (3.5) — marked †
+ * below. RESOLVED 2026-06-11 (Session 23): all four komi sites (gameStore,
+ * localGameRouter, client.ts request body, backend state.py) now honor an
+ * explicit komi even when handicap > 0, so 12k plays at its true strength.
  *
  * Labels and point values are intuited/playtest-seeded, PENDING further
  * validation. "Play black or white" rungs (even, 6.5 komi) default to Black.

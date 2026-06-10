@@ -177,7 +177,10 @@ class GameManager:
         size = req.board_size if req.board_size in SUPPORTED_SIZES else 19
         max_h = MAX_HANDICAP_BY_SIZE.get(size, 0)
         handicap = max(0, min(max_h, req.handicap))
-        komi = 0.5 if handicap > 0 else req.komi
+        # Explicit komi wins even with handicap (feature 25: rung 12k = 2
+        # stones + 3.5 komi). Old clients send komi explicitly (incl. 0.5 for
+        # handicap games), so honoring it is back-compatible.
+        komi = req.komi if req.komi is not None else (0.5 if handicap > 0 else 7.5)
 
         board = Board(size)
 

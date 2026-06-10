@@ -111,7 +111,8 @@ export const api = {
       body: JSON.stringify({
         target_rank: options.target_rank ?? '15k',
         mode: options.mode ?? 'casual',
-        komi: options.handicap ? 0.5 : (options.komi ?? 7.5),
+        // Explicit komi wins even with handicap (feature 25: rung 12k).
+        komi: options.komi ?? (options.handicap ? 0.5 : 7.5),
         player_color: options.player_color ?? 'black',
         handicap: options.handicap ?? 0,
         black_rank: options.black_rank ?? null,

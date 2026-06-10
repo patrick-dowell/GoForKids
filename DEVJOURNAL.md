@@ -61,9 +61,28 @@ nuance, left as-is by choice: safeguard wins count toward promotion at full
 value (below 12k a struggling kid can climb on eased wins — kid-first intent;
 at 12k+ the loss setback makes it self-balancing).
 
+**Third commit — handicap+komi engine fix (unblocks rung 12k).** The Session
+21 note flagged three sites forcing komi to 0.5 whenever handicap > 0
+(`gameStore.ts`, `localGameRouter.ts`, backend `state.py`); wiring the fix
+surfaced a **fourth** — `client.ts` clamps in the HTTP request body too. All
+four now follow the same rule: **an explicit komi wins, even with handicap**;
+no explicit komi keeps the old behavior (0.5 on handicap games, default
+otherwise). Backend `CreateGameRequest.komi` became `Optional[float] = None`
+so absence is distinguishable from 7.5 — back-compatible, since old client
+bundles always send komi explicitly (including 0.5 for handicap games, which
+is exactly what they played before). Rung 12k (2 stones + 3.5 komi) now plays
+at its true strength instead of collapsing toward 10k. New localGameRouter
+tests pin: explicit komi + handicap honored, handicap-without-komi still 0.5,
+and explicit komi 0 not treated as unset (assertions via the persisted
+payload — `GameStateDTO` doesn't expose komi). Verified: clean tsc, **136
+tests**, build OK, backend `py_compile` OK.
+
+⚠️ Device check tonight: play rung 12k (9×9) to scoring and confirm White's
+score line shows komi 3.5 (not 0.5).
+
 Design doc: [25_promotion_polish.md](feature_plans/25_promotion_polish.md).
 Still queued from Session 22: opening variety (move-selector change, both
-inference paths), handicap+komi engine fix (rung 12k), rewards arc.
+inference paths — needs play-validation, not a midnight edit), rewards arc.
 
 ## Session 22 — June 5, 2026
 

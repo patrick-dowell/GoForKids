@@ -21,7 +21,7 @@ class PointSchema(BaseModel):
 class CreateGameRequest(BaseModel):
     target_rank: str = "15k"  # e.g. "30k", "18k", "15k", "10k", "5k", "3k"
     mode: GameMode = GameMode.casual
-    komi: float = 7.5
+    komi: Optional[float] = None  # explicit komi wins (even with handicap); None → 0.5 on handicap games, else 7.5
     player_color: StoneColor = StoneColor.black
     handicap: int = 0  # 0-9 stones (capped to 5 on 9x9). Clamped server-side per board size.
     black_rank: Optional[str] = None  # For bot-vs-bot: black bot rank

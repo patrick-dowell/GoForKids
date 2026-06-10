@@ -353,7 +353,9 @@ export const localGameRouter = {
   createGame(opts: CreateGameOptions): GameStateDTO {
     const size = opts.board_size ?? 19;
     const handicap = opts.handicap ?? 0;
-    const komi = handicap > 0 ? 0.5 : (opts.komi ?? 7.5);
+    // Explicit komi wins even with handicap (feature 25: rung 12k = 2 stones
+    // + 3.5 komi). No explicit komi: handicap games stay at 0.5 as before.
+    const komi = opts.komi ?? (handicap > 0 ? 0.5 : 7.5);
     const game = new Game(komi, size);
     const handicapStones = handicapPoints(size, handicap);
     applyHandicapStones(game, handicapStones);
