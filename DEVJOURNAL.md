@@ -1,5 +1,38 @@
 # Development Journal
 
+## Session 24 — June 11, 2026 (daytime polish block)
+
+Two commits clearing the 2026-06-11 playtest findings.
+
+**Settle-fill + score-graph fix — one root cause, fixed at the root.**
+Diagnosis deepened from last night: the backend KataGo engine analyzes
+EVERYTHING under **japanese rules + real komi**
+([engine.py](backend/app/katago/engine.py)) — i.e. the b28 calibration
+reference is japanese — while the on-device bridge hardcoded `komi: 7.5` +
+`rules: 'tromp-taylor'` (client.ts, the old "acceptable for now" comment).
+Both playtest bugs were that deviation: under area rules own-territory fills
+are free, so the settle path never surfaced pass on-device; and assumed-7.5
+komi inflated the score graph toward White by (7.5 − real komi) — rung 8k
+plays komi 0. Fix: `GameStateDTO` (TS) and `GameStateResponse` (backend) now
+expose **`komi`**; `getAIMoveViaBridge` and `finishMoveViaBridge` analyze with
+`komi: state.komi, rules: 'japanese'`. `deadStonesViaOwnership` deliberately
+untouched (painstakingly sign-calibrated; ownership-only). Note: **Render
+redeploy needed** to serve the new komi field — web clients don't run
+on-device analysis, so nothing breaks meanwhile.
+
+**6k soften (v3, ⚠️ unvalidated).** `mistake_freq` 0.50→0.58,
+`max_point_loss` 8→6 — more but smaller mistakes, Patrick's direction; quality
+knobs untouched. Coupled (documented in-profile): lands alongside the settle
+fix, which stops the bot's ~2–3 pt/game territory giveaway, so the net target
+is "slightly easier than before." Validate bot-vs-bot (still beats 9k, still
+loses to 3k) or playtest; if overshot, revert max_pl first.
+
+Also: stale `RankUpOverlay` doc comment fixed. Verified: clean tsc, **136
+tests**, build OK, backend py_compile OK.
+
+Next-playtest checklist: bot passes back promptly after your pass; score
+graph roughly matches final margins; 6k difficulty feel at rungs 8k–6k.
+
 ## Session 23 — June 11, 2026 (midnight block)
 
 Feature 25: ranked promotion polish — the top item from the Session 22 feedback
@@ -2514,8 +2547,8 @@ Not worth further tuning right now — fixing H3 exactly requires either making 
 - [x] **iPhone Pro (non–Pro Max) layout is cut off** — addressed via cumulative Sprint 1 + Sprint 2 CSS fixes (Sprint 2 audit at 393×852, 2026-05-17). The Pro-width complaints surfaced on iPhone 17 simulator (homepage bot roster bleeding equally off both sides, fixed in 6b5c6b6 / 773fdde) and Pro Max (lesson header dots overlapping Home, fixed in 046b85e). Audit at 393×852 of home / new-game dialog / game UI / lessons / profile / library / replay all render cleanly with no cropping. If a future Pro-specific repro surfaces a NEW cut-off location, reopen with the specific view + viewport coords.
 - [x] **Undo doesn't work in handicap games vs. the bot** — fixed 2026-05-17 (Sprint 2). Two bugs in one: (1) handicap stones weren't tracked anywhere accessible to undo's rebuild, so they vanished; (2) the replay loop used `currentColor` (always Black after rebuild) instead of each move's recorded color, silently swapping W/B in handicap games where White moves first. Fix: added `handicapStones: Point[]` field + `setHandicap(stones)` method to [Game.ts](frontend/src/engine/Game.ts); `undo()` now re-places handicap stones AND sets `currentColor = move.color as Stone` before each replay step. Also fixes the related SGF gaps: `toSGF` now emits `HA[n]` + `AB[xx][yy]...` tags, and `fromSGF` parses them via `setHandicap` and uses the recorded color when replaying. localGameRouter's pre-existing undo workaround removed (no longer needed). 5 new tests in [Game.test.ts](frontend/src/engine/__tests__/Game.test.ts) lock in handicap-undo, color-replay correctness, non-handicap regression, SGF AB emission, and round-trip.
 - [ ] **Phone runs hot + elevated battery drain during play (needs profiling to confirm attribution)** — TestFlight beta 2026-05-14, iPhone. Observed warmer-than-normal device temperature and higher battery usage during sessions; unclear how much is GoForKids vs. other apps. Strong prior: Phase D shipped fully on-device KataGo Neural Engine inference, and iPhone has a tighter thermal envelope than iPad — every move (and every `finishMove` step) triggers a fresh ML inference, with no idle / low-power mode in between. Plausible secondary contributors: AudioContext nodes accumulating without `disconnect()` (already flagged in the audio bug), Canvas redraws on every animation frame even when idle, and the React re-render volume of the auto-play screen. Next step: Xcode Instruments → Energy + Time Profiler over a 5-minute play session to see where the watts go. Mitigations to consider if confirmed: lower default visit count for non-finish moves, skip inference when the bot is clearly losing/resigning, throttle Canvas to dirty-frames only.
-- [ ] **Bot plays 2–3 own-territory moves after the player passes (9×9 6k, playtest 2026-06-11)** — root cause diagnosed (Session 23 wrap): the settle-cleanly path (Session 21) deepens visits + skips mistake injection, but its analysis still runs `rules: 'tromp-taylor'` with hardcoded komi 7.5 (client.ts bridge call) — and under area rules own-territory fills are free, so honest KataGo doesn't surface pass. Fix shape, proven by `finishMoveViaBridge`: settle analyses → `rules: 'japanese'` + real komi, on BOTH engines (TS `moveSelector.ts`/`client.ts` and the Python path). Costs the bot ~2–3 pts/game today.
-- [ ] **Score graph reads a couple pts high for White, worse late-game (playtest 2026-06-11)** — two compounding causes: (1) on-device bridge analyses hardcode `komi: 7.5` (the "acceptable for now" comment in client.ts) while real 9×9 ranked komi is 0–6.5 (rung 8k plays komi 0); the backend path passes real `game.komi`, so Render and on-device currently disagree; (2) tromp-taylor scoreLead vs the app's territory scoring diverges late as dame/fills stop mattering to one ruleset. Fix shape: expose `komi` on `GameStateDTO`, thread real komi through every bridge analyze, align score-display analyses with the app's scoring rules — but keep move-selection analyses on tromp-taylor so b28 calibration stays untouched.
+- [x] **Bot plays 2–3 own-territory moves after the player passes (9×9 6k, playtest 2026-06-11)** — root cause diagnosed (Session 23 wrap): the settle-cleanly path (Session 21) deepens visits + skips mistake injection, but its analysis still runs `rules: 'tromp-taylor'` with hardcoded komi 7.5 (client.ts bridge call) — and under area rules own-territory fills are free, so honest KataGo doesn't surface pass. Fix shape, proven by `finishMoveViaBridge`: settle analyses → `rules: 'japanese'` + real komi, on BOTH engines (TS `moveSelector.ts`/`client.ts` and the Python path). Costs the bot ~2–3 pts/game today.
+- [x] **Score graph reads a couple pts high for White, worse late-game (playtest 2026-06-11)** — two compounding causes: (1) on-device bridge analyses hardcode `komi: 7.5` (the "acceptable for now" comment in client.ts) while real 9×9 ranked komi is 0–6.5 (rung 8k plays komi 0); the backend path passes real `game.komi`, so Render and on-device currently disagree; (2) tromp-taylor scoreLead vs the app's territory scoring diverges late as dame/fills stop mattering to one ruleset. Fix shape: expose `komi` on `GameStateDTO`, thread real komi through every bridge analyze, align score-display analyses with the app's scoring rules — but keep move-selection analyses on tromp-taylor so b28 calibration stays untouched.
 
 ## Polish / Feature gaps (from play observation)
 - [ ] **9×9 6k bot slightly too hard (playtest 2026-06-11)** — direction agreed with Patrick: more but smaller mistakes (`mistake_freq` 0.50 → ~0.58, `max_point_loss` 8 → 6; small deltas per the 15k over-weakening lesson). ⚠️ Tune AFTER the settle fix above — fixing the territory giveaway makes 6k ~2–3 pts stronger — and validate bot-vs-bot (still beats 9k, still loses to 3k). May also partly be the known 9k→6k calibration cliff; a softer 6k addresses both.

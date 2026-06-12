@@ -145,8 +145,17 @@ profiles:
       # v2 heavy-noise: visits 80->10, mistake 0.25->0.50, rand 0.02->0.12,
       # max_pl 10->8. Playtested as ~6k strength against humans, hence the
       # ladder shift.
-      max_point_loss: 8.0
-      mistake_freq: 0.50
+      # v3 2026-06-11 soften (playtest: "a little too hard" at rungs 8k-6k):
+      # mistake_freq 0.50->0.58, max_pl 8->6 — MORE mistakes but SMALLER, per
+      # Patrick's direction. Two knobs on the SAME axis (mistake character),
+      # quality knobs (visits/policy_weight) untouched. NOTE: lands alongside
+      # the 2026-06-11 settle/komi fix, which STOPS the bot giving away 2-3
+      # pts/game filling its own territory — net target is "slightly easier
+      # than before", so the soften must outweigh that gain.
+      # ⚠️ UNVALIDATED — verify via bot-vs-bot (6k should still beat 9k and
+      # lose to 3k) or playtest; if overshot, revert max_pl 6->8 first.
+      max_point_loss: 6.0
+      mistake_freq: 0.58
       policy_weight: 0.50
       randomness: 0.40
       random_move_chance: 0.12
