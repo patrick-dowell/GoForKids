@@ -49,23 +49,19 @@ describe('localGameRouter — basic lifecycle', () => {
     expect(dto.captures).toEqual({ black: 0, white: 0 });
   });
 
-  // GameStateDTO doesn't expose komi; the persisted payload does.
-  const persistedKomi = (gameId: string): number =>
-    (JSON.parse(localStorage.getItem('goforkids:game:' + gameId)!) as { komi: number }).komi;
-
-  it('honors an explicit komi even with handicap (feature 25 — rung 12k)', () => {
-    const { game_id } = localGameRouter.createGame({ board_size: 9, handicap: 2, komi: 3.5 });
-    expect(persistedKomi(game_id)).toBe(3.5);
+  it('exposes komi on the DTO; explicit komi wins even with handicap (rung 12k)', () => {
+    const dto = localGameRouter.createGame({ board_size: 9, handicap: 2, komi: 3.5 });
+    expect(dto.komi).toBe(3.5);
   });
 
   it('handicap without explicit komi still defaults to 0.5', () => {
-    const { game_id } = localGameRouter.createGame({ board_size: 9, handicap: 2 });
-    expect(persistedKomi(game_id)).toBe(0.5);
+    const dto = localGameRouter.createGame({ board_size: 9, handicap: 2 });
+    expect(dto.komi).toBe(0.5);
   });
 
   it('explicit komi 0 is honored (the "no komi" rungs), not treated as unset', () => {
-    const { game_id } = localGameRouter.createGame({ board_size: 9, komi: 0 });
-    expect(persistedKomi(game_id)).toBe(0);
+    const dto = localGameRouter.createGame({ board_size: 9, komi: 0 });
+    expect(dto.komi).toBe(0);
   });
 
   it('playMove updates board, captures, current_color, last_move', () => {

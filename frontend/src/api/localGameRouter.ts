@@ -323,6 +323,7 @@ function toDTO(lg: LocalActiveGame): GameStateDTO {
     game_id: lg.gameId,
     board: boardTo2d(g.board),
     board_size: g.board.size,
+    komi: g.komi,
     current_color: g.currentColor === Color.Black ? 'black' : 'white',
     move_number: g.moveHistory.length + 1,
     captures: {

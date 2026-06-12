@@ -38,6 +38,7 @@ class GameStateResponse(BaseModel):
     game_id: str
     board: list[list[int]]  # size×size grid: 0=empty, 1=black, 2=white
     board_size: int = 19
+    komi: float = 7.5  # the game's actual komi — clients need it for on-device analysis
     current_color: StoneColor
     move_number: int
     captures: dict[str, int]  # {"black": N, "white": N}

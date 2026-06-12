@@ -3,7 +3,7 @@ import './RankUpOverlay.css';
 
 /**
  * Rank-up celebration overlay. Fires once after a game-result win pushes
- * `winsAtCurrentRung` to `WINS_TO_PROMOTE` and the next rung is validated.
+ * `winsAtCurrentRung` to the rung-specific `winsToPromote` threshold and the next rung is validated.
  * Sticky until tap — sits over the `AutoPlayGameEndModal` so the player
  * sees the new rank announced before the result summary.
  */

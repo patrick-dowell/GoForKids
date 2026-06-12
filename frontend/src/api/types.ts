@@ -30,6 +30,9 @@ export interface GameStateDTO {
   game_id: string;
   board: number[][];
   board_size: number;
+  /** The game's actual komi. On-device analysis must use this — a hardcoded
+   *  komi skews score estimates and (under area rules) endgame pass behavior. */
+  komi: number;
   current_color: 'black' | 'white';
   move_number: number;
   captures: { black: number; white: number };

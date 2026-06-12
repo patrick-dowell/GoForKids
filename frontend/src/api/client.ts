@@ -264,11 +264,14 @@ async function getAIMoveViaBridge(
     const tAnalyzeStart = performance.now();
     const result = await bridge.analyze({
       boardSize: state.board_size,
-      // GameStateDTO doesn't expose komi; backend default is 7.5, handicap is
-      // 0.5. Wrong komi may shift KataGo's score estimates slightly but doesn't
-      // break the selector's logic. Acceptable for now.
-      komi: 7.5,
-      rules: 'tromp-taylor',
+      // Real komi + japanese rules, matching the backend engine the b28
+      // profiles were calibrated against (backend/app/katago/engine.py).
+      // The old hardcoded komi 7.5 + tromp-taylor skewed the score graph
+      // toward White (assumed komi minus real komi) and — because area
+      // scoring makes own-territory fills free — kept the settle path from
+      // ever surfacing pass on-device. Fixed 2026-06-11.
+      komi: state.komi,
+      rules: 'japanese',
       moves,
       color: colorChar,
       maxVisits: visits,
@@ -436,7 +439,7 @@ async function finishMoveViaBridge(
   const tAnalyzeStart = performance.now();
   const result = await bridge.analyze({
     boardSize: state.board_size,
-    komi: 7.5,
+    komi: state.komi,
     rules: 'japanese',
     moves,
     color: colorChar,

@@ -691,6 +691,7 @@ class GameManager:
             game_id=game.game_id,
             board=game.board.to_2d(),
             board_size=game.board.size,
+            komi=game.komi,
             current_color=StoneColor.black
             if game.current_color == Color.BLACK
             else StoneColor.white,
