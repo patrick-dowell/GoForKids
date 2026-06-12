@@ -43,9 +43,14 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 
 ## Roadmap (as of 2026-06-11 — supersedes the wave plan below)
 
-**Now — path to the next tester build (days):** Patrick's device pass on the
-2026-06-11 polish batch → bot validation (6k v3, 15k recheck, rung-label spot
-check; fp 20 harness helps) → **Render redeploy** (new komi field) → TestFlight.
+**Now — the Learning Loop build (re-sequenced 2026-06-11):** the core tester
+feedback is the **full loop — learning → playing → learning, no gaps**; the
+ranked loop exists (9×9 + 19×19) but ~5 minutes of lessons is the gap. So:
+**lessons overhaul first** (03 + glossary + more lessons; open question whether
+a small puzzles MVP makes the pre-build cut) → device pass on the 2026-06-11
+polish batch → bot validation (6k v3, 15k recheck, rung-label spot check; fp 20
+harness; opening variety rides along) → **Render redeploy** (new komi field) →
+TestFlight. 13×13 ranked: deliberately skipped — revisit on tester demand.
 
 **This version (focus windows, order being decided):**
 - **Lessons overhaul** (03 + glossary + more lessons; the remaining Tier-1
