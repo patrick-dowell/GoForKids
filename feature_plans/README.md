@@ -34,21 +34,40 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 | 19 | [What-if exploration (interactive review)](19_whatif_exploration.md) | 📝 Planned | Medium | 04 |
 | 20 | [b28 bot calibration harness](20_b28_calibration.md) | 📝 Planned | High | — |
 | 21 | [iPhone (Pro Max) support](21_iphone_support.md) | 🟡 Beta | Medium | 10 |
-| 22 | [Auto-play (matchmaker + ranked progression)](22_auto_play.md) | 📝 Planned | High | 01, 23 |
-| 23 | [Profile page](23_profile_page.md) | 📝 Planned | High | 22, 11 |
-| 24 | [9×9 ranked ladder (komi-based)](24_9x9_ladder.md) | 📝 Planned | High | 22, 23 |
+| 22 | [Auto-play (matchmaker + ranked progression)](22_auto_play.md) | 🧪 Beta | High | 01, 23 |
+| 23 | [Profile page](23_profile_page.md) | 🧪 Beta | High | 22, 11 |
+| 24 | [9×9 ranked ladder (points model)](24_9x9_ladder.md) | 🧪 Beta (shipped 2026-06-03→11) | High | 22, 23 |
+| 25 | [Ranked promotion polish](25_promotion_polish.md) | ✅ Done (2026-06-11) | High | 22, 24 |
+| 26 | [Ranked energy & superpowers](26_ranked_energy.md) | 📝 Planned | High | 22, 25 |
+| 27 | [World & art pass](27_world_and_art.md) | 📝 Planned | High | 11, 12, 15, 26 |
 
-## Suggested sequencing
+## Roadmap (as of 2026-06-11 — supersedes the wave plan below)
+
+**Now — path to the next tester build (days):** Patrick's device pass on the
+2026-06-11 polish batch → bot validation (6k v3, 15k recheck, rung-label spot
+check; fp 20 harness helps) → **Render redeploy** (new komi field) → TestFlight.
+
+**This version (focus windows, order being decided):**
+- **Lessons overhaul** (03 + glossary + more lessons; the remaining Tier-1
+  onboarding-funnel item from the 2026-06-03 TestFlight roadmap)
+- **World & art pass** (27 — world bible → assets → animations)
+- **Ranked energy + rewards** (26 phase 1 + 15 — mechanics that spend 27's art)
+- **Study Mode design session** (04 scoping — too big/vague to schedule unscoped)
+- Opening variety rides along with the bot-validation work (move-selector
+  change; needs play-validation)
+
+**Next version (explicitly tabled 2026-06-11, Patrick's call):**
+- Social — friends, profiles, matching (doc TBD)
+- Watching games with commentary/analysis for kids (06 + 04 — note: 27's bot
+  personalities feed this)
+- Puzzles (02)
+- Online play (07 — biggest infra; COPPA review)
+
+## Original wave plan (historical)
 
 **Wave 1 — Foundations for feedback:** 09 (publish beta), 01 (finish bots), 13 (smaller boards), 05 (NUX shell), 17 (rank widget).
-Without hosting there are no beta testers; without a full bot ladder players hit a wall; without smaller boards the kid ramp doesn't exist; without NUX first-timers bounce; without the rank widget the ladder is invisible.
-
 **Wave 2 — Teaching loop:** 03 (concept lessons), 02 (puzzles), 04 (AI teacher review), 19 (what-if), 16 (mistake tracking), 18 (rules refresher).
-These form the learning spine. Share a concept taxonomy across all of them.
-
 **Wave 3 — Reward and parent loop:** 15 (rewards), 14 (parent dashboard), 11 (avatars), 12 (animations/SFX).
-Once learning works, make accomplishments felt — by kid and by parent.
-
 **Wave 4 — Expansion:** 06 (observe OGS), 07 (online play), 08 (traditional mode), 10 (iPad).
 
 ## How to use these docs
