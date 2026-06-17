@@ -33,7 +33,9 @@ import { AutoPlayGameEndModal } from './components/AutoPlayGameEndModal';
 import { RankUpOverlay } from './components/RankUpOverlay';
 import { ProfileView } from './components/ProfileView';
 import { GlossaryView } from './components/GlossaryView';
+import { GameReview } from './components/GameReview';
 import { useGlossaryStore } from './store/glossaryStore';
+import { useGameReviewStore } from './store/gameReviewStore';
 import { Color, oppositeColor } from './engine/types';
 import './App.css';
 
@@ -68,6 +70,9 @@ function App() {
     const cid = params.get('concept');
     if (cid) useGlossaryStore.getState().openConcept(cid);
     else if (params.get('glossary')) useGlossaryStore.getState().openIndex();
+    // `?review=1` opens the Play-of-the-Game review (shows the empty state when
+    // no game has been played — handy for QA without a full playthrough).
+    if (params.get('review')) useGameReviewStore.getState().open();
   }, []);
 
   const phase = useGameStore((s) => s.phase);
@@ -331,6 +336,7 @@ function App() {
         <LearnView onExit={handleExitLearn} onStartGameLesson={handleStartGameLesson} />
         <FeedbackButton />
         <GlossaryView />
+        <GameReview />
         {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
     );
@@ -357,6 +363,7 @@ function App() {
         )}
         <FeedbackButton />
         <GlossaryView />
+        <GameReview />
         {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
     );
@@ -371,6 +378,7 @@ function App() {
         <AutoPlayView onExit={handleExitAutoPlay} onStart={handleStartAutoPlayGame} />
         <FeedbackButton />
         <GlossaryView />
+        <GameReview />
         {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
     );
@@ -384,6 +392,7 @@ function App() {
         <ProfileView onExit={handleExitProfile} />
         <FeedbackButton />
         <GlossaryView />
+        <GameReview />
         {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
     );
@@ -531,6 +540,7 @@ function App() {
         onNextMatch={handleNextAutoPlayMatch}
         onHome={handleAutoPlayHome}
       />
+      <GameReview />
       <RankUpOverlay />
       <FeedbackButton />
       <GlossaryView />

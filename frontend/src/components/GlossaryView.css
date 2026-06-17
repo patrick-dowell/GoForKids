@@ -141,3 +141,21 @@
 .glossary-chip:hover {
   background: rgba(255, 255, 255, 0.1);
 }
+
+/* Concept page — "do the lesson" affordance (fp 29 glossary↔lessons) */
+.glossary-lesson-btn {
+  display: block;
+  width: 100%;
+  margin: 0 0 18px;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  background: var(--glossary-lesson-bg, #6c5ce7);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.glossary-lesson-btn:hover {
+  filter: brightness(1.08);
+}

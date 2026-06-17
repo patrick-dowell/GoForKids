@@ -2,9 +2,12 @@ import {
   CORE_CONCEPTS,
   EXTENDED_CONCEPTS,
   getConcept,
+  firstLessonForConcept,
   type Concept,
 } from '../learn/concepts';
+import { LESSONS } from '../learn/lessons';
 import { useGlossaryStore } from '../store/glossaryStore';
+import { useLearnStore } from '../store/learnStore';
 import { DiagramBoard } from './DiagramBoard';
 import './GlossaryView.css';
 
@@ -66,6 +69,16 @@ function GlossaryIndex() {
 
 function ConceptPage({ concept }: { concept: Concept }) {
   const goTo = useGlossaryStore((s) => s.goTo);
+  const close = useGlossaryStore((s) => s.close);
+
+  // Optional depth: if a lesson teaches this concept, offer it (pull, not push).
+  const lessonId = firstLessonForConcept(concept.id);
+  const lessonIndex = lessonId ? LESSONS.findIndex((l) => l.id === lessonId) : -1;
+  const doLesson = () => {
+    if (lessonIndex < 0) return;
+    close();
+    useLearnStore.getState().resumeAt(lessonIndex);
+  };
 
   return (
     <div className="glossary-concept">
@@ -89,6 +102,12 @@ function ConceptPage({ concept }: { concept: Concept }) {
       )}
 
       {/* Optional depth, below the fold of attention. */}
+      {lessonIndex >= 0 && (
+        <button className="glossary-lesson-btn" onClick={doLesson}>
+          📘 Do the lesson
+        </button>
+      )}
+
       {concept.related && concept.related.length > 0 && (
         <div className="glossary-related">
           <span className="glossary-related-label">See also</span>

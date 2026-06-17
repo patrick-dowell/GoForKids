@@ -343,3 +343,27 @@ export function getConcept(id: string): Concept | undefined {
 export function isConceptId(id: string): boolean {
   return BY_ID.has(id);
 }
+
+/**
+ * Concept → lesson(s) that teach it. Lesson ids are the `id`s in `lessons.ts`.
+ * Kept as a central map (rather than a field on every concept) so the
+ * relationship is editable in one place as lessons are reworked. The glossary
+ * uses this to offer "do the lesson" on a concept page (fp 29).
+ */
+export const LESSONS_FOR_CONCEPT: Readonly<Record<string, string[]>> = {
+  'placing-stones': ['drop-first-stone'],
+  liberties: ['trap-one-stone'],
+  capture: ['trap-one-stone', 'big-capture'],
+  atari: ['save-your-team'],
+  groups: ['big-capture', 'save-your-team'],
+  'two-eyes': ['capture-the-eye', 'two-eyes-uncapturable', 'safe-or-gone', 'two-eyes-puzzles'],
+  'suicide-rule': ['two-eyes-uncapturable'],
+  'territory-count': ['count-your-land'],
+  'who-wins': ['count-your-land'],
+  'capture-races': ['capture-race-9x9'],
+};
+
+/** The first lesson id that teaches `conceptId`, or undefined if none. */
+export function firstLessonForConcept(conceptId: string): string | undefined {
+  return LESSONS_FOR_CONCEPT[conceptId]?.[0];
+}

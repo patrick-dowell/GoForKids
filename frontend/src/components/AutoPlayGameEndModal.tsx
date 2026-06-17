@@ -2,6 +2,7 @@ import { useGameStore } from '../store/gameStore';
 import { useAutoPlayStore } from '../store/autoPlayStore';
 import { Color } from '../engine/types';
 import { winsToPromote, lossSetbackActive, nextRung } from '../autoplay/matchmaker';
+import { useGameReviewStore } from '../store/gameReviewStore';
 import { ScoreSide } from './GameEndModal';
 import './AutoPlayGameEndModal.css';
 // Pulls in the shared lesson-end-* close button, scoreboard, and panel styles.
@@ -150,6 +151,13 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
             </div>
           )}
         </div>
+
+        <button
+          className="autoplay-end-review-btn"
+          onClick={() => useGameReviewStore.getState().open()}
+        >
+          ✨ See your Play of the Game
+        </button>
 
         <div className="autoplay-end-actions">
           <button className="autoplay-end-btn autoplay-end-btn-secondary" onClick={onHome}>

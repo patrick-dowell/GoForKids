@@ -1,0 +1,121 @@
+.review-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(8, 6, 18, 0.78);
+  backdrop-filter: blur(3px);
+}
+
+.review-panel {
+  position: relative;
+  width: min(520px, 100%);
+  max-height: 90dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--review-bg, #1d1830);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 26px 22px;
+  color: var(--review-fg, #ece8f8);
+}
+
+.review-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.review-close:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.review-title {
+  margin: 0 0 18px;
+  font-size: 23px;
+  text-align: center;
+}
+
+.review-empty {
+  opacity: 0.75;
+  text-align: center;
+  line-height: 1.5;
+  margin: 8px 0 20px;
+}
+
+.review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.review-card {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+/* Good moments get a warm accent; learning moments a cool one. */
+.review-card-good {
+  border-left: 3px solid #ffd36e;
+}
+.review-card-learn {
+  border-left: 3px solid #9bd1ff;
+}
+
+.review-card-board {
+  flex: 0 0 auto;
+}
+
+.review-card-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.review-card-move {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.5;
+  margin-bottom: 4px;
+}
+.review-card-headline {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin-bottom: 8px;
+}
+.review-card-concept {
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+.review-done {
+  display: block;
+  width: 100%;
+  margin-top: 20px;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  background: var(--review-done-bg, #6c5ce7);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.review-done:hover {
+  filter: brightness(1.08);
+}

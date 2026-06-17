@@ -149,3 +149,21 @@
   font-size: 12px;
   opacity: 0.7;
 }
+
+/* Feature 28 — "See your Play of the Game" entry on the game-end modal */
+.autoplay-end-review-btn {
+  display: block;
+  width: 100%;
+  margin: 4px 0 12px;
+  padding: 10px;
+  border: 1px solid rgba(255, 211, 110, 0.45);
+  border-radius: 10px;
+  background: rgba(255, 211, 110, 0.1);
+  color: #ffd36e;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.autoplay-end-review-btn:hover {
+  background: rgba(255, 211, 110, 0.18);
+}
