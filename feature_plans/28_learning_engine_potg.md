@@ -1,6 +1,18 @@
 # 28 — In-game learning engine ("Play of the Game" review)
 
-**Status: 📝 Planned — design captured 2026-06-16 (Patrick + Jarvis design session).**
+**Status: 🚧 MVP built 2026-06-16 (commit f4363aa) — crawl version live.**
+Built: `gameReview.ts` (pure board-state detectors — capture + atari — over move
+history; ranks + picks ≤3, leads with glory; reuses DiagramBoard), `GameReview`
+overlay + `gameReviewStore`, opened from a "See your Play of the Game" button on
+the ranked game-end modal; each highlight links its concept into the glossary
+(fp 29). 5 unit tests; overlay visually verified (empty state).
+**Remaining (needs device/backend):** populated review visually unverified (the
+board isn't clickable via headless tooling — needs a real playthrough);
+score-swing ranking (the "turning point") needs on-device KataGo per-move score;
+local-region cropping for 19×19 moment diagrams; wiring an energy reward (fp 26)
+for opening the review. Original design capture below.
+
+**Design captured 2026-06-16 (Patrick + Jarvis design session).**
 Connects/absorbs: 04 (AI teacher review), 16 (mistake tracking), 03 (concept
 lessons), 02 (puzzles), 19 (what-if), 26 (energy), 15 (rewards). This is the
 candidate **spine** of the learning loop — the bridge that makes "playing" and
