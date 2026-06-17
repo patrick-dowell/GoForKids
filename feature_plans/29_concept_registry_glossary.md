@@ -45,13 +45,23 @@ reference layer around them.
      "see it in your games" (fp 28 / 16).
    - **Glossary index**: browsable list of all concepts, core set surfaced first.
 
-## The "core set" — concepts needed to play (seed list, to finalize)
+## Concept set — FINALIZED 2026-06-16 (Patrick)
 
-placement & turns · liberties · capture (last liberty) · groups (shared
-liberties) · atari · two eyes = life · suicide / illegal moves · territory &
-scoring. (~maps to today's lessons 1–11.) Everything else — ladder, net,
-snapback, cut/connect, semeai depth, ko tactics, sente/gote, shape, influence,
-endgame — is **extended**, taught in-context as it arises.
+**Core (the on-ramp — must-knows to play; one lesson each):**
+1. Placing stones / taking turns
+2. Liberties
+3. Capture
+4. Atari
+5. Groups / connection / sharing liberties (one concept)
+6. Two eyes = life
+7. The suicide rule
+8. The ko rule
+9. Territory — how to count
+10. Who wins — how we score the game
+
+**Extended (taught in-context via fp 28; glossary stubs that grow over time):**
+Ladders · Nets · Life & Death · Snapback · Capture Races · Ko Fights ·
+Sente/Gote · Shape · Endgame · Joseki · Midgame
 
 ## Build path
 

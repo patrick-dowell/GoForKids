@@ -1,0 +1,143 @@
+.glossary-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(8, 6, 18, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.glossary-panel {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: 90dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--glossary-bg, #1d1830);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 28px 24px;
+  color: var(--glossary-fg, #ece8f8);
+}
+
+.glossary-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.glossary-close:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* ---------- Index ---------- */
+
+.glossary-title {
+  margin: 0 0 4px;
+  font-size: 24px;
+}
+.glossary-subtitle {
+  margin: 0 0 20px;
+  opacity: 0.7;
+  font-size: 14px;
+}
+.glossary-section-head {
+  margin: 18px 0 10px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+}
+.glossary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+.glossary-card {
+  padding: 12px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.glossary-card:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.glossary-card-extended {
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* ---------- Concept page ---------- */
+
+.glossary-back {
+  margin-bottom: 14px;
+  border: none;
+  background: none;
+  color: inherit;
+  opacity: 0.7;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+}
+.glossary-back:hover {
+  opacity: 1;
+}
+.glossary-concept-name {
+  margin: 0 0 8px;
+  font-size: 26px;
+}
+.glossary-concept-short {
+  margin: 0 0 18px;
+  font-size: 17px;
+  line-height: 1.5;
+}
+.glossary-diagram-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 20px;
+}
+.glossary-related {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 14px;
+}
+.glossary-related-label {
+  display: block;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.55;
+  margin-bottom: 8px;
+}
+.glossary-related-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.glossary-chip {
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.glossary-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+}

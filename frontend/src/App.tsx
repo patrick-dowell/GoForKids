@@ -32,6 +32,7 @@ import { AutoPlayView } from './components/AutoPlayView';
 import { AutoPlayGameEndModal } from './components/AutoPlayGameEndModal';
 import { RankUpOverlay } from './components/RankUpOverlay';
 import { ProfileView } from './components/ProfileView';
+import { GlossaryView } from './components/GlossaryView';
 import { Color, oppositeColor } from './engine/types';
 import './App.css';
 
@@ -318,6 +319,7 @@ function App() {
       <div className="app">
         <LearnView onExit={handleExitLearn} onStartGameLesson={handleStartGameLesson} />
         <FeedbackButton />
+        <GlossaryView />
         {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
     );
@@ -343,6 +345,7 @@ function App() {
           <GameLibrary onSelectGame={handleSelectGame} onClose={() => setShowLibrary(false)} />
         )}
         <FeedbackButton />
+        <GlossaryView />
         {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
     );
@@ -356,6 +359,7 @@ function App() {
         <SettingsButton />
         <AutoPlayView onExit={handleExitAutoPlay} onStart={handleStartAutoPlayGame} />
         <FeedbackButton />
+        <GlossaryView />
         {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
     );
@@ -368,6 +372,7 @@ function App() {
         <SettingsButton />
         <ProfileView onExit={handleExitProfile} />
         <FeedbackButton />
+        <GlossaryView />
         {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
     );
@@ -517,6 +522,7 @@ function App() {
       />
       <RankUpOverlay />
       <FeedbackButton />
+      <GlossaryView />
       {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       {scoringInProgress && <ScoringInProgressModal />}
     </div>

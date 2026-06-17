@@ -1,0 +1,345 @@
+/**
+ * Concept registry — the single source of truth for the learning engine
+ * (feature plan 29). Lessons, puzzles, the glossary, and the in-game "Play of
+ * the Game" teacher (fp 28) all read concepts from here by `id`.
+ *
+ * Philosophy (Patrick, 2026-06-16): the glossary IS the canonical concept set.
+ * CORE concepts are the must-knows to get into a game (one lesson each);
+ * EXTENDED concepts are taught in-context as they come up in real play. Every
+ * concept has a 5-second kid-simple answer (`short`) up front; depth (lesson,
+ * puzzles, "see it in your game") is optional and layered below.
+ *
+ * Example positions reuse the lesson position shape ({ size, stones }) so the
+ * DiagramBoard renders them the same way lessons render mini-boards.
+ *
+ * NOTE: `short` copy is first-draft — written kid-simple but pending Patrick's
+ * voice pass (he has the target user asleep down the hall). Positions marked
+ * `// TODO verify` need a careful authoring/playtest check before trusting.
+ */
+import { Color, type Point } from '../engine/types';
+
+export type ConceptTier = 'core' | 'extended';
+
+/** A tiny static position rendered on a glossary page (DiagramBoard). */
+export interface DiagramPosition {
+  size: number;
+  stones: Array<{ row: number; col: number; color: Color }>;
+  /** Intersections to glow — the liberties, the eyes, the territory, etc. */
+  highlight?: Point[];
+}
+
+export interface Concept {
+  /** Stable id, e.g. 'atari'. Referenced by lessons, detectors, puzzles. */
+  id: string;
+  /** Display name, e.g. 'Atari'. */
+  name: string;
+  tier: ConceptTier;
+  /** The 5-second answer — one or two kid-simple sentences. Shown first. */
+  short: string;
+  /** A small illustrative diagram. null ⇒ not yet authored/verified. */
+  example?: DiagramPosition | null;
+  /** Related concept ids (Wikipedia-style cross-links). */
+  related?: string[];
+  /** Lessons that teach this concept (wired as lessons are retrofitted). */
+  lessonIds?: string[];
+}
+
+const B = Color.Black;
+const W = Color.White;
+
+/* ------------------------------------------------------------------------- *
+ * CORE — the on-ramp. Must-knows to play a game; one lesson each.
+ * ------------------------------------------------------------------------- */
+
+const CORE: Concept[] = [
+  {
+    id: 'placing-stones',
+    name: 'Placing Stones',
+    tier: 'core',
+    short: "Black and White take turns putting one stone on the line crossings. Black goes first.",
+    related: ['liberties', 'capture'],
+    example: {
+      size: 5,
+      stones: [
+        { row: 2, col: 1, color: B },
+        { row: 1, col: 2, color: W },
+        { row: 3, col: 2, color: B },
+      ],
+    },
+  },
+  {
+    id: 'liberties',
+    name: 'Liberties',
+    tier: 'core',
+    short: "A stone's liberties are the empty points right next to it. Stones need liberties to stay on the board.",
+    related: ['capture', 'atari', 'groups'],
+    example: {
+      size: 5,
+      stones: [{ row: 2, col: 2, color: B }],
+      highlight: [
+        { row: 1, col: 2 },
+        { row: 3, col: 2 },
+        { row: 2, col: 1 },
+        { row: 2, col: 3 },
+      ],
+    },
+  },
+  {
+    id: 'capture',
+    name: 'Capture',
+    tier: 'core',
+    short: "When a stone or group has no liberties left, it's captured and taken off the board.",
+    related: ['liberties', 'atari', 'groups'],
+    example: {
+      // White stone with every liberty filled by Black → captured.
+      size: 5,
+      stones: [
+        { row: 2, col: 2, color: W },
+        { row: 1, col: 2, color: B },
+        { row: 3, col: 2, color: B },
+        { row: 2, col: 1, color: B },
+        { row: 2, col: 3, color: B },
+      ],
+      highlight: [{ row: 2, col: 2 }],
+    },
+  },
+  {
+    id: 'atari',
+    name: 'Atari',
+    tier: 'core',
+    short: "Atari means just one liberty is left — one more move captures it. Like 'check' in chess.",
+    related: ['capture', 'liberties'],
+    example: {
+      // White has one liberty left (highlighted) — Black plays it to capture.
+      size: 5,
+      stones: [
+        { row: 2, col: 2, color: W },
+        { row: 1, col: 2, color: B },
+        { row: 3, col: 2, color: B },
+        { row: 2, col: 1, color: B },
+      ],
+      highlight: [{ row: 2, col: 3 }],
+    },
+  },
+  {
+    id: 'groups',
+    name: 'Groups',
+    tier: 'core',
+    short: "Stones of the same color that touch along the lines join into one group, and a group shares all its liberties. Connected stones are stronger.",
+    related: ['liberties', 'capture', 'two-eyes'],
+    example: {
+      size: 5,
+      stones: [
+        { row: 2, col: 1, color: B },
+        { row: 2, col: 2, color: B },
+        { row: 2, col: 3, color: B },
+      ],
+    },
+  },
+  {
+    id: 'two-eyes',
+    name: 'Two Eyes = Life',
+    tier: 'core',
+    short: "An eye is an empty point your group surrounds. A group with TWO separate eyes can never be captured — it's alive forever.",
+    related: ['groups', 'capture', 'life-and-death'],
+    example: {
+      // Black group on the left edge with two separate eyes at (0,0) and (2,0).
+      size: 5,
+      stones: [
+        { row: 0, col: 1, color: B },
+        { row: 1, col: 0, color: B },
+        { row: 1, col: 1, color: B },
+        { row: 2, col: 1, color: B },
+        { row: 3, col: 0, color: B },
+        { row: 3, col: 1, color: B },
+      ],
+      highlight: [
+        { row: 0, col: 0 },
+        { row: 2, col: 0 },
+      ],
+    },
+  },
+  {
+    id: 'suicide-rule',
+    name: 'The Suicide Rule',
+    tier: 'core',
+    short: "You can't place a stone where it would have no liberties — unless that move captures something. No playing into your own death.",
+    related: ['liberties', 'capture', 'ko-rule'],
+    example: {
+      // Black may not play the highlighted point — it would have no liberties
+      // and captures nothing.
+      size: 5,
+      stones: [
+        { row: 0, col: 1, color: W },
+        { row: 2, col: 1, color: W },
+        { row: 1, col: 0, color: W },
+        { row: 1, col: 2, color: W },
+      ],
+      highlight: [{ row: 1, col: 1 }],
+    },
+  },
+  {
+    id: 'ko-rule',
+    name: 'The Ko Rule',
+    tier: 'core',
+    short: "After a capture, you can't immediately take back to make the exact same board again. Play somewhere else first. This stops endless back-and-forth.",
+    related: ['capture', 'ko-fights'],
+    // TODO verify: ko is a dynamic rule — a single static diagram reads poorly.
+    // Decide with Patrick whether to show a before/after pair or skip the
+    // diagram and teach it live. Left null rather than ship a confusing shape.
+    example: null,
+  },
+  {
+    id: 'territory-count',
+    name: 'Territory',
+    tier: 'core',
+    short: "Territory is the empty points your stones surround. You count them to see how much area you control.",
+    related: ['who-wins', 'groups', 'endgame'],
+    example: {
+      // Black wall (col 1) surrounds column 0 — 5 points of territory.
+      size: 5,
+      stones: [
+        { row: 0, col: 1, color: B },
+        { row: 1, col: 1, color: B },
+        { row: 2, col: 1, color: B },
+        { row: 3, col: 1, color: B },
+        { row: 4, col: 1, color: B },
+      ],
+      highlight: [
+        { row: 0, col: 0 },
+        { row: 1, col: 0 },
+        { row: 2, col: 0 },
+        { row: 3, col: 0 },
+        { row: 4, col: 0 },
+      ],
+    },
+  },
+  {
+    id: 'who-wins',
+    name: 'Who Wins',
+    tier: 'core',
+    short: "At the end, your score is your territory plus the stones you captured (White also adds komi). The higher score wins.",
+    related: ['territory-count', 'endgame'],
+    example: {
+      // Black holds the left (col 0), White holds the right (col 4).
+      size: 5,
+      stones: [
+        { row: 0, col: 1, color: B },
+        { row: 1, col: 1, color: B },
+        { row: 2, col: 1, color: B },
+        { row: 3, col: 1, color: B },
+        { row: 4, col: 1, color: B },
+        { row: 0, col: 3, color: W },
+        { row: 1, col: 3, color: W },
+        { row: 2, col: 3, color: W },
+        { row: 3, col: 3, color: W },
+        { row: 4, col: 3, color: W },
+      ],
+    },
+  },
+];
+
+/* ------------------------------------------------------------------------- *
+ * EXTENDED — taught in-context (fp 28). Glossary stubs that grow over time;
+ * example positions + lessons + puzzles get authored as each is built out.
+ * ------------------------------------------------------------------------- */
+
+const EXTENDED: Concept[] = [
+  {
+    id: 'ladders',
+    name: 'Ladders',
+    tier: 'extended',
+    short: "A ladder is a chase: you keep putting a stone in atari, step by step, until it runs into the edge and dies — unless something on its path saves it.",
+    related: ['atari', 'capture', 'nets'],
+  },
+  {
+    id: 'nets',
+    name: 'Nets',
+    tier: 'extended',
+    short: "A net (geta) traps a stone loosely from a distance instead of chasing it, so it can't escape even by running.",
+    related: ['ladders', 'capture'],
+  },
+  {
+    id: 'life-and-death',
+    name: 'Life & Death',
+    tier: 'extended',
+    short: "Whether a group can make two eyes (live) or be stopped from making them (die). The heart of Go fighting.",
+    related: ['two-eyes', 'capture-races', 'shape'],
+  },
+  {
+    id: 'snapback',
+    name: 'Snapback',
+    tier: 'extended',
+    short: "Let a stone be captured, then capture a bigger group right back. A tiny sacrifice for a big gain.",
+    related: ['capture', 'atari'],
+  },
+  {
+    id: 'capture-races',
+    name: 'Capture Races',
+    tier: 'extended',
+    short: "A capture race (semeai) is two groups racing to fill each other's liberties. Whoever runs out first dies.",
+    related: ['liberties', 'life-and-death'],
+  },
+  {
+    id: 'ko-fights',
+    name: 'Ko Fights',
+    tier: 'extended',
+    short: "The back-and-forth battle over a ko, using threats elsewhere on the board to win the right to take it back.",
+    related: ['ko-rule'],
+  },
+  {
+    id: 'sente-gote',
+    name: 'Sente & Gote',
+    tier: 'extended',
+    short: "Sente is a move your opponent must answer, so you keep the lead. Gote is when you have to answer. Keeping sente is powerful.",
+    related: ['endgame', 'shape'],
+  },
+  {
+    id: 'shape',
+    name: 'Shape',
+    tier: 'extended',
+    short: "Good shape means stones that work efficiently together — strong and flexible. Bad shape is clumsy and easy to attack.",
+    related: ['life-and-death', 'sente-gote'],
+  },
+  {
+    id: 'endgame',
+    name: 'Endgame',
+    tier: 'extended',
+    short: "The endgame (yose) is the last stage, settling borders. Small-looking moves decide close games.",
+    related: ['territory-count', 'sente-gote'],
+  },
+  {
+    id: 'joseki',
+    name: 'Joseki',
+    tier: 'extended',
+    short: "Well-known corner sequences that give both sides a fair result. Patterns worth understanding, not memorizing blindly.",
+    related: ['shape', 'midgame'],
+  },
+  {
+    id: 'midgame',
+    name: 'Midgame',
+    tier: 'extended',
+    short: "The big fight after the opening — attacking, defending, building, and invading across the whole board.",
+    related: ['shape', 'capture-races'],
+  },
+];
+
+/* ------------------------------------------------------------------------- *
+ * Registry access.
+ * ------------------------------------------------------------------------- */
+
+export const CONCEPTS: ReadonlyArray<Concept> = [...CORE, ...EXTENDED];
+
+export const CORE_CONCEPTS: ReadonlyArray<Concept> = CORE;
+export const EXTENDED_CONCEPTS: ReadonlyArray<Concept> = EXTENDED;
+
+const BY_ID: ReadonlyMap<string, Concept> = new Map(CONCEPTS.map((c) => [c.id, c]));
+
+export function getConcept(id: string): Concept | undefined {
+  return BY_ID.get(id);
+}
+
+/** True when `id` names a real concept — for `ConceptLink` to fail loudly in dev. */
+export function isConceptId(id: string): boolean {
+  return BY_ID.has(id);
+}

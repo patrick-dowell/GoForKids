@@ -1,5 +1,6 @@
 import { Avatar, BOT_AVATARS } from './Avatar';
 import { useAutoPlayStore } from '../store/autoPlayStore';
+import { useGlossaryStore } from '../store/glossaryStore';
 import { STARTING_RUNG, type BoardSize } from '../autoplay/matchmaker';
 import './HomePage.css';
 
@@ -81,6 +82,10 @@ export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onProf
           <button onClick={onLibrary} className="home-btn home-btn-secondary">
             <span className="home-btn-icon">📚</span>
             Library
+          </button>
+          <button onClick={() => useGlossaryStore.getState().openIndex()} className="home-btn home-btn-secondary">
+            <span className="home-btn-icon">📖</span>
+            Glossary
           </button>
           <button onClick={() => onProfile()} className="home-btn home-btn-secondary">
             <span className="home-btn-icon">👤</span>
