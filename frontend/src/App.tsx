@@ -33,6 +33,7 @@ import { AutoPlayGameEndModal } from './components/AutoPlayGameEndModal';
 import { RankUpOverlay } from './components/RankUpOverlay';
 import { ProfileView } from './components/ProfileView';
 import { GlossaryView } from './components/GlossaryView';
+import { useGlossaryStore } from './store/glossaryStore';
 import { Color, oppositeColor } from './engine/types';
 import './App.css';
 
@@ -58,6 +59,16 @@ function App() {
   /** Tracks which lesson kicked off the currently-active game (for the
    *  "Next lesson" continuation on the game-end modal). Cleared on Move on. */
   const [activeGameLessonId, setActiveGameLessonId] = useState<string | null>(null);
+
+  // Deep-link into the glossary: `?concept=<id>` opens that concept's page,
+  // `?glossary=1` opens the index. Enables shareable concept links and lets the
+  // Play-of-the-Game review / lessons jump straight to a concept. Runs once.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const cid = params.get('concept');
+    if (cid) useGlossaryStore.getState().openConcept(cid);
+    else if (params.get('glossary')) useGlossaryStore.getState().openIndex();
+  }, []);
 
   const phase = useGameStore((s) => s.phase);
   const targetRank = useGameStore((s) => s.targetRank);
