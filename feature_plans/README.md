@@ -40,6 +40,7 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 | 25 | [Ranked promotion polish](25_promotion_polish.md) | ✅ Done (2026-06-11) | High | 22, 24 |
 | 26 | [Ranked energy & superpowers](26_ranked_energy.md) | 📝 Planned | High | 22, 25 |
 | 27 | [World & art pass](27_world_and_art.md) | 📝 Planned | High | 11, 12, 15, 26 |
+| 28 | [Learning engine — "Play of the Game" review](28_learning_engine_potg.md) | 📝 Planned | High | 03, 04, 16, 26; score graph |
 
 ## Roadmap (as of 2026-06-11 — supersedes the wave plan below)
 
@@ -52,9 +53,17 @@ polish batch → bot validation (6k v3, 15k recheck, rung-label spot check; fp 2
 harness; opening variety rides along) → **Render redeploy** (new komi field) →
 TestFlight. 13×13 ranked: deliberately skipped — revisit on tester demand.
 
+**The retention / learning thesis (design session 2026-06-16, see fp 28):** the
+ranked "wall" is mathematically guaranteed; Go answers it with honest progress
+axes (handicap, board sizes, learning) instead of CCG-style fake resets. Four
+pillars: ladder progress (22/24/25) · calibrated 50-50 games (01/20) · energy
+(26) · **in-context learning (28 — the keystone).** The lessons overhaul below
+is the first half of pillar 4 — it's where fp 28's highlights link into.
+
 **This version (focus windows, order being decided):**
 - **Lessons overhaul** (03 + glossary + more lessons; the remaining Tier-1
-  onboarding-funnel item from the 2026-06-03 TestFlight roadmap)
+  onboarding-funnel item; also the destination fp 28's "Play of the Game" links
+  into — they're one project)
 - **World & art pass** (27 — world bible → assets → animations)
 - **Ranked energy + rewards** (26 phase 1 + 15 — mechanics that spend 27's art)
 - **Study Mode design session** (04 scoping — too big/vague to schedule unscoped)
