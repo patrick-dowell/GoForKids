@@ -65,17 +65,27 @@ Sente/Gote · Shape · Endgame · Joseki · Midgame
 
 ## Build path
 
-1. **Registry + core concepts** — author `concepts.ts` for the core set
-   (extract from the 11 shipped lessons; don't invent a taxonomy). Wire
-   `lessons.ts` to reference concept ids.
-2. **Glossary page + `ConceptLink`** — the page (quick answer → optional depth)
-   and the link component; sprinkle links where concepts already appear.
-3. **Extended concepts incrementally** — add registry entries (explanation +
-   example) for the long tail so the in-context teacher (fp 28) has somewhere to
-   link, even before lessons/puzzles exist for them. A concept page can exist
-   with just explanation + example; lesson/puzzle slots fill in later.
-4. **Template-driven authoring** — make adding a concept cheap (text + one SGF +
-   related ids). Content is the real cost; the plumbing is small.
+1. **Registry + core concepts** — ✅ **DONE 2026-06-16 (commit 1b89b30).**
+   `frontend/src/learn/concepts.ts`: 10 core + 11 extended, each with a kid-
+   simple `short`; core have example positions (Go-correctness unit-tested).
+2. **Glossary page + `ConceptLink`** — ✅ **DONE.** `DiagramBoard` (static SVG
+   goban), `glossaryStore`, `ConceptLink`, `GlossaryView` (index + concept page,
+   5-sec answer + diagram first, related-links below). Mounted globally in App;
+   Home "Glossary" button entry point. 146 tests; pure frontend.
+3. **Extended concepts incrementally** — stubs present (explanation only); add
+   example positions as each is built out / referenced by fp 28.
+4. **Template-driven authoring** — adding a concept = one `Concept` literal
+   (text + a `{size,stones}` position + related ids).
+
+### Remaining for v1 (next increments)
+- **Lessons wiring** — make concept names clickable inside the existing 11
+  lessons (`<ConceptLink>`), and add `lessonIds` to the registry so concept
+  pages can link "do the lesson." (Phase A built the plumbing; this connects it.)
+- **Patrick's copy pass** — `short` text is first-draft; needs his kid-voice.
+- **`ko-rule` example** — left `null` (a static diagram of a dynamic rule reads
+  poorly). Decide: before/after pair, or teach live only.
+- **Puzzles/detector slots** — `puzzleIds` / `detector` fields when fp 02 / 28
+  land.
 
 ## Relationship to existing plans (Patrick: "may deprecate if we like these better")
 
