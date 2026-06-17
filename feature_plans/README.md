@@ -40,7 +40,8 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 | 25 | [Ranked promotion polish](25_promotion_polish.md) | ✅ Done (2026-06-11) | High | 22, 24 |
 | 26 | [Ranked energy & superpowers](26_ranked_energy.md) | 📝 Planned | High | 22, 25 |
 | 27 | [World & art pass](27_world_and_art.md) | 📝 Planned | High | 11, 12, 15, 26 |
-| 28 | [Learning engine — "Play of the Game" review](28_learning_engine_potg.md) | 📝 Planned | High | 03, 04, 16, 26; score graph |
+| 28 | [Learning engine — "Play of the Game" review](28_learning_engine_potg.md) | 📝 Planned | High | 29, 03, 04, 16, 26; score graph |
+| 29 | [Concept registry & glossary](29_concept_registry_glossary.md) | 📝 Planned | High | — (the spine; 02/03/04/16/28 depend on it) |
 
 ## Roadmap (as of 2026-06-11 — supersedes the wave plan below)
 
@@ -60,10 +61,18 @@ pillars: ladder progress (22/24/25) · calibrated 50-50 games (01/20) · energy
 (26) · **in-context learning (28 — the keystone).** The lessons overhaul below
 is the first half of pillar 4 — it's where fp 28's highlights link into.
 
+**Learning-engine architecture (design session 2026-06-16, fp 28 + 29):**
+philosophy = glossary is the canonical concept set; each lesson teaches ONE
+concept; lessons cover only the must-knows to enter a game; the rest is taught
+**as you play** (fp 28 in-context teacher). Build order: **29 (concept registry
++ glossary) is the spine, built first** → lessons become one-concept on-ramps
+referencing it → 28 (Play of the Game) + 02/04/16 consume the registry.
+⚠️ This may supersede/merge the older 03/02 plans — under review.
+
 **This version (focus windows, order being decided):**
-- **Lessons overhaul** (03 + glossary + more lessons; the remaining Tier-1
-  onboarding-funnel item; also the destination fp 28's "Play of the Game" links
-  into — they're one project)
+- **Lessons overhaul → now anchored on fp 29.** Build the concept registry +
+  glossary (the spine), reframe the 11 shipped lessons as one-concept on-ramps
+  against it, tighten. NOT "more lessons" — the depth moves to play + glossary.
 - **World & art pass** (27 — world bible → assets → animations)
 - **Ranked energy + rewards** (26 phase 1 + 15 — mechanics that spend 27's art)
 - **Study Mode design session** (04 scoping — too big/vague to schedule unscoped)
