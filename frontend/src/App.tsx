@@ -70,9 +70,11 @@ function App() {
     const cid = params.get('concept');
     if (cid) useGlossaryStore.getState().openConcept(cid);
     else if (params.get('glossary')) useGlossaryStore.getState().openIndex();
-    // `?review=1` opens the Play-of-the-Game review (shows the empty state when
-    // no game has been played — handy for QA without a full playthrough).
-    if (params.get('review')) useGameReviewStore.getState().open();
+    // `?review=demo` opens a populated Play-of-the-Game review from a fixture
+    // game; any other `?review` value shows the live (or empty) state. QA hook.
+    const review = params.get('review');
+    if (review === 'demo') useGameReviewStore.getState().openDemo();
+    else if (review) useGameReviewStore.getState().open();
   }, []);
 
   const phase = useGameStore((s) => s.phase);

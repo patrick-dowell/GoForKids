@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { useGameReviewStore } from '../store/gameReviewStore';
-import { buildReview, type ReviewHighlight } from '../learn/gameReview';
+import { buildReview, DEMO_REVIEW_GAME, type ReviewHighlight } from '../learn/gameReview';
 import { DiagramBoard } from './DiagramBoard';
 import { ConceptLink } from './ConceptLink';
 import { getConcept } from '../learn/concepts';
@@ -18,6 +18,7 @@ import './GameReview.css';
  */
 export function GameReview() {
   const isOpen = useGameReviewStore((s) => s.isOpen);
+  const demo = useGameReviewStore((s) => s.demo);
   const close = useGameReviewStore((s) => s.close);
 
   // Pull the finished game once when the overlay is open.
@@ -27,8 +28,9 @@ export function GameReview() {
 
   const highlights = useMemo<ReviewHighlight[]>(() => {
     if (!isOpen) return [];
+    if (demo) return buildReview(DEMO_REVIEW_GAME.moves, DEMO_REVIEW_GAME.playerColor, DEMO_REVIEW_GAME.size);
     return buildReview(game.moveHistory, playerColor, boardSize);
-  }, [isOpen, game, playerColor, boardSize]);
+  }, [isOpen, demo, game, playerColor, boardSize]);
 
   if (!isOpen) return null;
 

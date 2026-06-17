@@ -165,3 +165,27 @@ export function buildReview(
   // Keep the leading slot a good moment when we have one (chronology within is fine).
   return picked.slice(0, max);
 }
+
+/**
+ * A small known-good finished game for the `?review=demo` QA deep-link: Black
+ * (the player) puts White in atari, then captures it on a 5×5. Yields an atari
+ * highlight + a capture highlight — enough to eyeball the populated review
+ * without a real playthrough. Marked as a fixture, not product data.
+ */
+export const DEMO_REVIEW_GAME: { size: number; playerColor: Stone; moves: MoveRecord[] } = {
+  size: 5,
+  playerColor: Color.Black,
+  moves: (
+    [
+      [Color.Black, { row: 0, col: 0 }, []],
+      [Color.White, { row: 2, col: 2 }, []],
+      [Color.Black, { row: 1, col: 2 }, []],
+      [Color.White, { row: 4, col: 4 }, []],
+      [Color.Black, { row: 3, col: 2 }, []],
+      [Color.White, { row: 4, col: 3 }, []],
+      [Color.Black, { row: 2, col: 1 }, []], // White(2,2) now in atari
+      [Color.White, { row: 4, col: 2 }, []],
+      [Color.Black, { row: 2, col: 3 }, [{ row: 2, col: 2 }]], // captures White(2,2)
+    ] as Array<[Color, Point, Point[]]>
+  ).map(([color, point, captures], i) => ({ color, point, captures, moveNumber: i + 1 })),
+};

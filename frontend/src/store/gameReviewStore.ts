@@ -7,12 +7,17 @@ import { create } from 'zustand';
  */
 interface GameReviewState {
   isOpen: boolean;
+  /** QA/demo mode (?review=demo): build from a fixture game, not gameStore. */
+  demo: boolean;
   open: () => void;
+  openDemo: () => void;
   close: () => void;
 }
 
 export const useGameReviewStore = create<GameReviewState>((set) => ({
   isOpen: false,
-  open: () => set({ isOpen: true }),
-  close: () => set({ isOpen: false }),
+  demo: false,
+  open: () => set({ isOpen: true, demo: false }),
+  openDemo: () => set({ isOpen: true, demo: true }),
+  close: () => set({ isOpen: false, demo: false }),
 }));
