@@ -26,13 +26,21 @@ export function GameReview() {
   const game = useGameStore((s) => s._game);
   const playerColor = useGameStore((s) => s.playerColor);
   const boardSize = useGameStore((s) => s.boardSize);
+  const scoreHistory = useGameStore((s) => s.scoreHistory);
 
   const highlights = useMemo<ReviewHighlight[]>(() => {
     if (!isOpen) return [];
-    if (demo) return buildReview(DEMO_REVIEW_GAME.moves, DEMO_REVIEW_GAME.playerColor, DEMO_REVIEW_GAME.size);
+    if (demo) {
+      return buildReview(
+        DEMO_REVIEW_GAME.moves,
+        DEMO_REVIEW_GAME.scoreHistory,
+        DEMO_REVIEW_GAME.playerColor,
+        DEMO_REVIEW_GAME.size,
+      );
+    }
     // playerColor is Black/White in any real game (never Empty).
-    return buildReview(game.moveHistory, playerColor as Stone, boardSize);
-  }, [isOpen, demo, game, playerColor, boardSize]);
+    return buildReview(game.moveHistory, scoreHistory, playerColor as Stone, boardSize);
+  }, [isOpen, demo, game, scoreHistory, playerColor, boardSize]);
 
   if (!isOpen) return null;
 
@@ -46,7 +54,7 @@ export function GameReview() {
 
         {highlights.length === 0 ? (
           <p className="review-empty">
-            A calm game — no big captures this time. Play another and watch for chances to put the bot in atari!
+            A steady game — no big swings this time. Play another and watch for the moments that tip the score!
           </p>
         ) : (
           <div className="review-list">
@@ -65,7 +73,7 @@ export function GameReview() {
 }
 
 function HighlightCard({ h }: { h: ReviewHighlight }) {
-  const concept = getConcept(h.conceptId);
+  const concept = h.conceptId ? getConcept(h.conceptId) : undefined;
   return (
     <div className={'review-card review-card-' + h.kind}>
       <div className="review-card-board">
@@ -76,7 +84,7 @@ function HighlightCard({ h }: { h: ReviewHighlight }) {
         <div className="review-card-headline">{h.headline}</div>
         {concept && (
           <div className="review-card-concept">
-            Learn: <ConceptLink id={h.conceptId} />
+            Learn: <ConceptLink id={concept.id} />
           </div>
         )}
       </div>

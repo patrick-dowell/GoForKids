@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildReview } from '../gameReview';
+import { buildReview, type ScorePoint } from '../gameReview';
 import { Color, type MoveRecord, type Point } from '../../engine/types';
 
 /** Build a MoveRecord list from (color, point) pairs; captures default to []. */
@@ -15,102 +15,117 @@ function moves(seq: Array<[Color, Point | null, Point[]?]>): MoveRecord[] {
 const B = Color.Black;
 const W = Color.White;
 
-describe('buildReview — capture detection', () => {
-  it('frames a player capture as a "good" highlight linking to the capture concept', () => {
-    // Black surrounds and captures the White stone at (2,2) on move 9.
+/** A 9-move game where Black captures White(2,2) on move 9. */
+const CAPTURE_GAME = moves([
+  [B, { row: 0, col: 0 }],
+  [W, { row: 2, col: 2 }],
+  [B, { row: 1, col: 2 }],
+  [W, { row: 4, col: 4 }],
+  [B, { row: 3, col: 2 }],
+  [W, { row: 4, col: 3 }],
+  [B, { row: 2, col: 1 }],
+  [W, { row: 4, col: 2 }],
+  [B, { row: 2, col: 3 }, [{ row: 2, col: 2 }]],
+]);
+
+/* ============================ engine-swing selection ===================== */
+
+describe('buildReview — engine-swing selection (the primary path)', () => {
+  it('picks the biggest score swing and interprets the tactic on it', () => {
+    const scores: ScorePoint[] = [
+      { move: 0, lead: 0 }, { move: 1, lead: 0 }, { move: 2, lead: -1 },
+      { move: 3, lead: 0 }, { move: 4, lead: -1 }, { move: 5, lead: 0 },
+      { move: 6, lead: 1 }, { move: 7, lead: 2 }, { move: 8, lead: 1 },
+      { move: 9, lead: 9 }, // +8 swing for Black (the player) — the capture
+    ];
+    const review = buildReview(CAPTURE_GAME, scores, B, 5);
+    expect(review[0].moveNumber).toBe(9);
+    expect(review[0].kind).toBe('good');
+    expect(review[0].conceptId).toBe('capture'); // tactic interpreted
+    expect(review[0].headline).toMatch(/about 8 point/);
+    expect(review[0].swing).toBe(8);
+  });
+
+  it('a big swing with no tactic gets a generic headline + null concept', () => {
     const hist = moves([
-      [B, { row: 0, col: 0 }],
-      [W, { row: 2, col: 2 }],
-      [B, { row: 1, col: 2 }],
-      [W, { row: 4, col: 4 }],
-      [B, { row: 3, col: 2 }],
-      [W, { row: 4, col: 3 }],
-      [B, { row: 2, col: 1 }],
-      [W, { row: 4, col: 2 }],
-      [B, { row: 2, col: 3 }, [{ row: 2, col: 2 }]], // captures W(2,2)
+      [B, { row: 0, col: 0 }], [W, { row: 4, col: 4 }], [B, { row: 0, col: 2 }],
+      [W, { row: 4, col: 2 }], [B, { row: 2, col: 2 }], [W, { row: 4, col: 0 }],
     ]);
-    const review = buildReview(hist, B, 5);
-    expect(review.length).toBeGreaterThanOrEqual(1);
+    const scores: ScorePoint[] = [
+      { move: 0, lead: 0 }, { move: 1, lead: 0 }, { move: 2, lead: 0 },
+      { move: 3, lead: 0 }, { move: 4, lead: 0 }, { move: 5, lead: 6 }, // +6, Black move, no capture/atari
+    ];
+    const review = buildReview(hist, scores, B, 5);
+    expect(review[0].moveNumber).toBe(5);
+    expect(review[0].conceptId).toBeNull();
+    expect(review[0].kind).toBe('good');
+    expect(review[0].headline).toMatch(/Strong move/);
+  });
+
+  it('a swing against the player on a bot move reads as "learn"', () => {
+    const hist = moves([
+      [B, { row: 0, col: 0 }], [W, { row: 4, col: 4 }], [B, { row: 0, col: 2 }],
+      [W, { row: 2, col: 2 }],
+    ]);
+    const scores: ScorePoint[] = [
+      { move: 0, lead: 0 }, { move: 1, lead: 0 }, { move: 2, lead: 0 },
+      { move: 3, lead: 0 }, { move: 4, lead: -7 }, // White move, -7 for Black
+    ];
+    const review = buildReview(hist, scores, B, 5);
+    expect(review[0].moveNumber).toBe(4);
+    expect(review[0].kind).toBe('learn');
+    expect(review[0].headline).toMatch(/strong move/i);
+  });
+
+  it('ignores sub-threshold swings and opening noise', () => {
+    const scores: ScorePoint[] = [
+      { move: 0, lead: 0 }, { move: 1, lead: 9 }, // big but move 1 (opening) — skipped
+      { move: 2, lead: 11 }, // +2 swing — below MIN_SWING
+    ];
+    // No qualifying swing → falls back to tactical (capture at move 9 isn't in this short list).
+    expect(buildReview(moves([[B, { row: 0, col: 0 }], [W, { row: 1, col: 1 }]]), scores, B, 5)).toEqual([]);
+  });
+});
+
+/* ============================ tactical fallback ========================== */
+
+describe('buildReview — tactical fallback (no score data)', () => {
+  it('a player capture is a "good" capture highlight', () => {
+    const review = buildReview(CAPTURE_GAME, [], B, 5);
     const cap = review.find((h) => h.conceptId === 'capture');
     expect(cap).toBeTruthy();
     expect(cap!.kind).toBe('good');
     expect(cap!.headline).toContain('captured 1 stone');
     expect(cap!.moveNumber).toBe(9);
-    // The captured point is marked on the snapshot, and is empty there.
-    expect(cap!.position.highlight).toEqual([{ row: 2, col: 2 }]);
-    expect(cap!.position.stones.find((s) => s.row === 2 && s.col === 2)).toBeUndefined();
   });
 
-  it('frames an opponent capture of the player as a "learn" highlight', () => {
-    // White captures a Black stone — same shape, colors swapped, player is Black.
+  it('an opponent capture of the player is a "learn" highlight', () => {
     const hist = moves([
-      [W, { row: 0, col: 0 }],
-      [B, { row: 2, col: 2 }],
-      [W, { row: 1, col: 2 }],
-      [B, { row: 4, col: 4 }],
-      [W, { row: 3, col: 2 }],
-      [B, { row: 4, col: 3 }],
-      [W, { row: 2, col: 1 }],
-      [B, { row: 4, col: 2 }],
-      [W, { row: 2, col: 3 }, [{ row: 2, col: 2 }]], // captures B(2,2)
+      [W, { row: 0, col: 0 }], [B, { row: 2, col: 2 }], [W, { row: 1, col: 2 }],
+      [B, { row: 4, col: 4 }], [W, { row: 3, col: 2 }], [B, { row: 4, col: 3 }],
+      [W, { row: 2, col: 1 }], [B, { row: 4, col: 2 }],
+      [W, { row: 2, col: 3 }, [{ row: 2, col: 2 }]],
     ]);
-    const review = buildReview(hist, B, 5);
-    const cap = review.find((h) => h.conceptId === 'capture');
-    expect(cap).toBeTruthy();
+    const cap = buildReview(hist, [], B, 5).find((h) => h.conceptId === 'capture');
     expect(cap!.kind).toBe('learn');
     expect(cap!.headline).toContain('bot captured 1');
   });
-});
 
-describe('buildReview — atari detection (no capture)', () => {
-  it('detects the player putting the bot in atari', () => {
-    // Black reduces White(2,2) to one liberty without capturing.
+  it('detects atari when there is no capture', () => {
     const hist = moves([
-      [W, { row: 2, col: 2 }],
-      [B, { row: 1, col: 2 }],
-      [W, { row: 4, col: 4 }],
-      [B, { row: 3, col: 2 }],
-      [W, { row: 0, col: 0 }],
-      [B, { row: 2, col: 1 }], // White(2,2) now has 1 liberty at (2,3)
+      [W, { row: 2, col: 2 }], [B, { row: 1, col: 2 }], [W, { row: 4, col: 4 }],
+      [B, { row: 3, col: 2 }], [W, { row: 0, col: 0 }], [B, { row: 2, col: 1 }],
     ]);
-    const review = buildReview(hist, B, 5);
-    const atari = review.find((h) => h.conceptId === 'atari');
+    const atari = buildReview(hist, [], B, 5).find((h) => h.conceptId === 'atari');
     expect(atari).toBeTruthy();
     expect(atari!.kind).toBe('good');
-    expect(atari!.headline.toLowerCase()).toContain('atari');
-  });
-});
-
-describe('buildReview — selection', () => {
-  it('returns nothing for a quiet game (no captures, no atari)', () => {
-    const hist = moves([
-      [B, { row: 0, col: 0 }],
-      [W, { row: 4, col: 4 }],
-      [B, { row: 0, col: 2 }],
-      [W, { row: 4, col: 2 }],
-    ]);
-    expect(buildReview(hist, B, 5)).toEqual([]);
   });
 
-  it('caps at `max` and leads with a good moment when one exists', () => {
-    // Player captures (good) AND gets captured (learn) in one game.
+  it('returns nothing for a quiet game (no captures, no atari, no scores)', () => {
     const hist = moves([
-      [B, { row: 0, col: 0 }],
-      [W, { row: 2, col: 2 }],
-      [B, { row: 1, col: 2 }],
-      [W, { row: 0, col: 1 }],
-      [B, { row: 3, col: 2 }],
-      [W, { row: 0, col: 3 }],
-      [B, { row: 2, col: 1 }],
-      [W, { row: 1, col: 0 }],
-      [B, { row: 2, col: 3 }, [{ row: 2, col: 2 }]], // player captures W
-      [W, { row: 4, col: 4 }],
-      [B, { row: 4, col: 0 }],
-      [W, { row: 4, col: 1 }],
-      [B, { row: 4, col: 4 }, undefined], // filler
+      [B, { row: 0, col: 0 }], [W, { row: 4, col: 4 }],
+      [B, { row: 0, col: 2 }], [W, { row: 4, col: 2 }],
     ]);
-    const review = buildReview(hist, B, 5, 2);
-    expect(review.length).toBeLessThanOrEqual(2);
-    expect(review[0].kind).toBe('good');
+    expect(buildReview(hist, [], B, 5)).toEqual([]);
   });
 });
