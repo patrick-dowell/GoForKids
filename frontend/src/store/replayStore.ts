@@ -41,10 +41,19 @@ interface ReplayState {
   _autoPlayTimer: number | null;
   /** Play-of-the-Game highlights for this game (empty if no score data). */
   highlights: ReviewHighlight[];
+  /** Dead stones from the live game's scoring (saved with the game), used to
+   *  reproduce accurate end-of-game territory in the replay. */
+  _savedDeadStones: DeadStone[];
 
   loadGame: (
     sgf: string,
-    meta?: { result?: string; playerColor?: string; opponentRank?: string; scoreHistory?: ScorePoint[] },
+    meta?: {
+      result?: string;
+      playerColor?: string;
+      opponentRank?: string;
+      scoreHistory?: ScorePoint[];
+      deadStones?: Array<{ row: number; col: number; color: number }>;
+    },
   ) => void;
   goToMove: (n: number) => void;
   nextMove: () => void;
@@ -178,6 +187,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   autoPlaySpeed: 600,
   _autoPlayTimer: null,
   highlights: [],
+  _savedDeadStones: [],
 
   loadGame: (sgf, meta) => {
     const prev = get()._autoPlayTimer;
@@ -198,7 +208,14 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
       // Malformed SGF — leave highlights empty rather than break the replay.
     }
 
+    const savedDead: DeadStone[] = (meta?.deadStones ?? []).map((d) => ({
+      row: d.row,
+      col: d.col,
+      color: d.color as Color,
+    }));
+
     set({
+      _savedDeadStones: savedDead,
       active: true,
       sgf,
       boardSize: size,
@@ -241,8 +258,20 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
     const { grid, size, lastMove, territory, deadStones } = replayToMove(sgf, clamped, totalMoves);
     set({ currentMove: clamped, grid, lastMove, territory, deadStones, boardSize: size });
 
-    // At the final move, ask KataGo for accurate dead stone detection
+    // At the final move, settle the score. Prefer the dead stones the LIVE game
+    // already computed (saved with the game) — accurate and synchronous. Only
+    // fall back to the Render score-position call when we don't have them
+    // (older saves); its catch leaves the heuristic territory in place.
     if (clamped >= totalMoves && totalMoves > 0) {
+      const saved = get()._savedDeadStones;
+      if (saved.length > 0) {
+        const board = new Board(size);
+        board.grid = [...grid];
+        for (const ds of saved) board.grid[ds.row * size + ds.col] = Color.Empty;
+        const { blackTerritory, whiteTerritory, neutral } = board.scoreTerritory();
+        set({ deadStones: saved, territory: { black: blackTerritory, white: whiteTerritory, neutral } });
+        return;
+      }
       const board2d: number[][] = [];
       for (let r = 0; r < size; r++) {
         board2d.push(grid.slice(r * size, (r + 1) * size));

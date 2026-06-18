@@ -19,6 +19,11 @@ export interface SavedGame {
   /** Per-move KataGo score lead, for the replay's Play-of-the-Game highlights.
    *  Undefined for older saves or games played without scoring (stub AI). */
   scoreHistory?: ScorePoint[];
+  /** Dead stones from the live game's end-of-game scoring, so the replay can
+   *  reproduce the same accurate territory instead of re-detecting them (the
+   *  replay's heuristic / Render call can't reach the on-device engine).
+   *  Undefined for older saves and games that ended by resignation. */
+  deadStones?: Array<{ row: number; col: number; color: number }>;
 }
 
 interface LibraryState {

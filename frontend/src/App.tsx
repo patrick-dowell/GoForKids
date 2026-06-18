@@ -248,6 +248,7 @@ function App() {
       playerColor: saved.playerColor,
       opponentRank: saved.opponentRank,
       scoreHistory: saved.scoreHistory,
+      deadStones: saved.deadStones,
     });
   };
 

@@ -36,6 +36,7 @@ function autoSaveGame(state: GameState, sgfOverride?: string) {
     blackRank: isBotVsBot ? (state.blackRank ?? undefined) : undefined,
     whiteRank: isBotVsBot ? (state.whiteRank ?? undefined) : undefined,
     scoreHistory: state.scoreHistory.length > 1 ? state.scoreHistory : undefined,
+    deadStones: state.deadStones.length > 0 ? state.deadStones : undefined,
   };
 
   useLibraryStore.getState().saveGame(saved);
