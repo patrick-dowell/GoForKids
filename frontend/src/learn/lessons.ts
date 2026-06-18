@@ -205,7 +205,7 @@ export const LESSONS: Lesson[] = [
     // Shown right after the FIRST stone (during the brief animating window
     // before White takes its turn).
     interimSuccessMessage: "You're playing Go!",
-    interimSuccessExplanation: 'Once you place a stone it stays there — Go is about choosing where to build.',
+    interimSuccessExplanation: 'Once you place a stone, it stays there — Go is about choosing where to build.',
     // Shown after the SECOND user stone (the lesson's true conclusion).
     successMessage: 'Keep going!',
     successExplanation: 'In Go, each player keeps placing new stones, turn by turn, until the game is over.',
@@ -363,7 +363,7 @@ export const LESSONS: Lesson[] = [
     id: 'first-battle',
     kind: 'game',
     title: 'First Battle',
-    instruction: 'Time to play your first real game! 5x5 against a friendly bot.',
+    instruction: "Time to play your first real game — 5×5 against a friendly bot!",
     gameConfig: {
       boardSize: 5,
       opponentRank: '30k',
@@ -648,7 +648,7 @@ export const LESSONS: Lesson[] = [
           { label: 'Safe', correct: false },
           { label: 'Gone', correct: true },
         ],
-        successMessage: "Right! Only ONE eye — opponent can surround and capture.",
+        successMessage: "Right! Only ONE eye — the opponent can surround and capture it.",
         failMessage: "Look again — there's only ONE empty spot inside. One eye isn't enough.",
         // Black plays the eye (the ring's only liberty) → captures all 8 white stones.
         killMove: { row: 2, col: 2 },
@@ -758,7 +758,7 @@ export const LESSONS: Lesson[] = [
       // internal) but with WHITE ring and BLACK surround. Player still Black,
       // takes the vital point to deny White the chance to make two eyes.
       {
-        prompt: "Now this is a WHITE group. Take the vital point to stop them from making two eyes!",
+        prompt: "Now this is a WHITE group. Take the vital point to stop it from making two eyes!",
         boardSize: 9,
         userPlays: Color.Black,
         initialStones: [
@@ -867,7 +867,7 @@ export const LESSONS: Lesson[] = [
         interimSuccessMessage: 'Attack played!',
         interimSuccessExplanation: "Watch what White does next.",
         successMessage: "Couldn't kill it!",
-        successExplanation: "Four empty spots inside gives White enough room to split into two eye-regions, no matter where you attacked. Big groups like this can't be killed.",
+        successExplanation: "Four empty spots inside give White enough room to split into two eye-regions, no matter where you attacked. Big groups like this can't be killed.",
         retryMessage: "Click any of the empty spots inside the white group.",
         afterSuccess: {
           color: Color.White,
