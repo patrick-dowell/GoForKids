@@ -512,6 +512,10 @@ export const useLearnStore = create<LearnState>((set, get) => ({
           status: 'animating',
           feedback: null,
           showHint: false,
+          // No afterSuccess in a playout — clear any stale handle so the modal
+          // stays suppressed (the guard keys off this).
+          _afterSuccessRun: null,
+          _afterSuccessTimer: null,
         });
         const moves = part.playoutAfter;
         const partIdxAtStart = partIndex;

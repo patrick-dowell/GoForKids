@@ -26,6 +26,7 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
   const advancePart = useLearnStore((s) => s.advancePart);
   const exploreAgain = useLearnStore((s) => s.exploreAgain);
   const focusLessons = useLearnStore((s) => s.focusLessons);
+  const afterSuccessRun = useLearnStore((s) => s._afterSuccessRun);
 
   const lesson = LESSONS[lessonIndex];
   const isLast = lessonIndex >= LESSONS.length - 1;
@@ -74,11 +75,12 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
     );
   }
 
-  // Puzzle-series shows its modals via partFeedback (handled above). During a
-  // part's background playout the status is 'animating' with no partFeedback
-  // yet — show nothing so the capture sequence can finish before the
-  // "Next puzzle" button appears (and can't be tapped early).
-  if (lesson.kind === 'puzzle-series' && status === 'animating') return null;
+  // During a puzzle-series PLAYOUT (a background capture sequence), status is
+  // 'animating' with no partFeedback and no pending afterSuccess — show nothing
+  // so the sequence finishes before the "Next puzzle" button appears. (An
+  // afterSuccess part is ALSO 'animating' but DOES need its Continue modal, so
+  // only suppress when there's no `_afterSuccessRun` queued.)
+  if (lesson.kind === 'puzzle-series' && status === 'animating' && !afterSuccessRun) return null;
 
   const open = status === 'success' || status === 'animating';
   if (!open) return null;
