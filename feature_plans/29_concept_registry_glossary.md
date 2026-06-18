@@ -1,10 +1,15 @@
 # 29 — Concept registry & glossary
 
-**Status: 📝 Planned — design captured 2026-06-16 (Patrick + Jarvis design session).**
-The **schema/spine of the whole learning engine**, and the first thing to build.
-⚠️ **May supersede / reframe earlier plans** (03 lessons, 02 puzzles, parts of
-04/16) — see "Relationship to existing plans." Don't treat 03/02 as fixed until
-this is decided.
+**Status: 🧪 Built 2026-06-16/17 (Session 25).** The schema/spine of the learning
+engine, shipped: `concepts.ts` registry (10 core + 13 extended incl. komi/
+handicap), `DiagramBoard`, `ConceptLink`, `GlossaryView`, deep-links, the
+glossary→lessons focused mode, and lessons renamed/linked to their concept.
+"suicide" → "self-capture" throughout kid-facing text. komi/handicap linked from
+the ranked match-picker. Verified click-by-click locally (preview tool).
+⚠️ **Superseded/reframed earlier plans** (03 lessons, 02 puzzles, parts of 04/16):
+lessons are now one-concept on-ramps referencing this registry; puzzles (02) and
+mistake-tracking (16) remain to wire in. Glossary copy is first-draft (Patrick's
+voice pass pending).
 
 ## The pedagogical philosophy (Patrick, 2026-06-16)
 

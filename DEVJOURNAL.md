@@ -1,5 +1,84 @@
 # Development Journal
 
+## Session 25 — June 16–17, 2026 (the learning engine)
+
+A multi-day build of the in-app learning loop, designed with Patrick first
+(feature plans 28 + 29), then built and playtested end-to-end. The thesis:
+**play → highlight → concept → glossary → lesson** as one connected loop, so
+"learning" and "playing" stop being separate rooms. Commits `b568576`→`44f9076`.
+
+### Concept registry + glossary (fp 29) — the spine
+- `src/learn/concepts.ts`: the single source of truth every learning feature
+  reads from. 10 **core** concepts (placing-stones, liberties, capture, atari,
+  groups, two-eyes, suicide-rule, ko-rule, territory-count, who-wins) + 13
+  **extended** (ladders … midgame, plus **komi** and **handicap**). Each has a
+  kid-simple `short`, an optional example position, `related` links, and an
+  optional `linkPrompt`. Go-correctness of the core example diagrams is
+  unit-tested (atari = 1 liberty, capture = 0, two real eyes, self-capture
+  surrounded).
+- `DiagramBoard` (static prop-driven SVG goban — decoupled from the canvas
+  `GoBoard`), `glossaryStore`, `ConceptLink` (tap any concept term anywhere →
+  its page), `GlossaryView` (index + concept page: 5-second answer + diagram
+  first, optional depth below). Home "Glossary" button; `?concept=` / `?glossary=`
+  deep-links.
+- **Glossary → lessons:** `LESSONS_FOR_CONCEPT` map + "Do the lesson(s)" button;
+  a focused mode (`startConceptLessons`) plays a concept's lessons then RETURNS
+  to its glossary page instead of marching through the curriculum.
+
+### Lessons reworked
+- Each concept lesson is **named after its concept** (Placing Stones, Capture,
+  Groups, Atari, Two Eyes 1–4, Territory, …) and the header links to it via a
+  per-concept `linkPrompt` ("How to Place Stones", "Two Eyes = Safe?", …).
+- Grammar pass; **"suicide" → "self-capture"** in all kid-facing text (concept
+  name + the in-game RuleViolationModal); lesson 12 "Big Board Time" → **"The
+  9×9 Challenge"**; the 9×9 pre-game card now leads with **"How to win"**
+  (capture / more territory / most points) and drops the rarely-read "What stuff
+  means" section.
+- **Two Eyes 4 playout/modal flow:** hold the "Next puzzle" modal until the
+  capture sequence finishes (so it can't be skipped); part 3's interim modal now
+  reads "Now watch White try…" so the first Continue visibly does something
+  (it had shown "Two-eye master!" twice → looked frozen). The overly-broad
+  playout guard that hid part 3's afterSuccess Continue was scoped to playouts
+  only (`!_afterSuccessRun`).
+
+### Play of the Game (fp 28)
+- **Selection is by engine swing** — the moves where KataGo's per-move
+  `scoreHistory` moved most. Captures are a *consequence*, not the key move, so
+  they no longer drive selection. The capture/atari detectors became the
+  *interpretation* layer (what happened + who moved + point magnitude + concept
+  link); non-tactical swings still report magnitude honestly. Falls back to
+  capture/atari selection when there's no score data (stub AI / fixtures).
+- Opt-in "See your Play of the Game" on the ranked game-end modal; each
+  highlight links its concept into the glossary. `?review=demo` fixture.
+
+### Replay = review surface
+- Saved games now persist `scoreHistory` + final `deadStones`. The replay
+  computes highlights on load (`buildReview`), shows **timeline markers** at key
+  moves (tap to jump), **★ skip-to-key-move** buttons (own row — un-crammed on
+  iPhone), a "★ key move" indicator, and the **explanation + concept link** when
+  you land on one. "Step through the game →" opens the just-finished game.
+- **Scoring fixes:** `replayToMove` rebuilt the board by alternating colors from
+  Black and dropped handicap stones → every ranked handicap game replayed wrong;
+  now uses recorded move colors + places handicap stones. And the replay's
+  dead-stone detection (`api.scorePosition`, Render-only) couldn't reach the
+  on-device engine and left dead stones alive → it now reuses the live game's
+  saved `deadStones`.
+
+### iOS build + dev tooling
+- **iOS build break:** the Xcode Run Script runs `npm run build` = `tsc -b &&
+  vite build`. The repo's root `tsconfig.json` is a solution file (references
+  only), so `npx tsc --noEmit` checked ~nothing and false-passed two errors
+  (Color→Stone, private `Board.set`). **Lesson: verify with `npm run build`, not
+  `vite build` / `tsc --noEmit` alone.**
+- **Local QA via the preview tool:** dev-only `window.__learnStore` hook exposes
+  the app's real store instance (a dynamic `import()` from an eval context
+  resolves to a *separate* module instance — desynced from the app). With it,
+  the full lesson flow is drivable + inspectable click-by-click locally.
+
+Tests 118 → **158**. All ranked-ladder / promotion / calibration code untouched
+(the learning engine is additive overlays). Device-pending items noted in fp 28
+(populated PotG on real KataGo scores) and in the per-fix journal flags.
+
 ## Session 24 — June 11, 2026 (daytime polish block)
 
 Two commits clearing the 2026-06-11 playtest findings.

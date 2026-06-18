@@ -1,15 +1,16 @@
 # 28 — In-game learning engine ("Play of the Game" review)
 
-**Status: 🚧 MVP built 2026-06-16 (commit f4363aa) — crawl version live.**
-Built: `gameReview.ts` (pure board-state detectors — capture + atari — over move
-history; ranks + picks ≤3, leads with glory; reuses DiagramBoard), `GameReview`
-overlay + `gameReviewStore`, opened from a "See your Play of the Game" button on
-the ranked game-end modal; each highlight links its concept into the glossary
-(fp 29). 5 unit tests; overlay visually verified (empty state).
-**Remaining (needs device/backend):** populated review visually unverified (the
-board isn't clickable via headless tooling — needs a real playthrough);
-score-swing ranking (the "turning point") needs on-device KataGo per-move score;
-local-region cropping for 19×19 moment diagrams; wiring an energy reward (fp 26)
+**Status: 🧪 Built 2026-06-16/17 (Session 25) — swing-based + replay-integrated.**
+Built: `gameReview.ts` selects by **engine swing** (`scoreHistory`), with
+capture/atari as the *interpretation* layer (what happened + magnitude + concept
+link); falls back to capture/atari selection when there's no score data.
+`GameReview` overlay + `gameReviewStore`, opened from "See your Play of the Game"
+on the ranked game-end modal AND integrated into the **replay timeline** (markers,
+★ skip-to-key-move, per-move explanation; saved games persist `scoreHistory`).
+`?review=demo` / `?replay=demo` fixtures.
+**Remaining (needs device w/ real KataGo scores):** populated swing review on a
+real game (stub-AI/local has no scores → tactical fallback); local-region
+cropping for 19×19 moment diagrams; wiring an energy reward (fp 26)
 for opening the review. Original design capture below.
 
 **Design captured 2026-06-16 (Patrick + Jarvis design session).**
