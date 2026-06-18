@@ -78,6 +78,20 @@ function App() {
     // `?learn=N` jumps straight into lesson N (QA — no route otherwise).
     const learn = params.get('learn');
     if (learn !== null) useLearnStore.getState().resumeAt(Number(learn) || 0);
+    // `?replay=demo` loads the demo game into the replay with highlights (QA).
+    if (params.get('replay') === 'demo') {
+      import('./learn/gameReview').then(({ demoReplay }) => {
+        const d = demoReplay();
+        setShowHome(false);
+        useReplayStore.getState().loadGame(d.sgf, {
+          playerColor: d.playerColor,
+          scoreHistory: d.scoreHistory,
+          result: 'Black wins by 8.5',
+          opponentRank: 'demo',
+        });
+        useReplayStore.getState().nextHighlight(); // jump to the key move (QA)
+      });
+    }
   }, []);
 
   const phase = useGameStore((s) => s.phase);
@@ -233,6 +247,7 @@ function App() {
       result: saved.result,
       playerColor: saved.playerColor,
       opponentRank: saved.opponentRank,
+      scoreHistory: saved.scoreHistory,
     });
   };
 

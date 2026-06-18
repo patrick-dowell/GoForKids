@@ -5,7 +5,8 @@ import { buildReview, DEMO_REVIEW_GAME, type ReviewHighlight } from '../learn/ga
 import { DiagramBoard } from './DiagramBoard';
 import { ConceptLink } from './ConceptLink';
 import { getConcept } from '../learn/concepts';
-import type { Stone } from '../engine/types';
+import { useReplayStore } from '../store/replayStore';
+import { Color, type Stone } from '../engine/types';
 import './GameReview.css';
 
 /**
@@ -42,6 +43,20 @@ export function GameReview() {
     return buildReview(game.moveHistory, scoreHistory, playerColor as Stone, boardSize);
   }, [isOpen, demo, game, scoreHistory, playerColor, boardSize]);
 
+  // "Step through the game" → close the review and open this game in the
+  // replay, where the same highlights appear as markers on the timeline.
+  const openReplay = () => {
+    const gs = useGameStore.getState();
+    const sgf = gs._game.toSGF();
+    close();
+    gs.dismissGameEnd();
+    useReplayStore.getState().loadGame(sgf, {
+      playerColor: gs.playerColor === Color.Black ? 'black' : 'white',
+      scoreHistory: gs.scoreHistory,
+      opponentRank: gs.targetRank,
+    });
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -64,6 +79,11 @@ export function GameReview() {
           </div>
         )}
 
+        {!demo && (
+          <button className="review-replay-btn" onClick={openReplay}>
+            Step through the game →
+          </button>
+        )}
         <button className="review-done" onClick={close}>
           Done
         </button>

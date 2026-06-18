@@ -1,4 +1,6 @@
 import { useReplayStore } from '../store/replayStore';
+import { ConceptLink } from './ConceptLink';
+import { getConcept } from '../learn/concepts';
 
 interface ReplayControlsProps {
   /** Called when the user taps Close. Lets the parent route back to home
@@ -22,6 +24,13 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
   const toggleAutoPlay = useReplayStore((s) => s.toggleAutoPlay);
   const setAutoPlaySpeed = useReplayStore((s) => s.setAutoPlaySpeed);
   const downloadSGF = useReplayStore((s) => s.downloadSGF);
+  const highlights = useReplayStore((s) => s.highlights);
+  const nextHighlight = useReplayStore((s) => s.nextHighlight);
+  const prevHighlight = useReplayStore((s) => s.prevHighlight);
+
+  const hasHighlights = highlights.length > 0;
+  const currentHighlight = highlights.find((h) => h.moveNumber === currentMove);
+  const concept = currentHighlight?.conceptId ? getConcept(currentHighlight.conceptId) : undefined;
 
   return (
     <div className="replay-controls">
@@ -37,9 +46,37 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
 
       <div className="replay-position">
         Move {currentMove} / {totalMoves}
+        {currentHighlight && <span style={{ color: currentHighlight.kind === 'good' ? '#ffd36e' : '#9bd1ff' }}> ★ key move</span>}
       </div>
 
-      <div className="replay-slider">
+      {/* Timeline with Play-of-the-Game markers above the scrubber. */}
+      <div className="replay-slider" style={{ position: 'relative' }}>
+        {hasHighlights && totalMoves > 0 && (
+          <div style={{ position: 'relative', height: 12, margin: '0 6px 2px' }}>
+            {highlights.map((h) => (
+              <button
+                key={h.moveNumber}
+                onClick={() => goToMove(h.moveNumber)}
+                title={`Move ${h.moveNumber}: ${h.headline}`}
+                aria-label={`Key move ${h.moveNumber}`}
+                style={{
+                  position: 'absolute',
+                  left: `calc(${(h.moveNumber / totalMoves) * 100}% - 4px)`,
+                  top: 0,
+                  width: 8,
+                  height: 12,
+                  padding: 0,
+                  border: 'none',
+                  borderRadius: 2,
+                  cursor: 'pointer',
+                  background: h.kind === 'good' ? '#ffd36e' : '#9bd1ff',
+                  opacity: h.moveNumber === currentMove ? 1 : 0.7,
+                  outline: h.moveNumber === currentMove ? '2px solid #fff' : 'none',
+                }}
+              />
+            ))}
+          </div>
+        )}
         <input
           type="range"
           min={0}
@@ -49,13 +86,41 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
         />
       </div>
 
+      {/* Explanation for the key move you're currently on. */}
+      {currentHighlight && (
+        <div
+          className="replay-highlight-note"
+          style={{
+            margin: '6px 0 4px',
+            padding: '10px 12px',
+            borderRadius: 8,
+            background: 'rgba(255,255,255,0.05)',
+            borderLeft: `3px solid ${currentHighlight.kind === 'good' ? '#ffd36e' : '#9bd1ff'}`,
+            fontSize: 14,
+          }}
+        >
+          <div style={{ fontWeight: 600 }}>{currentHighlight.headline}</div>
+          {concept && (
+            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.9 }}>
+              Learn: <ConceptLink id={concept.id} />
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="replay-buttons">
         <button onClick={firstMove} disabled={currentMove === 0} className="replay-btn">⏮</button>
+        {hasHighlights && (
+          <button onClick={prevHighlight} className="replay-btn" title="Previous key move" aria-label="Previous key move">★◀</button>
+        )}
         <button onClick={prevMove} disabled={currentMove === 0} className="replay-btn">◀</button>
         <button onClick={toggleAutoPlay} className="replay-btn replay-btn-play">
           {autoPlaying ? '⏸' : '▶'}
         </button>
         <button onClick={nextMove} disabled={currentMove >= totalMoves} className="replay-btn">▶</button>
+        {hasHighlights && (
+          <button onClick={nextHighlight} className="replay-btn" title="Next key move" aria-label="Next key move">★▶</button>
+        )}
         <button onClick={lastMovePos} disabled={currentMove >= totalMoves} className="replay-btn">⏭</button>
       </div>
 
@@ -85,7 +150,7 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
       </div>
 
       <div className="replay-hint">
-        ← → arrow keys to step through moves
+        {hasHighlights ? '★ markers are the key moves — tap to jump there' : '← → arrow keys to step through moves'}
       </div>
     </div>
   );

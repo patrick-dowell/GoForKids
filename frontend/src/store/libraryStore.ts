@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { ScorePoint } from '../learn/gameReview';
 
 export type GameType = 'human-vs-bot' | 'bot-vs-bot';
 
@@ -15,6 +16,9 @@ export interface SavedGame {
   gameType?: GameType;     // Undefined for older saves — treated as human-vs-bot
   blackRank?: string;      // For bot-vs-bot, which bot played black
   whiteRank?: string;      // For bot-vs-bot, which bot played white
+  /** Per-move KataGo score lead, for the replay's Play-of-the-Game highlights.
+   *  Undefined for older saves or games played without scoring (stub AI). */
+  scoreHistory?: ScorePoint[];
 }
 
 interface LibraryState {

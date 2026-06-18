@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { Game } from '../engine/Game';
 import { Board } from '../engine/Board';
-import { Color, BOARD_SIZE, type Point } from '../engine/types';
+import { Color, BOARD_SIZE, type Point, type Stone } from '../engine/types';
 import { api } from '../api/client';
 import { playPlaceSound, playCaptureSound, playPassSound, resumeAudio } from '../audio/SoundManager';
+import { buildReview, type ReviewHighlight, type ScorePoint } from '../learn/gameReview';
 
 /** Count stones present in `prev` but absent in `next` — i.e. captured by the latest move. */
 function countCaptures(prev: number[], next: number[]): number {
@@ -38,13 +39,21 @@ interface ReplayState {
   autoPlaying: boolean;
   autoPlaySpeed: number;  // ms between moves
   _autoPlayTimer: number | null;
+  /** Play-of-the-Game highlights for this game (empty if no score data). */
+  highlights: ReviewHighlight[];
 
-  loadGame: (sgf: string, meta?: { result?: string; playerColor?: string; opponentRank?: string }) => void;
+  loadGame: (
+    sgf: string,
+    meta?: { result?: string; playerColor?: string; opponentRank?: string; scoreHistory?: ScorePoint[] },
+  ) => void;
   goToMove: (n: number) => void;
   nextMove: () => void;
   prevMove: () => void;
   firstMove: () => void;
   lastMovePos: () => void;
+  /** Jump to the next / previous highlighted move relative to the current one. */
+  nextHighlight: () => void;
+  prevHighlight: () => void;
   toggleAutoPlay: () => void;
   setAutoPlaySpeed: (ms: number) => void;
   downloadSGF: () => void;
@@ -162,6 +171,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   autoPlaying: false,
   autoPlaySpeed: 600,
   _autoPlayTimer: null,
+  highlights: [],
 
   loadGame: (sgf, meta) => {
     const prev = get()._autoPlayTimer;
@@ -169,6 +179,19 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
 
     const total = countMoves(sgf);
     const { grid, size, lastMove, territory, deadStones } = replayToMove(sgf, 0, total);
+
+    // Play-of-the-Game highlights for the timeline. Needs the move list (from
+    // the SGF) + the per-move score history (saved with the game). No score
+    // data → buildReview falls back to capture/atari detection.
+    let highlights: ReviewHighlight[] = [];
+    try {
+      const moves = Game.fromSGF(sgf).moveHistory;
+      const pc: Stone = (meta?.playerColor ?? 'black') === 'white' ? Color.White : Color.Black;
+      highlights = buildReview(moves, meta?.scoreHistory ?? [], pc, size);
+    } catch {
+      // Malformed SGF — leave highlights empty rather than break the replay.
+    }
+
     set({
       active: true,
       sgf,
@@ -184,7 +207,26 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
       opponentRank: meta?.opponentRank ?? '',
       autoPlaying: false,
       _autoPlayTimer: null,
+      highlights,
     });
+  },
+
+  nextHighlight: () => {
+    const { highlights, currentMove } = get();
+    const next = highlights
+      .map((h) => h.moveNumber)
+      .filter((m) => m > currentMove)
+      .sort((a, b) => a - b)[0];
+    if (next !== undefined) get().goToMove(next);
+  },
+
+  prevHighlight: () => {
+    const { highlights, currentMove } = get();
+    const prev = highlights
+      .map((h) => h.moveNumber)
+      .filter((m) => m < currentMove)
+      .sort((a, b) => b - a)[0];
+    if (prev !== undefined) get().goToMove(prev);
   },
 
   goToMove: (n: number) => {

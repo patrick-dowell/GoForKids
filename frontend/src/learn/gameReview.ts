@@ -18,6 +18,7 @@
  * (≤3). Reuses DiagramBoard for the moment snapshots.
  */
 import { Board } from '../engine/Board';
+import { Game } from '../engine/Game';
 import { Color, type Point, type MoveRecord, type Stone, oppositeColor } from '../engine/types';
 import type { DiagramPosition } from './concepts';
 
@@ -300,3 +301,13 @@ export const DEMO_REVIEW_GAME: {
     { move: 9, lead: 9 }, // the capture: +8 swing for Black (the player)
   ],
 };
+
+/** Build the demo game as an SGF + score history for the `?replay=demo` QA hook
+ *  (drives the replay timeline with markers without a real playthrough). */
+export function demoReplay(): { sgf: string; scoreHistory: ScorePoint[]; playerColor: 'black' | 'white' } {
+  const g = new Game(0.5, DEMO_REVIEW_GAME.size);
+  for (const m of DEMO_REVIEW_GAME.moves) {
+    if (m.point) g.playMove(m.point);
+  }
+  return { sgf: g.toSGF(), scoreHistory: DEMO_REVIEW_GAME.scoreHistory, playerColor: 'black' };
+}

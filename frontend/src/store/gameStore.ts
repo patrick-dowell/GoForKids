@@ -35,6 +35,7 @@ function autoSaveGame(state: GameState, sgfOverride?: string) {
     gameType: isBotVsBot ? 'bot-vs-bot' : 'human-vs-bot',
     blackRank: isBotVsBot ? (state.blackRank ?? undefined) : undefined,
     whiteRank: isBotVsBot ? (state.whiteRank ?? undefined) : undefined,
+    scoreHistory: state.scoreHistory.length > 1 ? state.scoreHistory : undefined,
   };
 
   useLibraryStore.getState().saveGame(saved);

@@ -119,3 +119,21 @@
 .review-done:hover {
   filter: brightness(1.08);
 }
+
+/* "Step through the game" — open the replay from the review (fp 28) */
+.review-replay-btn {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.review-replay-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
