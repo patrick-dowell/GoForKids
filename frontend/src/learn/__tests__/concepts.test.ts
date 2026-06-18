@@ -82,7 +82,7 @@ function liberties(board: Board, p: Point): number {
 
 function boardFromDiagram(size: number, stones: Array<{ row: number; col: number; color: Color }>): Board {
   const b = new Board(size);
-  for (const s of stones) b.set({ row: s.row, col: s.col }, s.color);
+  for (const s of stones) b.grid[s.row * size + s.col] = s.color;
   return b;
 }
 

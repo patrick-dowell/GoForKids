@@ -5,6 +5,7 @@ import { buildReview, DEMO_REVIEW_GAME, type ReviewHighlight } from '../learn/ga
 import { DiagramBoard } from './DiagramBoard';
 import { ConceptLink } from './ConceptLink';
 import { getConcept } from '../learn/concepts';
+import type { Stone } from '../engine/types';
 import './GameReview.css';
 
 /**
@@ -29,7 +30,8 @@ export function GameReview() {
   const highlights = useMemo<ReviewHighlight[]>(() => {
     if (!isOpen) return [];
     if (demo) return buildReview(DEMO_REVIEW_GAME.moves, DEMO_REVIEW_GAME.playerColor, DEMO_REVIEW_GAME.size);
-    return buildReview(game.moveHistory, playerColor, boardSize);
+    // playerColor is Black/White in any real game (never Empty).
+    return buildReview(game.moveHistory, playerColor as Stone, boardSize);
   }, [isOpen, demo, game, playerColor, boardSize]);
 
   if (!isOpen) return null;
