@@ -161,9 +161,9 @@ const CORE: Concept[] = [
   },
   {
     id: 'suicide-rule',
-    name: 'The Suicide Rule',
+    name: 'Self-Capture',
     tier: 'core',
-    short: "You can't place a stone where it would have no liberties — unless that move captures something. No playing into your own death.",
+    short: "You can't place a stone where it would have no breathing spaces left — unless it captures something first. A move that would only capture your own stone isn't allowed.",
     related: ['liberties', 'capture', 'ko-rule'],
     example: {
       // Black may not play the highlighted point — it would have no liberties
