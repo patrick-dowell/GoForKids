@@ -1008,3 +1008,11 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     });
   },
 }));
+
+// Dev-only: expose the live store instance for local QA/debugging via the
+// preview tool. A dynamic `import()` from an eval context can resolve to a
+// SEPARATE module instance, so reading/driving through it desyncs from the app;
+// this hook hands out the exact instance the app renders from.
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  (window as unknown as { __learnStore?: typeof useLearnStore }).__learnStore = useLearnStore;
+}

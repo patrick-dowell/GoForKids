@@ -706,6 +706,11 @@ export const LESSONS: Lesson[] = [
     instruction: 'Three quick puzzles about making and breaking two eyes.',
     successMessage: 'Two-eye master!',
     successExplanation: 'A group with two true eyes can never be captured. Without two eyes, the right move from either side decides life or death.',
+    // Shown on the interim modal (before White's response plays) on the
+    // afterSuccess part, so the first "Continue" visibly DOES something instead
+    // of re-showing the same "Two-eye master!" card.
+    interimSuccessMessage: "Now watch White try…",
+    interimSuccessExplanation: "White gets one move to try to split the space into two eyes.",
     parts: [
       // Part 1 — Make Life. Player as Black plays vital point to make 2 eyes
       // in their own (black) group. White surrounds. Vital point at E7 (3,4).
