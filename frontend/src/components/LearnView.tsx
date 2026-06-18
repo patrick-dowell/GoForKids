@@ -2,6 +2,7 @@ import { GoBoard } from '../board/GoBoard';
 import { useLearnStore } from '../store/learnStore';
 import { LESSONS, type GameConfig } from '../learn/lessons';
 import { LessonStepModal } from './LessonStepModal';
+import { ConceptLink } from './ConceptLink';
 import './LearnView.css';
 
 interface LearnViewProps {
@@ -73,6 +74,11 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
           <div className="learn-header-title" key={`title-${lessonIndex}`}>
             <div className="learn-header-eyebrow">Lesson {lessonIndex + 1} of {LESSONS.length}</div>
             <h1 className="learn-header-lesson">{lesson.title}</h1>
+            {lesson.conceptId && (
+              <div className="learn-header-concept">
+                <ConceptLink id={lesson.conceptId}>📖 What is {lesson.title.replace(/ \d+$/, '')}?</ConceptLink>
+              </div>
+            )}
           </div>
           <div className="learn-progress">
             {LESSONS.map((l, i) => (
@@ -136,6 +142,11 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
         <div className="learn-header-title" key={`title-${lessonIndex}`}>
           <div className="learn-header-eyebrow">Lesson {lessonIndex + 1} of {LESSONS.length}</div>
           <h1 className="learn-header-lesson">{lesson.title}</h1>
+          {lesson.conceptId && (
+            <div className="learn-header-concept">
+              <ConceptLink id={lesson.conceptId}>📖 What is {lesson.title.replace(/ \d+$/, '')}?</ConceptLink>
+            </div>
+          )}
         </div>
         <div className="learn-progress">
           {LESSONS.map((l, i) => (

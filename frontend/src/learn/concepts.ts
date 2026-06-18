@@ -350,16 +350,17 @@ export function isConceptId(id: string): boolean {
  * relationship is editable in one place as lessons are reworked. The glossary
  * uses this to offer "do the lesson" on a concept page (fp 29).
  */
+// Aligned with each lesson's primary `conceptId` (lessons.ts): a concept's
+// "Do the lesson" launches the lessons named after it. Secondary concepts
+// (liberties, suicide-rule, who-wins) have no dedicated lesson yet, so their
+// pages show no lesson button — they're taught inside the listed lessons.
 export const LESSONS_FOR_CONCEPT: Readonly<Record<string, string[]>> = {
   'placing-stones': ['drop-first-stone'],
-  liberties: ['trap-one-stone'],
-  capture: ['trap-one-stone', 'big-capture'],
+  capture: ['trap-one-stone'],
+  groups: ['big-capture'],
   atari: ['save-your-team'],
-  groups: ['big-capture', 'save-your-team'],
   'two-eyes': ['capture-the-eye', 'two-eyes-uncapturable', 'safe-or-gone', 'two-eyes-puzzles'],
-  'suicide-rule': ['two-eyes-uncapturable'],
   'territory-count': ['count-your-land'],
-  'who-wins': ['count-your-land'],
   'capture-races': ['capture-race-9x9'],
 };
 

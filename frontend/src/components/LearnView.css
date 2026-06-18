@@ -708,3 +708,9 @@
     font-size: 13px;
   }
 }
+
+/* Concept link under the lesson title (each lesson links to its concept) */
+.learn-header-concept {
+  margin-top: 2px;
+  font-size: 13px;
+}

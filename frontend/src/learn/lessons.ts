@@ -127,6 +127,10 @@ export interface Lesson {
   /** Hand-built puzzle (default) vs a live game against the bot. */
   kind?: LessonKind;
   title: string;
+  /** The glossary concept this lesson teaches (its `id` in concepts.ts). The
+   *  lesson is named after it and the lesson header links to its concept page.
+   *  Omitted for game/practice lessons that don't teach a single concept. */
+  conceptId?: string;
   /** Top-of-screen prompt. Kept short — one sentence ideally. */
   instruction: string;
   /** Puzzle-only: board state. Game lessons skip these. */
@@ -190,7 +194,8 @@ export const LESSONS: Lesson[] = [
   // ---------------------------------------------------------------------------
   {
     id: 'drop-first-stone',
-    title: 'Drop Your First Stone',
+    title: 'Placing Stones',
+    conceptId: 'placing-stones',
     instruction: 'Tap the glowing spot to place your first stone.',
     boardSize: 5,
     initialStones: [],
@@ -234,7 +239,8 @@ export const LESSONS: Lesson[] = [
   // ---------------------------------------------------------------------------
   {
     id: 'trap-one-stone',
-    title: 'Capture One Stone',
+    title: 'Capture',
+    conceptId: 'capture',
     instruction: 'Fill the last breathing space to capture White!',
     boardSize: 5,
     initialStones: [
@@ -265,7 +271,8 @@ export const LESSONS: Lesson[] = [
   // ---------------------------------------------------------------------------
   {
     id: 'big-capture',
-    title: 'Big Capture',
+    title: 'Groups',
+    conceptId: 'groups',
     instruction: 'Capture both white stones in one move!',
     boardSize: 5,
     initialStones: [
@@ -302,7 +309,8 @@ export const LESSONS: Lesson[] = [
   // ---------------------------------------------------------------------------
   {
     id: 'save-your-team',
-    title: 'Save Your Team',
+    title: 'Atari',
+    conceptId: 'atari',
     instruction: 'Black is trapped! Add a stone to give it more breathing room.',
     boardSize: 5,
     initialStones: [
@@ -382,7 +390,8 @@ export const LESSONS: Lesson[] = [
   // ---------------------------------------------------------------------------
   {
     id: 'capture-race-9x9',
-    title: 'Capture Race',
+    title: 'Capture Races',
+    conceptId: 'capture-races',
     instruction: "Both groups have only 2 breathing spaces left — take one of White's away!",
     boardSize: 9,
     initialStones: [
@@ -443,7 +452,8 @@ export const LESSONS: Lesson[] = [
   // ---------------------------------------------------------------------------
   {
     id: 'capture-the-eye',
-    title: "One Eye Isn't Enough",
+    title: 'Two Eyes 1',
+    conceptId: 'two-eyes',
     instruction: "White has only one empty spot left — fill it to capture the whole group!",
     boardSize: 9,
     initialStones: [
@@ -501,7 +511,8 @@ export const LESSONS: Lesson[] = [
   // ---------------------------------------------------------------------------
   {
     id: 'two-eyes-uncapturable',
-    title: 'Two Eyes = Forever Safe',
+    title: 'Two Eyes 2',
+    conceptId: 'two-eyes',
     instruction: "Now White has TWO empty spots inside. Try to capture — click in either one!",
     boardSize: 9,
     initialStones: [
@@ -565,7 +576,8 @@ export const LESSONS: Lesson[] = [
   {
     id: 'safe-or-gone',
     kind: 'quiz',
-    title: 'Safe or Gone?',
+    title: 'Two Eyes 3',
+    conceptId: 'two-eyes',
     instruction: 'Look at the white group. Two eyes means safe. Anything less means gone!',
     successMessage: 'Eye-spotter!',
     successExplanation: "Two eyes = the group lives forever. One eye or none = the opponent can capture it. That's the heart of life and death in Go.",
@@ -689,7 +701,8 @@ export const LESSONS: Lesson[] = [
   {
     id: 'two-eyes-puzzles',
     kind: 'puzzle-series',
-    title: 'Two Eyes',
+    title: 'Two Eyes 4',
+    conceptId: 'two-eyes',
     instruction: 'Three quick puzzles about making and breaking two eyes.',
     successMessage: 'Two-eye master!',
     successExplanation: 'A group with two true eyes can never be captured. Without two eyes, the right move from either side decides life or death.',
@@ -901,7 +914,8 @@ export const LESSONS: Lesson[] = [
   {
     id: 'count-your-land',
     kind: 'quiz',
-    title: 'Count Your Land',
+    title: 'Territory',
+    conceptId: 'territory-count',
     instruction: 'At the end, your surrounded empty spots count as points. Count them up!',
     successMessage: 'Black wins by 5 points!',
     successExplanation: 'Black surrounded 10 empty spots; White surrounded 5. The bigger your area, the more points you score.',

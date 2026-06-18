@@ -75,6 +75,9 @@ function App() {
     const review = params.get('review');
     if (review === 'demo') useGameReviewStore.getState().openDemo();
     else if (review) useGameReviewStore.getState().open();
+    // `?learn=N` jumps straight into lesson N (QA — no route otherwise).
+    const learn = params.get('learn');
+    if (learn !== null) useLearnStore.getState().resumeAt(Number(learn) || 0);
   }, []);
 
   const phase = useGameStore((s) => s.phase);
