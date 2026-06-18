@@ -25,9 +25,14 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
   const advanceQuiz = useLearnStore((s) => s.advanceQuiz);
   const advancePart = useLearnStore((s) => s.advancePart);
   const exploreAgain = useLearnStore((s) => s.exploreAgain);
+  const focusLessons = useLearnStore((s) => s.focusLessons);
 
   const lesson = LESSONS[lessonIndex];
   const isLast = lessonIndex >= LESSONS.length - 1;
+  // In a glossary-launched focused set, the last lesson of the SET ends with
+  // "Done" (it returns to the glossary, not the curriculum). `next()` already
+  // routes the return — only the button label changes.
+  const isFocusLast = !!focusLessons && lessonIndex === focusLessons[focusLessons.length - 1];
   if (!lesson || lesson.kind === 'game') return null;
 
   // Puzzle-series: per-part success modal between sub-puzzles. Uses the
@@ -96,7 +101,7 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
             <p className="lesson-step-finale">{lesson.quizSummary}</p>
           )}
           <button className="lesson-step-btn" onClick={isLast ? onFinish : next}>
-            {isLast ? 'Finish' : 'Continue →'}
+            {isFocusLast ? 'Done' : isLast ? 'Finish' : 'Continue →'}
           </button>
         </div>
       </div>
@@ -114,7 +119,7 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
     ? (lesson.interimSuccessExplanation ?? lesson.successExplanation)
     : lesson.successExplanation;
 
-  const buttonLabel = isInterim ? 'Continue →' : (isLast ? 'Finish' : 'Continue →');
+  const buttonLabel = isInterim ? 'Continue →' : isFocusLast ? 'Done' : (isLast ? 'Finish' : 'Continue →');
 
   const onClick = () => {
     if (isInterim) {

@@ -3,6 +3,7 @@ import { Board } from '../engine/Board';
 import { Color, MoveResult, type Point } from '../engine/types';
 import { LESSONS, type LessonVerdict } from '../learn/lessons';
 import { playPlaceSound, playCaptureSound, playTwoEyesSound, resumeAudio } from '../audio/SoundManager';
+import { useGlossaryStore } from './glossaryStore';
 
 const STORAGE_KEY = 'goforkids-learn-progress';
 
@@ -80,10 +81,20 @@ interface LearnState {
    *  for the rest of that part. */
   eyeHighlight: Point[] | null;
 
+  /** Non-null when playing a focused lesson set launched from the glossary:
+   *  the lesson indices to play in order, and the concept id to return to when
+   *  the set finishes (instead of marching on through the curriculum). */
+  focusLessons: number[] | null;
+  focusConcept: string | null;
+
   start: () => void;
   /** Re-enter the lesson view at a specific lesson without clearing progress.
    *  Used to continue the curriculum after a game-kind lesson finishes. */
   resumeAt: (index: number) => void;
+  /** Launch a focused set of lessons for a concept (from the glossary "Do the
+   *  lesson" button). When the last one finishes, return to that concept's
+   *  glossary page rather than continuing the curriculum. */
+  startConceptLessons: (lessonIndices: number[], conceptId: string) => void;
   exit: () => void;
   startLesson: (index: number) => void;
   tryMove: (point: Point) => void;
@@ -200,6 +211,8 @@ export const useLearnStore = create<LearnState>((set, get) => ({
   partIndex: 0,
   partFeedback: null,
   eyeHighlight: null,
+  focusLessons: null,
+  focusConcept: null,
   _afterSuccessTimer: null,
   _afterSuccessRun: null,
 
@@ -220,8 +233,15 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     get().startLesson(index);
   },
 
+  startConceptLessons: (lessonIndices: number[], conceptId: string) => {
+    const indices = lessonIndices.filter((i) => i >= 0 && i < LESSONS.length);
+    if (indices.length === 0) return;
+    set({ active: true, showReward: false, focusLessons: indices, focusConcept: conceptId });
+    get().startLesson(indices[0]);
+  },
+
   exit: () => {
-    set({ active: false });
+    set({ active: false, focusLessons: null, focusConcept: null });
   },
 
   startLesson: (index: number) => {
@@ -755,6 +775,21 @@ export const useLearnStore = create<LearnState>((set, get) => ({
   toggleHint: () => set((s) => ({ showHint: !s.showHint })),
 
   next: () => {
+    // Focused (glossary-launched) set: advance within the set, and when it's
+    // done return to the concept's glossary page instead of the curriculum.
+    const { focusLessons, focusConcept } = get();
+    if (focusLessons) {
+      const pos = focusLessons.indexOf(get().lessonIndex);
+      const nextFocus = pos >= 0 ? focusLessons[pos + 1] : undefined;
+      if (nextFocus === undefined) {
+        set({ active: false, focusLessons: null, focusConcept: null });
+        if (focusConcept) useGlossaryStore.getState().openConcept(focusConcept);
+        return;
+      }
+      get().startLesson(nextFocus);
+      return;
+    }
+
     const idx = get().lessonIndex + 1;
     if (idx >= LESSONS.length) {
       set({ active: false });

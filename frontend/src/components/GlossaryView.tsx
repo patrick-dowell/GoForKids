@@ -2,7 +2,7 @@ import {
   CORE_CONCEPTS,
   EXTENDED_CONCEPTS,
   getConcept,
-  firstLessonForConcept,
+  LESSONS_FOR_CONCEPT,
   type Concept,
 } from '../learn/concepts';
 import { LESSONS } from '../learn/lessons';
@@ -71,13 +71,16 @@ function ConceptPage({ concept }: { concept: Concept }) {
   const goTo = useGlossaryStore((s) => s.goTo);
   const close = useGlossaryStore((s) => s.close);
 
-  // Optional depth: if a lesson teaches this concept, offer it (pull, not push).
-  const lessonId = firstLessonForConcept(concept.id);
-  const lessonIndex = lessonId ? LESSONS.findIndex((l) => l.id === lessonId) : -1;
+  // Optional depth: if lessons teach this concept, offer them (pull, not push).
+  // Launches them as a focused set that returns here when finished.
+  const lessonIndices = (LESSONS_FOR_CONCEPT[concept.id] ?? [])
+    .map((id) => LESSONS.findIndex((l) => l.id === id))
+    .filter((i) => i >= 0);
+  const hasLesson = lessonIndices.length > 0;
   const doLesson = () => {
-    if (lessonIndex < 0) return;
+    if (!hasLesson) return;
     close();
-    useLearnStore.getState().resumeAt(lessonIndex);
+    useLearnStore.getState().startConceptLessons(lessonIndices, concept.id);
   };
 
   return (
@@ -102,9 +105,9 @@ function ConceptPage({ concept }: { concept: Concept }) {
       )}
 
       {/* Optional depth, below the fold of attention. */}
-      {lessonIndex >= 0 && (
+      {hasLesson && (
         <button className="glossary-lesson-btn" onClick={doLesson}>
-          📘 Do the lesson
+          📘 {lessonIndices.length > 1 ? 'Do the lessons' : 'Do the lesson'}
         </button>
       )}
 

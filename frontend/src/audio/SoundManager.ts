@@ -93,9 +93,13 @@ function playSample(key: SampleKey, volume = 1): boolean {
   return true;
 }
 
-// Preload on module init so the first placement has the sample ready
-loadSample('place');
-loadSample('capture');
+// Preload on module init so the first placement has the sample ready. Guarded
+// so importing this module (e.g. from a store under unit test) doesn't try to
+// build an AudioContext in a non-browser environment.
+if (typeof window !== 'undefined' && typeof AudioContext !== 'undefined') {
+  loadSample('place');
+  loadSample('capture');
+}
 
 function activePack(): 'cosmic' | 'classic' {
   return getTheme(useSettingsStore.getState().themeId).soundPack;
