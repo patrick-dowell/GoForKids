@@ -110,18 +110,24 @@ function replayToMove(sgf: string, moveNum: number, total: number): {
   const size = game.board.size;
   const allMoves = game.moveHistory;
   const board = new Board(size);
-  let lastMove: Point | null = null;
-  let currentColor = Color.Black;
 
+  // Place handicap setup stones (all Black) first — otherwise handicap games
+  // (every stones-rung on the ranked ladder) replay WITHOUT them, so the board
+  // and the final scoring come out wrong. Use each move's recorded color rather
+  // than alternating from Black, which also handles White-moves-first handicap.
+  for (const p of game.handicapStones) {
+    board.grid[p.row * size + p.col] = Color.Black;
+  }
+
+  let lastMove: Point | null = null;
   for (let i = 0; i < Math.min(moveNum, allMoves.length); i++) {
     const move = allMoves[i];
     if (move.point) {
-      board.tryPlay(currentColor, move.point);
+      board.tryPlay(move.color as Stone, move.point);
       lastMove = move.point;
     } else {
       lastMove = null;
     }
-    currentColor = currentColor === Color.Black ? Color.White : Color.Black;
   }
 
   let territory: TerritoryMap | null = null;

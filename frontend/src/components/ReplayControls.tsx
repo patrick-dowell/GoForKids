@@ -108,19 +108,25 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
         </div>
       )}
 
+      {/* Key-move skip — its own row so the main controls don't crowd. */}
+      {hasHighlights && (
+        <div style={{ display: 'flex', gap: 8, margin: '4px 0' }}>
+          <button onClick={prevHighlight} className="replay-btn" style={{ flex: 1, width: 'auto', fontSize: 13 }} aria-label="Previous key move">
+            ★ ◀ Prev key
+          </button>
+          <button onClick={nextHighlight} className="replay-btn" style={{ flex: 1, width: 'auto', fontSize: 13 }} aria-label="Next key move">
+            Next key ▶ ★
+          </button>
+        </div>
+      )}
+
       <div className="replay-buttons">
         <button onClick={firstMove} disabled={currentMove === 0} className="replay-btn">⏮</button>
-        {hasHighlights && (
-          <button onClick={prevHighlight} className="replay-btn" title="Previous key move" aria-label="Previous key move">★◀</button>
-        )}
         <button onClick={prevMove} disabled={currentMove === 0} className="replay-btn">◀</button>
         <button onClick={toggleAutoPlay} className="replay-btn replay-btn-play">
           {autoPlaying ? '⏸' : '▶'}
         </button>
         <button onClick={nextMove} disabled={currentMove >= totalMoves} className="replay-btn">▶</button>
-        {hasHighlights && (
-          <button onClick={nextHighlight} className="replay-btn" title="Next key move" aria-label="Next key move">★▶</button>
-        )}
         <button onClick={lastMovePos} disabled={currentMove >= totalMoves} className="replay-btn">⏭</button>
       </div>
 
