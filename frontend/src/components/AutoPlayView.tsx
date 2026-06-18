@@ -1,5 +1,6 @@
 import { useAutoPlayStore } from '../store/autoPlayStore';
 import { Avatar, BOT_AVATARS } from './Avatar';
+import { ConceptLink } from './ConceptLink';
 import {
   winsToPromote,
   nextRung,
@@ -57,6 +58,9 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
     return `Even game · ${matchup.komi} komi.`;
   })();
   const handicapLine = `${colorLine} · ${detailLine}`;
+  // Link the rung's balancing mechanic to the glossary — kids don't know what
+  // komi / handicap stones are when the ladder first hands them out.
+  const detailConcept = matchup.handicap > 0 ? 'handicap' : matchup.komi !== undefined ? 'komi' : null;
 
   const promotionLine = atWall
     ? `You've reached the top of the calibrated ladder. The ${next ?? 'next'} bot isn't ready yet — keep playing for fun.`
@@ -121,7 +125,10 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
             </div>
           </div>
 
-          <div className="autoplay-handicap-line">{handicapLine}</div>
+          <div className="autoplay-handicap-line">
+            {handicapLine}
+            {detailConcept && <> · <ConceptLink id={detailConcept}>what's this?</ConceptLink></>}
+          </div>
 
           <div className="autoplay-progress">
             <div className="autoplay-progress-label">{promotionLine}</div>

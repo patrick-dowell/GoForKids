@@ -322,6 +322,34 @@ const EXTENDED: Concept[] = [
     short: "The big fight after the opening — attacking, defending, building, and invading across the whole board.",
     related: ['shape', 'capture-races'],
   },
+  {
+    id: 'komi',
+    name: 'Komi',
+    tier: 'extended',
+    short: "Black plays first, which is a small head start. To keep things fair, White gets some bonus points at the end — that's komi (often 6.5 or 7.5). The .5 also means games can't end in a tie.",
+    related: ['handicap', 'who-wins', 'territory-count'],
+    // Komi is a number added to the score — no single position shows it well.
+    example: null,
+  },
+  {
+    id: 'handicap',
+    name: 'Handicap',
+    tier: 'extended',
+    short: "When one player is stronger, the weaker player places a few stones before the game starts. These head-start stones — the handicap — turn an uneven game into a fair fight.",
+    related: ['komi', 'placing-stones'],
+    example: {
+      // Two black handicap stones already on the board's star points (9×9).
+      size: 9,
+      stones: [
+        { row: 2, col: 2, color: B },
+        { row: 6, col: 6, color: B },
+      ],
+      highlight: [
+        { row: 2, col: 2 },
+        { row: 6, col: 6 },
+      ],
+    },
+  },
 ];
 
 /* ------------------------------------------------------------------------- *
