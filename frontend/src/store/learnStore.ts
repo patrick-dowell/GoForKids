@@ -496,16 +496,33 @@ export const useLearnStore = create<LearnState>((set, get) => ({
         return;
       }
 
-      finishPart(tentative, point, captures, part.userPlays);
-
-      // Optional background playout: chain auto-moves on the board while the
-      // success modal is up. Each move bails out if the user has navigated
-      // away (e.g. clicked Next puzzle), so leftover timers are no-ops.
+      // Background playout: when a part auto-plays a sequence (e.g. the kill
+      // that captures the group), HOLD the success modal until the sequence
+      // finishes — otherwise the player can tap "Next puzzle" and skip the
+      // capture. Commit the user's move in 'animating' (board interaction +
+      // modal both suppressed), play the moves, then finishPart at the end.
       if (part.playoutAfter && part.playoutAfter.length > 0) {
+        set({
+          board: tentative,
+          grid: [...tentative.grid],
+          lastMove: point,
+          lastCaptures: captures,
+          lastMoveColor: part.userPlays,
+          moveSeq: get().moveSeq + 1,
+          status: 'animating',
+          feedback: null,
+          showHint: false,
+        });
         const moves = part.playoutAfter;
         const partIdxAtStart = partIndex;
         const playMove = (idx: number) => {
-          if (idx >= moves.length) return;
+          if (idx >= moves.length) {
+            // Sequence done — NOW reveal the part-complete modal.
+            const cur = get();
+            if (!cur.active || cur.lessonIndex !== lessonIdx || cur.partIndex !== partIdxAtStart) return;
+            finishPart(cur.board!, cur.lastMove, cur.lastCaptures, cur.lastMoveColor);
+            return;
+          }
           const move = moves[idx];
           setTimeout(() => {
             const cur = get();
@@ -532,7 +549,10 @@ export const useLearnStore = create<LearnState>((set, get) => ({
           }, move.delayMs);
         };
         playMove(0);
+        return;
       }
+
+      finishPart(tentative, point, captures, part.userPlays);
       return;
     }
 

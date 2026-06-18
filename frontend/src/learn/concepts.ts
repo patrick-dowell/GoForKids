@@ -42,6 +42,9 @@ export interface Concept {
   related?: string[];
   /** Lessons that teach this concept (wired as lessons are retrofitted). */
   lessonIds?: string[];
+  /** Label for the lesson-header link to this concept. Defaults to
+   *  "What is {name}?" when unset — override where that reads awkwardly. */
+  linkPrompt?: string;
 }
 
 const B = Color.Black;
@@ -56,6 +59,7 @@ const CORE: Concept[] = [
     id: 'placing-stones',
     name: 'Placing Stones',
     tier: 'core',
+    linkPrompt: 'How to Place Stones',
     short: "Black and White take turns putting one stone on the line crossings. Black goes first.",
     related: ['liberties', 'capture'],
     example: {
@@ -88,6 +92,7 @@ const CORE: Concept[] = [
     id: 'capture',
     name: 'Capture',
     tier: 'core',
+    linkPrompt: 'How to Capture Stones',
     short: "When a stone or group has no liberties left, it's captured and taken off the board.",
     related: ['liberties', 'atari', 'groups'],
     example: {
@@ -125,6 +130,7 @@ const CORE: Concept[] = [
     id: 'groups',
     name: 'Groups',
     tier: 'core',
+    linkPrompt: 'What are Groups?',
     short: "Stones of the same color that touch along the lines join into one group, and a group shares all its liberties. Connected stones are stronger.",
     related: ['liberties', 'capture', 'two-eyes'],
     example: {
@@ -140,6 +146,7 @@ const CORE: Concept[] = [
     id: 'two-eyes',
     name: 'Two Eyes = Life',
     tier: 'core',
+    linkPrompt: 'Two Eyes = Safe?',
     short: "An eye is an empty point your group surrounds. A group with TWO separate eyes can never be captured — it's alive forever.",
     related: ['groups', 'capture', 'life-and-death'],
     example: {
@@ -277,6 +284,7 @@ const EXTENDED: Concept[] = [
     id: 'capture-races',
     name: 'Capture Races',
     tier: 'extended',
+    linkPrompt: 'What are Capture Races?',
     short: "A capture race (semeai) is two groups racing to fill each other's liberties. Whoever runs out first dies.",
     related: ['liberties', 'life-and-death'],
   },

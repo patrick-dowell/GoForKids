@@ -3,6 +3,7 @@ import { useLearnStore } from '../store/learnStore';
 import { LESSONS, type GameConfig } from '../learn/lessons';
 import { LessonStepModal } from './LessonStepModal';
 import { ConceptLink } from './ConceptLink';
+import { getConcept } from '../learn/concepts';
 import './LearnView.css';
 
 interface LearnViewProps {
@@ -26,6 +27,11 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
   const dismissReward = useLearnStore((s) => s.dismissReward);
 
   const lesson = LESSONS[lessonIndex];
+  // Lesson-header concept link label: the concept's own linkPrompt, else a
+  // "What is X?" default from the title (with any trailing " N" stripped).
+  const conceptLinkLabel = lesson.conceptId
+    ? getConcept(lesson.conceptId)?.linkPrompt ?? `What is ${lesson.title.replace(/ \d+$/, '')}?`
+    : '';
   const isGameLesson = lesson.kind === 'game';
   const isQuizLesson = lesson.kind === 'quiz';
   const quizIndex = useLearnStore((s) => s.quizIndex);
@@ -76,7 +82,7 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
             <h1 className="learn-header-lesson">{lesson.title}</h1>
             {lesson.conceptId && (
               <div className="learn-header-concept">
-                <ConceptLink id={lesson.conceptId}>📖 What is {lesson.title.replace(/ \d+$/, '')}?</ConceptLink>
+                <ConceptLink id={lesson.conceptId}>📖 {conceptLinkLabel}</ConceptLink>
               </div>
             )}
           </div>
@@ -107,20 +113,11 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
             )}
 
             <div className="learn-game-section">
-              <h3 className="learn-game-section-title">Mission</h3>
+              <h3 className="learn-game-section-title">How to win</h3>
               <ul className="learn-game-bullets">
-                <li><span className="learn-game-bullet-icon">⚫</span><span>Trap enemy stones</span></li>
-                <li><span className="learn-game-bullet-icon">⚪</span><span>Protect your team</span></li>
-                <li><span className="learn-game-bullet-icon">⭐</span><span>Finish ahead</span></li>
-              </ul>
-            </div>
-
-            <div className="learn-game-section">
-              <h3 className="learn-game-section-title">What stuff means</h3>
-              <ul className="learn-game-bullets">
-                <li><span className="learn-game-bullet-icon">📈</span><span>Bar = who's winning</span></li>
-                <li><span className="learn-game-bullet-icon">🤖</span><span>Bot passes = "I'm done!"</span></li>
-                <li><span className="learn-game-bullet-icon">🏁</span><span>Both pass = game over</span></li>
+                <li><span className="learn-game-bullet-icon">⚔️</span><span>Capture enemy stones</span></li>
+                <li><span className="learn-game-bullet-icon">🏠</span><span>Surround more space than your opponent</span></li>
+                <li><span className="learn-game-bullet-icon">⭐</span><span>Most points wins!</span></li>
               </ul>
             </div>
 
@@ -144,7 +141,7 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
           <h1 className="learn-header-lesson">{lesson.title}</h1>
           {lesson.conceptId && (
             <div className="learn-header-concept">
-              <ConceptLink id={lesson.conceptId}>📖 What is {lesson.title.replace(/ \d+$/, '')}?</ConceptLink>
+              <ConceptLink id={lesson.conceptId}>📖 {conceptLinkLabel}</ConceptLink>
             </div>
           )}
         </div>

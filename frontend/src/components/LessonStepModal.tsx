@@ -74,6 +74,12 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
     );
   }
 
+  // Puzzle-series shows its modals via partFeedback (handled above). During a
+  // part's background playout the status is 'animating' with no partFeedback
+  // yet — show nothing so the capture sequence can finish before the
+  // "Next puzzle" button appears (and can't be tapped early).
+  if (lesson.kind === 'puzzle-series' && status === 'animating') return null;
+
   const open = status === 'success' || status === 'animating';
   if (!open) return null;
 

@@ -990,13 +990,13 @@ export const LESSONS: Lesson[] = [
   {
     id: 'big-board-time',
     kind: 'game',
-    title: 'Big Board Time',
+    title: 'The 9×9 Challenge',
     instruction: "You're ready for the bigger 9×9 board. Same rules — just more room to play!",
     gameConfig: {
       boardSize: 9,
       opponentRank: '30k',
-      preGameHeadline: 'Big Board Time!',
-      preGameSubline: 'Same rules, bigger battlefield. Aim for the corners — they\'re easiest to live in.',
+      preGameHeadline: 'The 9×9 Challenge!',
+      preGameSubline: 'Same game, bigger board. Corners are the easiest place to make territory — start there!',
     },
   },
 ];
