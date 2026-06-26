@@ -1,5 +1,5 @@
 import { useGameStore } from '../store/gameStore';
-import { useAutoPlayStore } from '../store/autoPlayStore';
+import { useAutoPlayStore, UNDO_BANK_MAX } from '../store/autoPlayStore';
 import { Color } from '../engine/types';
 import { winsToPromote, lossSetbackActive, nextRung } from '../autoplay/matchmaker';
 import { useGameReviewStore } from '../store/gameReviewStore';
@@ -40,6 +40,7 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
   const rungState = useAutoPlayStore((s) => s.rungState);
   const boardSize = useAutoPlayStore((s) => s.boardSize);
   const pendingFromRung = useAutoPlayStore((s) => s.pendingFromRung);
+  const undoBank = useAutoPlayStore((s) => s.undoBank);
   // Compute derived outside the selector to avoid React's getSnapshot warning.
   const atWall = rungState.winsAtCurrentRung >= winsToPromote(rungState.currentRung, boardSize);
 
@@ -150,6 +151,10 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
               At {rungState.currentRung}, a loss sets your progress back one win.
             </div>
           )}
+          <div className="autoplay-end-progress-note">
+            🔄 Undo bank: {undoBank}/{UNDO_BANK_MAX}
+            {undoBank < UNDO_BANK_MAX ? ' · +1 earned this game' : ' · full'}
+          </div>
         </div>
 
         <button

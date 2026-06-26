@@ -21,6 +21,9 @@ export interface HistoryEntry {
   handicap: number;
   result: 'win' | 'loss';
   ts: number;
+  /** Ranked undos spent during this game. Recorded from day one so assisted
+   *  wins can be discounted in the shadow rating later if needed (fp 26). */
+  undosUsed?: number;
 }
 
 export interface PromotionEvent {
@@ -49,6 +52,9 @@ function boardKey(b: BoardSize): BoardKey {
 
 interface PersistedState {
   byBoardSize: Partial<Record<BoardKey, PersistedSlot>>;
+  /** Player-level ranked undo bank (0..UNDO_BANK_MAX). Optional for back-compat
+   *  with payloads written before banked undos shipped (absent ⇒ full bank). */
+  undoBank?: number;
 }
 
 interface AutoPlayState {
@@ -76,6 +82,11 @@ interface AutoPlayState {
   /** When `showRankUp` is true, the rung the player was promoted FROM. */
   pendingFromRung: Rung | null;
 
+  /** Player-level ranked undo bank (0..UNDO_BANK_MAX). Spent by
+   *  `gameStore.undo()` in autoplay-context (ranked) games; refilled +1 by
+   *  `recordResult` per game finished. Casual / lesson undo ignores this. */
+  undoBank: number;
+
   /** Switch the active ladder board. Snapshots the current board's progress
    *  and loads (or freshly seeds) the target board's. No-op if unchanged. */
   setBoardSize: (boardSize: BoardSize) => void;
@@ -86,8 +97,13 @@ interface AutoPlayState {
   setGamePending: (pending: boolean) => void;
 
   /** Apply a single game result on the active board. Updates state, fires
-   *  promotion if applicable, persists, clears `gamePending`. */
-  recordResult: (result: 'win' | 'loss') => void;
+   *  promotion if applicable, refills one ranked undo (capped), records
+   *  `undosUsed` on the history entry, persists, clears `gamePending`. */
+  recordResult: (result: 'win' | 'loss', undosUsed?: number) => void;
+
+  /** Spend one ranked undo from the player-level bank. Returns false (no-op)
+   *  when the bank is empty. Called by `gameStore.undo()` for ranked games. */
+  spendUndo: () => boolean;
 
   /** Dismiss the rank-up celebration overlay. */
   dismissRankUp: () => void;
@@ -112,6 +128,13 @@ interface AutoPlayState {
 
 const STORAGE_KEY = 'goforkids.autoplay.v1';
 const HISTORY_CAP = 200;
+
+/** Ranked undo bank cap (banked undos, 2026-06-25). Player-level — NOT
+ *  per-board. Each ranked undo spends 1; every ranked game finished (win or
+ *  loss) refills +1 up to this cap. Casual / lesson games are unlimited and
+ *  ignore the bank entirely. Flat model: a misclick and a misplay both cost
+ *  one token (bots reply near-instantly, so there's no telling them apart). */
+export const UNDO_BANK_MAX = 3;
 
 /** Glicko-2 opponent uncertainty assumed for bot matches. Bots have
  *  well-calibrated strength (each rank validated against thousands of
@@ -139,9 +162,9 @@ function activeSlot(s: Pick<AutoPlayState, 'rungState' | 'history' | 'promotionE
   };
 }
 
-function persistSlots(slots: Partial<Record<BoardKey, PersistedSlot>>) {
+function persistState(slots: Partial<Record<BoardKey, PersistedSlot>>, undoBank: number) {
   try {
-    const payload: PersistedState = { byBoardSize: slots };
+    const payload: PersistedState = { byBoardSize: slots, undoBank };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch (e) {
     console.warn('Failed to save auto-play state:', e);
@@ -163,6 +186,7 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
   gamePending: false,
   showRankUp: false,
   pendingFromRung: null,
+  undoBank: UNDO_BANK_MAX,
 
   setBoardSize: (boardSize: BoardSize) => {
     const s = get();
@@ -184,8 +208,17 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
 
   setGamePending: (pending: boolean) => set({ gamePending: pending }),
 
-  recordResult: (result: 'win' | 'loss') => {
-    const { boardSize, rungState, history, promotionEvents, shadowRating, slots } = get();
+  spendUndo: () => {
+    const { undoBank, slots } = get();
+    if (undoBank <= 0) return false;
+    const newUndoBank = undoBank - 1;
+    set({ undoBank: newUndoBank });
+    persistState(slots, newUndoBank);
+    return true;
+  },
+
+  recordResult: (result: 'win' | 'loss', undosUsed = 0) => {
+    const { boardSize, rungState, history, promotionEvents, shadowRating, slots, undoBank } = get();
     const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak, boardSize);
     const ts = Date.now();
     const newEntry: HistoryEntry = {
@@ -194,6 +227,7 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
       handicap: matchup.handicap,
       result,
       ts,
+      undosUsed,
     };
     const out = applyResult(rungState, result, boardSize);
     const newHistory = [...history, newEntry].slice(-HISTORY_CAP);
@@ -212,6 +246,9 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
       shadowRating: newShadowRating,
     };
     const newSlots = { ...slots, [boardKey(boardSize)]: slot };
+    // Finishing a ranked game (win OR loss) refills one undo, capped — so the
+    // bank trends toward ~1 undo available per game, which covers misclicks.
+    const newUndoBank = Math.min(UNDO_BANK_MAX, undoBank + 1);
     set({
       rungState: out.state,
       history: newHistory,
@@ -221,8 +258,9 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
       gamePending: false,
       showRankUp: out.promoted,
       pendingFromRung: out.fromRung,
+      undoBank: newUndoBank,
     });
-    persistSlots(newSlots);
+    persistState(newSlots, newUndoBank);
   },
 
   // Don't clear `pendingFromRung` here — AutoPlayGameEndModal reads it to
@@ -245,7 +283,7 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
       showRankUp: false,
       pendingFromRung: null,
     });
-    persistSlots(newSlots);
+    persistState(newSlots, get().undoBank);
   },
 
   setRung: (rung: Rung) => {
@@ -269,7 +307,7 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
       showRankUp: false,
       pendingFromRung: null,
     });
-    persistSlots(newSlots);
+    persistState(newSlots, get().undoBank);
   },
 
   derank: () => {
@@ -289,7 +327,7 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
       showRankUp: false,
       pendingFromRung: null,
     });
-    persistSlots(newSlots);
+    persistState(newSlots, get().undoBank);
   },
 
   loadFromStorage: () => {
@@ -310,6 +348,8 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
       }
       // Active board defaults to 19×19 on load.
       const active = slots['19x19'] ?? emptySlot(19);
+      // Undo bank is player-level (clamped; absent in old payloads ⇒ full).
+      const undoBank = Math.max(0, Math.min(UNDO_BANK_MAX, payload.undoBank ?? UNDO_BANK_MAX));
       set({
         boardSize: 19,
         rungState: active.rungState ?? freshState(19),
@@ -317,6 +357,7 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
         promotionEvents: active.promotionEvents ?? [],
         shadowRating: active.shadowRating ?? freshRating(),
         slots,
+        undoBank,
       });
     } catch (e) {
       console.warn('Failed to load auto-play state:', e);

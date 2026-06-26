@@ -160,7 +160,7 @@ function App() {
     if (recordedThisGameRef.current) return;
     recordedThisGameRef.current = true;
     const userWon = result.winner === playerColor;
-    recordAutoplayResult(userWon ? 'win' : 'loss');
+    recordAutoplayResult(userWon ? 'win' : 'loss', useGameStore.getState().undosThisGame);
   }, [autoplayContext, autoplayGamePending, phase, result, scoringInProgress, playerColor, recordAutoplayResult]);
 
   const replayActive = useReplayStore((s) => s.active);

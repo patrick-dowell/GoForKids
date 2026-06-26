@@ -6,6 +6,7 @@ import { api } from '../api/client';
 import { toGtp } from '../api/nativeKataGo';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
+import { useAutoPlayStore } from './autoPlayStore';
 import { BOT_AVATARS, type PlayerAvatarType, type BotAvatarType } from '../components/Avatar';
 
 function autoSaveGame(state: GameState, sgfOverride?: string) {
@@ -218,8 +219,14 @@ interface GameState {
    *  Game UI uses this to swap analytical widgets for kid-friendly explainers. */
   lessonContext: boolean;
   /** True when this game was launched from the auto-play match-picker
-   *  (feature 22). The post-game modal + rank-up celebration key off this. */
+   *  (feature 22). The post-game modal + rank-up celebration key off this.
+   *  Also the ranked signal for banked undos (the legacy `isRanked` flag is
+   *  never set true anywhere — `autoplayContext` is the real one). */
   autoplayContext: boolean;
+  /** Ranked undos spent during the current game. Reset on `newGame`,
+   *  incremented by `undo()`; read at game-end to record `undosUsed` on the
+   *  auto-play history entry. */
+  undosThisGame: number;
   /** Set to true the moment the AI passes mid-game. UI watches this to surface
    *  a "what just happened" modal so newcomers don't think the game silently
    *  ended. Cleared by either the user passing back or dismissing. */
@@ -493,6 +500,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   autoCompleting: false,
   lessonContext: false,
   autoplayContext: false,
+  undosThisGame: 0,
   botJustPassed: false,
   playerOutOfMoves: false,
   lessonGameEndDismissed: false,
@@ -583,6 +591,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       autoCompleting: false,
       lessonContext: !!options?.lessonContext,
       autoplayContext: !!options?.autoplayContext,
+      undosThisGame: 0,
       botJustPassed: false,
       playerOutOfMoves: false,
       lessonGameEndDismissed: false,
@@ -804,9 +813,16 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   undo: () => {
-    const { _game, gameId, aiThinking } = get();
+    const { _game, gameId, aiThinking, autoplayContext } = get();
     if (aiThinking) return false;
 
+    // Ranked games (autoplay context) meter undo through the player-level
+    // bank (flat banked-3). Bail before touching the board when the bank is
+    // empty; spend only after an undo actually lands. Casual / lesson games
+    // are unlimited and ignore the bank.
+    if (autoplayContext && useAutoPlayStore.getState().undoBank <= 0) return false;
+
+    let didUndo = false;
     // In AI games, undo both the AI's last move and the player's last move
     if (gameId && _game.moveHistory.length >= 2) {
       _game.undo(); // undo AI's move
@@ -815,17 +831,23 @@ export const useGameStore = create<GameState>((set, get) => ({
       const trimmed = get().scoreHistory.slice(0, _game.moveHistory.length + 1);
       set({ ...snapshot(_game, { lastMove: lastRecord?.point ?? null }), scoreHistory: trimmed });
       api.undo(gameId).then(() => api.undo(gameId!)).catch(console.warn);
-      return true;
+      didUndo = true;
+    } else {
+      // Local game: single undo
+      const success = _game.undo();
+      if (success) {
+        const lastRecord = _game.moveHistory[_game.moveHistory.length - 1];
+        const trimmed = get().scoreHistory.slice(0, _game.moveHistory.length + 1);
+        set({ ...snapshot(_game, { lastMove: lastRecord?.point ?? null }), scoreHistory: trimmed });
+        didUndo = true;
+      }
     }
 
-    // Local game: single undo
-    const success = _game.undo();
-    if (success) {
-      const lastRecord = _game.moveHistory[_game.moveHistory.length - 1];
-      const trimmed = get().scoreHistory.slice(0, _game.moveHistory.length + 1);
-      set({ ...snapshot(_game, { lastMove: lastRecord?.point ?? null }), scoreHistory: trimmed });
+    if (didUndo) {
+      set({ undosThisGame: get().undosThisGame + 1 });
+      if (autoplayContext) useAutoPlayStore.getState().spendUndo();
     }
-    return success;
+    return didUndo;
   },
 
   requestAIMove: async () => {

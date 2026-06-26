@@ -1,4 +1,5 @@
 import { useGameStore } from '../store/gameStore';
+import { useAutoPlayStore } from '../store/autoPlayStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { BOT_AVATARS } from './Avatar';
 import { Color } from '../engine/types';
@@ -14,6 +15,9 @@ export function GameControls() {
   const playerColor = useGameStore((s) => s.playerColor);
   const moveCount = useGameStore((s) => s.moveCount);
   const result = useGameStore((s) => s.result);
+  // Custom Match's "Ranked" checkbox (NOT the auto-play ladder, which uses
+  // autoplayContext + leaves isRanked false). Preserved: a custom ranked game
+  // hides undo entirely, as it did before banked undos.
   const isRanked = useGameStore((s) => s.isRanked);
   const blackCaptures = useGameStore((s) => s.blackCaptures);
   const whiteCaptures = useGameStore((s) => s.whiteCaptures);
@@ -30,6 +34,7 @@ export function GameControls() {
   const finishGame = useGameStore((s) => s.finishGame);
   const lessonContext = useGameStore((s) => s.lessonContext);
   const autoplayContext = useGameStore((s) => s.autoplayContext);
+  const undoBank = useAutoPlayStore((s) => s.undoBank);
   const showScoreGraph = useSettingsStore((s) => s.showScoreGraph);
 
   const isBotVsBot = gameMode === 'botvsbot';
@@ -112,13 +117,28 @@ export function GameControls() {
             Pass
           </button>
           {!isRanked && moveCount > 0 && (
-            <button
-              onClick={undo}
-              className="btn btn-secondary"
-              disabled={aiThinking || autoCompleting}
-            >
-              Undo
-            </button>
+            autoplayContext ? (
+              // Auto-play ladder: undo is metered by the player-level bank (banked-3).
+              <button
+                onClick={undo}
+                className="btn btn-secondary"
+                disabled={aiThinking || autoCompleting || undoBank <= 0}
+                title={undoBank > 0
+                  ? `${undoBank} undo${undoBank === 1 ? '' : 's'} left — refills +1 each game`
+                  : 'No undos left — finish a game to earn one'}
+              >
+                Undo ({undoBank})
+              </button>
+            ) : (
+              // Casual / custom-unranked / lesson: unlimited undo.
+              <button
+                onClick={undo}
+                className="btn btn-secondary"
+                disabled={aiThinking || autoCompleting}
+              >
+                Undo
+              </button>
+            )
           )}
           {!!gameId && !isBotVsBot && moveCount >= 20 && (
             <button

@@ -43,6 +43,13 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 | 28 | [Learning engine — "Play of the Game" review](28_learning_engine_potg.md) | 🧪 Beta (swing-based + replay-integrated, Session 25) | High | 29, 03, 04, 16, 26; score graph |
 | 29 | [Concept registry & glossary](29_concept_registry_glossary.md) | 🧪 Beta (built Session 25) | High | — (the spine; 02/03/04/16/28 depend on it) |
 
+## Active milestone
+
+➡️ **[Tester Round — Learning-Loop Polish](MILESTONE_tester_round.md)** (scoped 2026-06-25):
+lessons / replay / highlights polish · undo banking · "back to menu" fix ·
+maybe glossary pass → device validation by Patrick + Roland. Validation > new
+features. Energy / world-art / puzzles deferred.
+
 ## Roadmap (as of 2026-06-11 — supersedes the wave plan below)
 
 **Now — the Learning Loop build (re-sequenced 2026-06-11):** the core tester
