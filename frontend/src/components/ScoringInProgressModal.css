@@ -50,6 +50,27 @@
   line-height: 1.45;
 }
 
+/* Escape hatch — only appears after a delay, so a stuck scoring pass is never
+   a trap. Understated (a quiet link, not a primary button) so it doesn't
+   invite bailing out of a normal, soon-to-finish score. */
+.scoring-escape {
+  margin-top: 0.25rem;
+  padding: 0.5rem 0.9rem;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  animation: scoring-fade-in 200ms ease-out;
+}
+.scoring-escape:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.06);
+}
+
 @keyframes scoring-spin {
   to { transform: rotate(360deg); }
 }

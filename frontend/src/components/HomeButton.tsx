@@ -13,11 +13,10 @@ interface HomeButtonProps {
 }
 
 /**
- * Always-available, always-on-top way back to the home screen. Rendered at the
- * App root on every non-home screen (mirrors SettingsButton), at a z-index
- * ABOVE the scoring overlay so no blocking modal can hide it — the menu-trap
- * bug, where a hung "Calculating the final score" overlay covered the only
- * path home (the title) with no escape.
+ * "Back to home" control. Lives in the game-screen header alongside Library /
+ * New Game (consistent control placement, and zero extra vertical cost — which
+ * matters on iPhone). The scoring overlay carries its own escape, so this
+ * button doesn't need to float above modals.
  *
  * While a game is actively playing, a tap goes through a small confirm so a
  * stray tap doesn't abandon a game (mid-game ranked games don't auto-save).
@@ -36,13 +35,11 @@ export function HomeButton({ onHome, confirmOnActiveGame = false }: HomeButtonPr
   return (
     <>
       <button
-        className="home-button"
+        className="btn btn-secondary home-button"
         onClick={handleClick}
         aria-label="Go to the home screen"
-        title="Home"
       >
-        <span className="home-button-icon" aria-hidden="true">⌂</span>
-        <span className="home-button-label">Home</span>
+        <span className="home-button-icon" aria-hidden="true">⌂</span> Home
       </button>
 
       {confirming && (

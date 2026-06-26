@@ -1,37 +1,10 @@
-/* Always-on-top "back to home" control. Bottom-left, mirroring the
-   bottom-right settings gear, so it never collides with screen headers. */
+/* "Back to home" header control — a normal .btn that sits in .header-controls
+   next to Library / New Game. The leading house glyph keeps it scannable. */
 .home-button {
-  position: fixed;
-  /* Plain values first, then safe-area-aware overrides for notched devices. */
-  bottom: 14px;
-  left: 14px;
-  bottom: calc(14px + var(--safe-bottom, 0px));
-  left: calc(14px + var(--safe-left, 0px));
-  z-index: 9600; /* ABOVE the scoring overlay (9500) — the menu-trap fix */
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 14px 0 11px;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: color 0.15s, background 0.15s, transform 0.15s;
-  -webkit-tap-highlight-color: transparent;
-}
-.home-button:hover {
-  color: var(--text-primary);
-  background: var(--bg-secondary);
-}
-.home-button:active {
-  transform: scale(0.96);
+  white-space: nowrap; /* keep "⌂ Home" on one line even on a narrow iPhone header */
 }
 .home-button-icon {
-  font-size: 1.2rem;
+  font-size: 1.1em;
   line-height: 1;
 }
 

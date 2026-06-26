@@ -433,10 +433,10 @@ function App() {
   return (
     <div className={'app' + (replayActive ? ' app-replay' : '')}>
       <SettingsButton />
-      <HomeButton onHome={goHome} confirmOnActiveGame />
       <header className="app-header">
-        <h1 className="app-title" onClick={goHome} style={{ cursor: 'pointer' }}>GoForKids</h1>
+        <h1 className="app-title">GoForKids</h1>
         <div className="header-controls">
+          <HomeButton onHome={goHome} confirmOnActiveGame />
           <button onClick={() => setShowLibrary(true)} className="btn btn-secondary">
             Library
           </button>
@@ -578,7 +578,7 @@ function App() {
       <FeedbackButton />
       <GlossaryView />
       {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
-      {scoringInProgress && <ScoringInProgressModal />}
+      {scoringInProgress && <ScoringInProgressModal onGoHome={goHome} />}
     </div>
   );
 }
