@@ -1,6 +1,13 @@
 # 26 — Ranked energy & superpowers
 
-**Status: DESIGN CAPTURE (Patrick's idea, 2026-06-11 late night). Not scheduled.**
+**Status: DESIGN CAPTURE (Patrick's idea, 2026-06-11 late night). Full energy system not scheduled.**
+
+> **Partial ship — 2026-06-26 (Session 26):** the **undo** sink landed on its own
+> as a narrowed slice — a **flat banked-3** ranked undo bank (not the full energy
+> currency). Player-level bank, +1 per game finished, capped at 3; spend recorded
+> per `HistoryEntry`. See [MILESTONE_tester_round.md](MILESTONE_tester_round.md) §4.
+> Still unbuilt here: the energy currency itself, the **Hint** and **Finish Game**
+> sinks, earn-on-loss psychology, and the resign-farming guard.
 
 ## Problem
 

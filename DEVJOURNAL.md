@@ -1,5 +1,77 @@
 # Development Journal
 
+## Session 26 — June 25–26, 2026 (tester-round milestone: undo banking + always-works home)
+
+Scoped the **next-tester build** with Patrick, then shipped its first two items.
+The frame (NOT the camp kids — the **6 current testers**, mostly adults + a few
+elementary kids, already onboarded): **validation > new features.** Full plan in
+[MILESTONE_tester_round.md](feature_plans/MILESTONE_tester_round.md): lessons /
+replay / highlights polish · undo banking · back-to-home fix · glossary voice
+pass → device validation by Patrick + Roland. World-art / energy / puzzles
+deferred. Commits `3f1f97e`→`55f8b04`. Tests 158 → **163**.
+
+### Undo banking — fp 26's first slice (commit 3f1f97e)
+Replaces unlimited ranked undo with a **flat banked-3**: each ranked undo spends
+one token, every game finished (win OR loss) refills +1 (capped 3), new players
+start full; casual / lesson stay unlimited. We weighed a "hybrid" (free misclick
+undo before the bot replies + a bank for real take-backs) but Patrick killed it:
+bots respond near-instantly, so there's no information-free window to tell a
+misclick from a misplay — the bank covers misclicks fine (≥1/game).
+- **Gated on `autoplayContext`, not `isRanked`.** `isRanked` looked like the
+  ranked signal but is only set by the Custom Match "Ranked" checkbox (+ the
+  Library badge); the auto-play **ladder leaves it false** — which is *why* undo
+  showed in ranked games. The bank keys off `autoplayContext` (the real ladder
+  signal). Custom-ranked games keep their prior no-undo behavior via the
+  retained `!isRanked` gate.
+- State + persistence in `autoPlayStore` (player-level, not per-board);
+  `undosUsed` recorded per `HistoryEntry` from day one (fp 26 "data first");
+  "Undo (N)" HUD in `GameControls`; bank readout on the game-end modal. 5 new
+  tests in `autoPlayStore.undoBank.test.ts`.
+
+### Always-works "back to home" — menu-trap fix, bug #1 (commits 69e6d8e, 55f8b04)
+Root cause confirmed: the `.scoring-overlay` (z 9500) is non-dismissible and
+`request()` had no timeout, so a hung backend left it covering the only path
+home (the title) forever. Patrick's framing — "a consistent, clear way home
+regardless of screen" — drove a **tactical three-layer** fix (the deeper
+view-flag→state-machine refactor was explicitly deferred to "if it still feels
+bad after testing"):
+1. **Home is a header control** next to Library / New Game (`HomeButton`). First
+   cut floated it bottom-left at z 9600 (above the overlay); Patrick flagged it
+   wasted vertical space on iPhone and broke control consistency, so it moved
+   into the header. The "GoForKids" title is now a plain heading (was a hidden,
+   coverable home path).
+2. **One `goHome()`** in App: aborts in-flight requests, tears down every
+   overlay/sub-view, resets all view flags. Every home affordance routes through
+   it — kills the "flag left in a bad combo" bug family (same shape as the
+   replay-close bug #4).
+3. **Trap-proofing the scoring overlay** (now that Home doesn't float above it):
+   `request()` gets a 20s `AbortController` timeout + `abortPendingRequests()`,
+   so a hung scoring call aborts → `catch` clears `scoringInProgress` → the modal
+   self-clears; AND the modal reveals a "Taking too long? Go home" escape after
+   8s. Mid-game, the header Home confirms (a React confirm — NOT WKWebView-flaky
+   `window.confirm`).
+- **Bug caught in testing:** keying the confirm on `phase === 'playing'` fired it
+  on the Profile screen too — `phase` stays 'playing' (stale) after you leave a
+  game. Fixed by gating the confirm to the in-game button only
+  (`confirmOnActiveGame`).
+
+### Lessons worth keeping
+- **Verify the "ranked" signal before gating on it.** A grep for *behavioral*
+  reads of `isRanked` (not just the field declaration) surfaced the Custom-Match
+  dependency that would otherwise have been a regression — the ladder's real
+  signal is `autoplayContext`.
+- **A floating "above everything" control is a smell.** Putting Home above the
+  scoring overlay "worked," but the right fix was to make the one blocking modal
+  non-trapping (timeout + its own escape) so Home can live where it belongs (the
+  header). Fix the trap, don't float over it.
+- **Local QA via the preview + `window.__gameStore` / `__autoPlayStore` hooks**
+  drove the whole verification: forced the scoring overlay up to test the escape,
+  resized to 375px for the iPhone header, drove ranked games move-by-move.
+
+All ranked-ladder / learning-engine code untouched (both features are additive).
+⚠️ Device-pending (milestone §7): both features on a real device — undo-banking
+behavior, and the home control + scoring escape on iPhone.
+
 ## Session 25 — June 16–17, 2026 (the learning engine)
 
 A multi-day build of the in-app learning loop, designed with Patrick first
@@ -2601,7 +2673,7 @@ Not worth further tuning right now — fixing H3 exactly requires either making 
 
 ## Known Bugs (observed in play, 2026-05-05 / iPad pass 2026-05-07 / TestFlight beta 2026-05-14 → 2026-05-17)
 - [x] **"New Game" doesn't fully reset prior game state** — fixed 2026-05-05: `autoCompleting` flag was the only initial-state field missing from the `newGame()` reset block; if a prior game was mid Finish-Game, the new game's Pass / Resign / Finish Game buttons stayed disabled. Repro for any future leak: audit `gameStore` reset path against the initial-state object
-- [ ] **Hard to get back to main menu** — repro unclear; one likely cause: full-viewport modal overlays (e.g. `.scoring-overlay` z-index 9500 in [ScoringInProgressModal.css](frontend/src/components/ScoringInProgressModal.css)) cover the `GoForKids` title that's the only path home, and the `request()` helper in [api/client.ts](frontend/src/api/client.ts) has no `AbortController` timeout — so a hung backend leaves the modal stuck. Real fix: timeout + manual dismiss button, or raise the title's z-index
+- [x] **Hard to get back to main menu** — FIXED 2026-06-26 (Session 26). repro unclear; one likely cause: full-viewport modal overlays (e.g. `.scoring-overlay` z-index 9500 in [ScoringInProgressModal.css](frontend/src/components/ScoringInProgressModal.css)) cover the `GoForKids` title that's the only path home, and the `request()` helper in [api/client.ts](frontend/src/api/client.ts) has no `AbortController` timeout — so a hung backend leaves the modal stuck. Real fix: timeout + manual dismiss button, or raise the title's z-index. **Done** — confirmed exactly this root cause and shipped a tactical three-layer fix: a header **Home** control (replacing the coverable title), a centralized `goHome()` (aborts in-flight requests + full teardown), and the scoring overlay made non-trapping via a 20s `request()` timeout + an 8s "Go home" escape inside the modal. (Session 26 entry at top.)
 - [ ] **13×13 bots are too strong across the board** — confirmed via playtest 2026-05-05. The b28.yaml comments self-document this for 15k ("kids picking 13x13 15k face a ~12k-equivalent. Rank ordering is preserved"); the same drift likely applies to 30k and 6k. Calibration approach was b28-vs-b20 head-to-head at the same nominal rank, which doesn't catch inter-rank gap drift on the new network. Same fix shape as the 19×19 relabel pass
 - [x] **Score occasionally counted incorrectly** — root cause identified + fixed 2026-05-12 (Session 17). The Phase D on-device dead-stone detection (`localGameRouter.ts:deadStonesViaOwnership`) was negating KataGo's GTP ownership values unconditionally, on the false assumption that pla is always Black at scoring time. When parity made pla=W, the negate was correct (worked accidentally); when parity made pla=B (most 19×19 games), the sign flipped backwards and the wrong color's stones got marked dead. Real-world impact captured in `19x19scoring.log`: 260-move game scored as `winner=white black=122 white=140.5` with 238 stones wrongly marked dead. Fix: conditional negate based on `colorChar`, with a regression test for the pla=B branch
 - [x] **"Finish game" mode hangs until final score appears** — fixed 2026-05-06 (commit d34ab1b): replaced the server-side `auto_complete` batch loop (one POST → 100+ KataGo analyses → final state) with a per-move `/finish-move` endpoint driven by a self-recursive frontend loop in `gameStore.finishGame`. Each KataGo move animates and plays a sound at natural pacing (~0.5–2s per analyze on Render b20). Also resolves the iPad-only "nothing happens when I click Finish Game" bug (every individual request is short, so iPad WKWebView's URLSession timeout is no longer a factor)

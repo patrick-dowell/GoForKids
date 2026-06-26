@@ -38,7 +38,7 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 | 23 | [Profile page](23_profile_page.md) | 🧪 Beta | High | 22, 11 |
 | 24 | [9×9 ranked ladder (points model)](24_9x9_ladder.md) | 🧪 Beta (shipped 2026-06-03→11) | High | 22, 23 |
 | 25 | [Ranked promotion polish](25_promotion_polish.md) | ✅ Done (2026-06-11) | High | 22, 24 |
-| 26 | [Ranked energy & superpowers](26_ranked_energy.md) | 📝 Planned | High | 22, 25 |
+| 26 | [Ranked energy & superpowers](26_ranked_energy.md) | 🚧 Undo slice shipped (banked-3, S26); rest planned | High | 22, 25 |
 | 27 | [World & art pass](27_world_and_art.md) | 📝 Planned | High | 11, 12, 15, 26 |
 | 28 | [Learning engine — "Play of the Game" review](28_learning_engine_potg.md) | 🧪 Beta (swing-based + replay-integrated, Session 25) | High | 29, 03, 04, 16, 26; score graph |
 | 29 | [Concept registry & glossary](29_concept_registry_glossary.md) | 🧪 Beta (built Session 25) | High | — (the spine; 02/03/04/16/28 depend on it) |
