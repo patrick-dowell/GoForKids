@@ -15,7 +15,9 @@ import { RuleViolationModal } from './components/RuleViolationModal';
 import { LessonGameEndModal } from './components/LessonGameEndModal';
 import { GameEndModal } from './components/GameEndModal';
 import { SettingsButton } from './components/SettingsButton';
+import { HomeButton } from './components/HomeButton';
 import { FeedbackButton } from './components/FeedbackButton';
+import { abortPendingRequests } from './api/client';
 import { PrivacyTermsModal } from './components/PrivacyTermsModal';
 import { ScoringInProgressModal } from './components/ScoringInProgressModal';
 import { useGameStore } from './store/gameStore';
@@ -165,18 +167,36 @@ function App() {
 
   const replayActive = useReplayStore((s) => s.active);
   const loadReplay = useReplayStore((s) => s.loadGame);
-  const closeReplay = useReplayStore((s) => s.close);
   const replayNext = useReplayStore((s) => s.nextMove);
   const replayPrev = useReplayStore((s) => s.prevMove);
 
-  /** Replay close → return to home, not to the in-progress game underneath.
-   *  Without the setShowHome here, closing a replay opened from Library left
-   *  the user on the prior game's layout (bug #4 from TestFlight 2026-05-14). */
-  const handleCloseReplay = () => {
-    closeReplay();
+  /** The single, always-works "back to home" teardown. Every home affordance
+   *  (the floating HomeButton, the game-screen title, each screen's exit)
+   *  routes through this, so "home" means the same thing everywhere: abort
+   *  in-flight requests (a hung backend then can't keep a blocking modal alive
+   *  after you've left), tear down every overlay / sub-view, and reset all view
+   *  flags. Replacing the old per-screen resets fixes the family of bugs where
+   *  a flag was left in a bad combination (e.g. the replay-close bug #4). */
+  const goHome = () => {
+    abortPendingRequests();
+    useReplayStore.getState().close();
+    useLearnStore.getState().exit();
+    useGlossaryStore.getState().close();
+    useGameReviewStore.getState().close();
+    useGameStore.getState().dismissGameEnd();
+    setActiveGameLessonId(null);
+    setShowNewGame(false);
+    setShowAutoPlay(false);
+    setShowProfile(false);
+    setShowLibrary(false);
     setShowStudy(false);
+    setShowPrivacy(false);
     setShowHome(true);
   };
+
+  // Replay close → full teardown home (not the in-progress game underneath —
+  // bug #4 from TestFlight 2026-05-14).
+  const handleCloseReplay = goHome;
 
   const learnActive = useLearnStore((s) => s.active);
   const startLearn = useLearnStore((s) => s.start);
@@ -194,10 +214,7 @@ function App() {
     startLearn();
   };
 
-  const handleExitLearn = () => {
-    exitLearn();
-    setShowHome(true);
-  };
+  const handleExitLearn = () => goHome();
 
   const handleStartGameLesson = (config: { boardSize: number; opponentRank: string }, lessonId: string) => {
     // Lesson 5 launches a real game vs the bot. Apply the unlocked Cosmic Board
@@ -276,20 +293,14 @@ function App() {
     setShowProfile(true);
   };
 
-  const handleExitProfile = () => {
-    setShowProfile(false);
-    setShowHome(true);
-  };
+  const handleExitProfile = () => goHome();
 
   const handleStartAutoPlay = () => {
     setShowHome(false);
     setShowAutoPlay(true);
   };
 
-  const handleExitAutoPlay = () => {
-    setShowAutoPlay(false);
-    setShowHome(true);
-  };
+  const handleExitAutoPlay = () => goHome();
 
   const handleStartAutoPlayGame = (matchup: Matchup) => {
     // Switch out of the match-picker so the game UI takes over, then mark
@@ -422,8 +433,9 @@ function App() {
   return (
     <div className={'app' + (replayActive ? ' app-replay' : '')}>
       <SettingsButton />
+      <HomeButton onHome={goHome} confirmOnActiveGame />
       <header className="app-header">
-        <h1 className="app-title" onClick={() => setShowHome(true)} style={{ cursor: 'pointer' }}>GoForKids</h1>
+        <h1 className="app-title" onClick={goHome} style={{ cursor: 'pointer' }}>GoForKids</h1>
         <div className="header-controls">
           <button onClick={() => setShowLibrary(true)} className="btn btn-secondary">
             Library

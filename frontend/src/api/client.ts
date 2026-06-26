@@ -49,13 +49,37 @@ const API_BASE = `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
  */
 const MAX_RETRIES = 2;
 
+/** Per-request hard timeout. Comfortably above the ~2-3s a healthy Render call
+ *  takes, but bounds a hung connection (server accepted the request but never
+ *  responds) so a blocking modal like "Calculating the final score" can't wait
+ *  forever. On timeout the fetch aborts → AbortError (a DOMException, NOT a
+ *  TypeError, so it doesn't retry) → the caller's catch runs, e.g. the scoring
+ *  path flips `scoringInProgress` back to false and the modal clears itself. */
+const REQUEST_TIMEOUT_MS = 20_000;
+
+/** In-flight request controllers, so navigation (App's goHome) can abort
+ *  everything — a hung backend then can't keep a modal alive after the user
+ *  has already left the screen. */
+const inFlight = new Set<AbortController>();
+
+/** Abort every in-flight HTTP request. Called by goHome() as part of the
+ *  always-works "back to home" teardown (the menu-trap fix). */
+export function abortPendingRequests(): void {
+  for (const c of inFlight) c.abort();
+  inFlight.clear();
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    inFlight.add(controller);
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const res = await fetch(`${API_BASE}${path}`, {
         headers: { 'Content-Type': 'application/json' },
         ...options,
+        signal: controller.signal,
       });
       if (!res.ok) {
         const error = await res.json().catch(() => ({ detail: res.statusText }));
@@ -65,7 +89,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     } catch (e) {
       lastError = e;
       // Only TypeErrors retry (network leg failed, request didn't land).
-      // Errors we threw ourselves (HTTP non-OK) are real responses; bail.
+      // AbortError (timeout / goHome) and HTTP non-OK are real outcomes; bail.
       const isNetworkError = e instanceof TypeError;
       if (!isNetworkError || attempt === MAX_RETRIES) {
         throw e;
@@ -73,6 +97,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       const delayMs = 300 * Math.pow(3, attempt); // 300ms, 900ms
       console.warn(`[api] retrying ${path} after TypeError (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`, e);
       await new Promise((r) => setTimeout(r, delayMs));
+    } finally {
+      clearTimeout(timer);
+      inFlight.delete(controller);
     }
   }
   throw lastError;

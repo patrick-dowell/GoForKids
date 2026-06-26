@@ -47,10 +47,17 @@ Replaces today's unlimited undo with a bounded, kid-forgiving resource in ranked
 - Small HUD: "undos left" indicator in ranked + a brief "+1 undo earned" beat on game-end.
 - _Acceptance:_ ranked undo is bounded to a visible 3-deep bank that refills +1 per game finished (win or loss); at 0 it's unavailable; casual undo is untouched. A narrowed, shippable subset of [26 ranked energy](26_ranked_energy.md) — does not foreclose building full energy later.
 
-### 5. "Can't get back to menu" fix
-The #1 open bug. Likely cause: full-viewport modal overlays (e.g. `.scoring-overlay` z-index 9500 in [ScoringInProgressModal.css](../frontend/src/components/ScoringInProgressModal.css)) cover the `GoForKids` title that's the only path home, and `request()` in [api/client.ts](../frontend/src/api/client.ts) has no `AbortController` timeout — so a hung backend leaves the modal stuck with no escape.
-- _Fix shape:_ AbortController timeout + a manual dismiss button on the blocking modal, and/or raise the home title's z-index above the overlays.
-- _Acceptance:_ there is always a way back to the home screen, even if a request hangs.
+### 5. "Can't get back to menu" fix  ✅ built + locally verified 2026-06-25 (pending device validation, §7)
+The #1 open bug. Root cause confirmed in code: the `.scoring-overlay` (z-index 9500) is **non-dismissible** (only auto-clears when `scoringInProgress` flips false), and `request()` had **no timeout** — so a hung backend left it covering the only path home (the title) forever.
+
+> **Status: built — three layers (tactical; state-machine refactor deferred per Patrick).**
+> 1. **Global Home control** ([HomeButton.tsx](../frontend/src/components/HomeButton.tsx)) on the game/replay screen at **z-index 9600 — above the scoring overlay**, so no modal can hide it. (Sub-screens — profile, match picker — keep their existing top-left "← Home"; all now route through the same teardown, so no redundant double-Home.)
+> 2. **Centralized `goHome()`** in App: aborts in-flight requests, tears down every overlay/sub-view, resets all view flags. Every home affordance (floating button, title, each screen's exit) routes through it — fixes the family of "flag left in a bad combo" bugs (e.g. replay-close #4).
+> 3. **`request()` timeout + abort** ([client.ts](../frontend/src/api/client.ts)): 20s per-request `AbortController`, plus `abortPendingRequests()`. A hung scoring call now aborts → its `catch` flips `scoringInProgress` false → **the modal self-clears**; the Home button is the instant manual escape regardless.
+>
+> Mid-game, the in-game Home confirms ("Leave this game? Progress won't be saved" — a React confirm, not WKWebView-flaky `window.confirm`); elsewhere it goes home immediately. Verified live: Home renders above a forced scoring overlay and escapes it (screenshot), no console errors, build green, 163 tests pass. Uncommitted. Remaining: on-device pass (§7).
+>
+> _Open follow-up:_ the game-screen **title** is still an express (no-confirm) home — kept for back-compat; converge or drop it if testers find it surprising. If traps still recur, escalate to the **screen state machine**.
 
 ### 6. Glossary polish
 Patrick's **voice pass** on the first-draft glossary copy — the kid-simple `short` lines and concept pages in [`src/learn/concepts.ts`](../frontend/src/learn/concepts.ts). **In scope** for this round (confirmed 2026-06-25).

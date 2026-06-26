@@ -1,0 +1,77 @@
+/* Always-on-top "back to home" control. Bottom-left, mirroring the
+   bottom-right settings gear, so it never collides with screen headers. */
+.home-button {
+  position: fixed;
+  /* Plain values first, then safe-area-aware overrides for notched devices. */
+  bottom: 14px;
+  left: 14px;
+  bottom: calc(14px + var(--safe-bottom, 0px));
+  left: calc(14px + var(--safe-left, 0px));
+  z-index: 9600; /* ABOVE the scoring overlay (9500) — the menu-trap fix */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px 0 11px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, transform 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-button:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+.home-button:active {
+  transform: scale(0.96);
+}
+.home-button-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+/* Mid-game "leave this game?" confirm — sits above the home button itself. */
+.home-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.6);
+}
+.home-confirm-card {
+  width: 100%;
+  max-width: 320px;
+  padding: 24px;
+  text-align: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.home-confirm-title {
+  margin-bottom: 6px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.home-confirm-sub {
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+.home-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.home-confirm-actions .btn {
+  flex: 1;
+}
