@@ -1,5 +1,65 @@
 # Development Journal
 
+## Session 27 — June 26–27, 2026 (bot endgame bugs: ko-superko pass + dame fill)
+
+Patrick reported two on-device (iPhone, direct Xcode build) bot-play bugs while
+wrapping the milestone work; we diagnosed both and shipped a mitigation for the
+serious one. Commits `d407376`→`3e77a98`. Both still want overnight device
+validation.
+
+### The ko-superko pass — game-breaking, root-caused from a device repro
+Symptom: the bot passes during ko fights (and other spots), throwing a won
+position. The first plausible cause — the **backend** sends KataGo an *empty
+moves list* (move_selector.py:338-363, `PASS: all candidates illegal`) so it's
+ko-blind — turned out to be the WEB path's bug, not Patrick's. On **device** the
+plumbing is correct end-to-end: `requestAIMove` passes real `movesForBridge`
+(gameStore.ts:904), the Swift bridge **replays it via legal `play` commands**
+(KataGoBridge.swift:104-112), and `Board.clone()` preserves `koPoint` +
+`positionHistory` (Board.ts:43-44). Patrick's repro found the real cause: a
+**ko-rule mismatch.** KataGo runs `kata-set-rules japanese` = **`koSIMPLE`**
+(printed in the bridge log), but our engine uses **positional superko**. In the
+repro KataGo returned its sole best move `J5` (legal under simple ko, genmove
+`play J5`), but J5 **repeats an earlier whole-board position**, so the selector's
+`isLegal` filter rejected it → 0 candidates → null → pass. Not suicide (`sui0`),
+not a history gap — purely positional-superko (app) vs simple-ko (KataGo)
+disagreeing, so *any* KataGo-preferred move that repeats a position makes the bot
+pass. A second repro showed the same thing as a premature mid-game pass (bot
+passed at move 71 with H4 +7.2 still available two moves later).
+
+### Fix shipped — Option B (safety net) + self-diagnosing logs (commit 3e77a98)
+- **Don't pass when filtered to empty:** when the legality filter drops every
+  KataGo candidate, the selector now plays a legal non-eye heuristic move
+  (`pickLegalNonEyeMove`) instead of passing — only passing when nothing legal
+  remains. TS `moveSelector.ts` + Python `move_selector.py` mirror (device + web).
+- **`[selector] PASS reason=…` logging** on every pass path
+  (`filtered-empty-no-legal-move` / `katago-top-pass` / `pass-threshold` /
+  `opening-only-pass`) so the next repro self-classifies: a superko filter vs a
+  genuine too-eager pass at low visits.
+- **Root fix (A) still open:** set KataGo to **positional superko + territory
+  scoring** (custom `kata-set-rules` instead of the `japanese` preset) so it
+  never offers a superko-illegal move; Swift/bridge change + Render redeploy for
+  web, needs validation.
+
+### Dame fill on 19×19 — captured, not fixed
+Separate mechanism: after the player passes, the bot fills score-neutral dame
+instead of passing. Under japanese rules dame are worth 0, but on 19×19 the
+settle search (`SETTLE_VISITS=100`) is too shallow for pass to win the
+selector's visit-gated pass-detection, so the bot plays a dame (≈0, a hair above
+pass from noise) then passes once they run out. Fix directions: scale settle
+visits with board area + a "best move gains ~0 → just pass" shortcut. Left for
+the bot session per Patrick.
+
+### Lessons worth keeping
+- **Don't trust the first plausible root cause.** "Backend sends no history" was
+  real for WEB but wrong for device; tracing the whole device chain (TS → Swift
+  `play` replay → engine clone) ruled it out, and the repro's `koSIMPLE` line was
+  the actual smoking gun.
+- **Make passes self-explaining.** A bot that "just passes" is a black box; a
+  one-line reason per pass turns the next repro into a definitive classifier.
+
+Build green, 163 tests, py_compile OK throughout. ⚠️ Both bot bugs need on-device
+validation (Patrick testing overnight 2026-06-26).
+
 ## Session 26 — June 25–26, 2026 (tester-round milestone: undo banking + always-works home)
 
 Scoped the **next-tester build** with Patrick, then shipped its first two items.

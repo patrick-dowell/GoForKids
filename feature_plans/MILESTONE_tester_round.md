@@ -72,7 +72,9 @@ Most of Sessions 23–25 shipped in code but has **never been validated on a rea
 - [ ] **6k difficulty** feels right at rungs 8k–6k; bot-vs-bot still beats 9k, still loses to 3k (the v3 soften is unvalidated).
 - [ ] **Derank button + loss-setback note** render correctly (styled blind against the dark theme).
 - [ ] **Color variety** alternates on the even rungs as intended.
-- [ ] **Undo banking** behaves per §4 on device.
+- [ ] **Undo banking** behaves per §4 on device (the `Undo (N)` header button counts down; refills +1 per game; casual unlimited).
+- [ ] **Back-to-home (§5)** — the header **Home** button works from any screen incl. mid-game (confirm), and the scoring overlay shows a "Go home" escape after ~8s.
+- [ ] **Ko-superko safety net (Session 27)** — reproduce the ko/premature-pass; the bot should now **play a legal move instead of passing**. Watch the Xcode console for `[selector] PASS reason=…`: if a bad pass survives and logs `katago-top-pass`/`pass-threshold` (not `filtered-empty-*`), that's a *separate* too-eager-pass issue, not superko. (Root rules fix A + the 19×19 dame fill remain open — DEVJOURNAL Session 27.)
 - _Watch (don't actively build):_ iPad **sound-death after several games** — a likely-fix + diagnostics already shipped; if it recurs, capture the `[Audio] resuming AudioContext, state was: <X>` log.
 
 > **Deploy note:** the Session 24 komi fix lives in the bundled frontend, so a fresh **Xcode rebuild** picks it up for device testers — no Render redeploy needed for TestFlight. The **Render redeploy** only matters for *web* clients (who don't run on-device analysis); do it before any web tester sees the score graph.
