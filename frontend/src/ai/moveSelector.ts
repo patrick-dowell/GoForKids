@@ -307,6 +307,28 @@ function selectBeginnerMove(board: Board, color: Stone, profile: RankProfile): S
 
 // --- KataGo-backed path ------------------------------------------------------
 
+/** Diagnostic: log WHY the bot passed, so device repros are self-explaining —
+ *  a positional-superko filter (`filtered-empty-*`) vs KataGo choosing pass
+ *  (`katago-*`) vs the settle pass-threshold (`pass-threshold`). Plain
+ *  console.log so it surfaces in the iOS bridge / Xcode console. */
+function logPass(reason: string): void {
+  console.log(`[selector] PASS reason=${reason}`);
+}
+
+/** A legal move that doesn't fill our own eye — the safety fallback for when
+ *  EVERY KataGo candidate was filtered illegal. The usual cause is a ko-rule
+ *  mismatch: KataGo runs simple ko under `japanese` rules and offers a move our
+ *  positional-superko engine rejects as a whole-board repeat. Returns null only
+ *  when the board's legal moves are all own-eye fills (or there are none) — then
+ *  passing is genuinely correct. */
+function pickLegalNonEyeMove(board: Board, color: Stone): Point | null {
+  for (let i = 0; i < 16; i++) {
+    const m = pickRandomLegal(board, color);
+    if (m && !isEyeFill(board, color, m)) return m;
+  }
+  return null;
+}
+
 function selectWithKataGo(
   board: Board,
   color: Stone,
@@ -328,7 +350,20 @@ function selectWithKataGo(
   };
 
   let candidates = analysisIn.candidates.filter(isLegal);
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) {
+    // Every move KataGo offered is illegal in our engine — usually a ko-rule
+    // mismatch (KataGo = simple ko under japanese; our engine = positional
+    // superko), so KataGo's pick repeats a past board position. Passing here
+    // throws away a live game (confirmed 2026-06-26, 9×9 vs Ember 6k). Play a
+    // legal heuristic move instead; only pass if nothing legal remains.
+    const fallback = pickLegalNonEyeMove(board, color);
+    if (fallback) {
+      console.log('[selector] all KataGo candidates illegal (likely superko) — playing legal fallback instead of passing');
+      return fallback;
+    }
+    logPass('filtered-empty-no-legal-move');
+    return null;
+  }
 
   // --- Pass detection ---
   // In tutorial mode (`options.neverPass`), both "KataGo wants to pass" and
@@ -349,6 +384,7 @@ function selectWithKataGo(
         const fallback = pickRandomLegal(board, color);
         if (fallback) return fallback;
       }
+      logPass('katago-only-pass-no-nonpass');
       return null;
     }
     best = nonPassBest;
@@ -356,7 +392,7 @@ function selectWithKataGo(
   if (best.move.row < 0 && isOpening) {
     // Top is pass during opening — skip pass and use best non-pass.
     const nonPassBest = candidates.find((c) => c.move.row >= 0);
-    if (!nonPassBest) return null;
+    if (!nonPassBest) { logPass('opening-only-pass'); return null; }
     best = nonPassBest;
   }
 
@@ -373,6 +409,7 @@ function selectWithKataGo(
     passCand.visits >= minPassVisits &&
     best.scoreLead - passCand.scoreLead < passThreshold
   ) {
+    logPass('pass-threshold');
     return null;
   }
 
@@ -485,6 +522,7 @@ function selectWithKataGo(
       const fallback = pickRandomLegal(board, color);
       if (fallback) return fallback;
     }
+    logPass('katago-top-pass');
     return null;
   }
 

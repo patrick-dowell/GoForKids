@@ -130,6 +130,20 @@ def _pick_random_legal(board: Board, color: Color) -> Optional[Point]:
     return random.choices(moves, weights=weights, k=1)[0]
 
 
+def _pick_legal_non_eye_move(board: Board, color: Color) -> Optional[Point]:
+    """A legal move that doesn't fill our own eye — the safety fallback for when
+    EVERY KataGo candidate was filtered illegal. Usual cause: a ko-rule mismatch
+    (KataGo runs simple ko under ``japanese`` rules and offers a move our
+    positional-superko engine rejects as a whole-board repeat). Returns None only
+    when the board's legal moves are all own-eye fills (or there are none) — then
+    passing is genuinely correct."""
+    for _ in range(16):
+        m = _pick_random_legal(board, color)
+        if m is not None and not _is_eye_fill(board, color, m):
+            return m
+    return None
+
+
 def _count_stones(board: Board) -> int:
     """Count total stones on the board (proxy for move number)."""
     return sum(1 for c in board.grid if c != Color.EMPTY)
@@ -357,8 +371,21 @@ async def _select_with_katago(
                 f"(likely ko)"
             )
         if not analysis.candidates:
+            # Every move KataGo offered is illegal in our engine — usually a
+            # ko-rule mismatch (KataGo = simple ko under japanese; our engine =
+            # positional superko), so KataGo's pick repeats a past board
+            # position. Passing here throws away a live game (confirmed
+            # 2026-06-26). Play a legal heuristic move instead; only pass if
+            # nothing legal remains.
+            fallback = _pick_legal_non_eye_move(board, color)
+            if fallback is not None:
+                logger.info(
+                    f"[{target_rank} {board.size}x{board.size}] all candidates illegal "
+                    f"(likely superko) — playing legal fallback instead of passing"
+                )
+                return fallback
             logger.warning(
-                f"[{target_rank} {board.size}x{board.size}] PASS: all candidates illegal"
+                f"[{target_rank} {board.size}x{board.size}] PASS: filtered-empty-no-legal-move"
             )
             return None
 
