@@ -42,6 +42,7 @@ Planning docs for the next wave of features. Each doc captures what the feature 
 | 27 | [World & art pass](27_world_and_art.md) | 📝 Planned | High | 11, 12, 15, 26 |
 | 28 | [Learning engine — "Play of the Game" review](28_learning_engine_potg.md) | 🧪 Beta (swing-based + replay-integrated, Session 25) | High | 29, 03, 04, 16, 26; score graph |
 | 29 | [Concept registry & glossary](29_concept_registry_glossary.md) | 🧪 Beta (built Session 25) | High | — (the spine; 02/03/04/16/28 depend on it) |
+| 30 | [Conveying Go's depth (difficulty arc)](30_difficulty_arc.md) | 📝 Design capture (first-7yo playtest) | Medium | 28, 24 |
 
 ## Active milestone
 

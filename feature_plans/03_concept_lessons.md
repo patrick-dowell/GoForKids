@@ -57,3 +57,49 @@ Cross-cutting UX features that landed alongside the lessons:
 - A first-time user can complete the first 3 lessons without getting stuck.
 - Lesson completion rate from first to eleventh lesson > 40%.
 - Kids who finish the lesson track graduate to playing 15k with a better-than-random record.
+
+## Next batch — from the learn-to-play-go.github.io comparison + first 7yo playtest (2026-06-27)
+
+Two inputs landed together: a content comparison against
+[learn-to-play-go.github.io](https://learn-to-play-go.github.io/) (an adult,
+rules-complete tutorial with coached interactive exercises), and the **first
+non-Roland/non-Max 7yo** through the app (Roland's friend's son). Concrete adds:
+
+**A. Glossary / concept enrichment (do in the glossary — fp 29):**
+- **`liberties`** — add an explicit explanation **plus a large-group liberties
+  diagram** (theirs shows a whole group's shared liberties; ours only shows a
+  lone center stone with 4). Patrick's call — the group case is what actually
+  builds intuition. Bonus: show edge/corner stones have fewer liberties.
+- **False eyes** — real vs. false eye. Fold into `two-eyes` / `life-and-death`.
+  *The* classic kid trap ("I have two eyes!" — no, one is false and the group
+  dies). Theirs teaches it explicitly (`falseEye` scenario); we don't.
+
+**B. New advanced lessons** (today taught only in-game / as glossary stubs).
+These need the richer board-annotation primitives flagged in "Not yet built"
+(arrows, labels, ghost stones):
+- **Ko** — Patrick: ko is important and we only explain it in-game; give it an
+  advanced lesson. (Note the registry's `ko-rule` example is `null` — a static
+  diagram reads poorly; a stepped lesson is the right vehicle.)
+- **Ladders**, **Nets**, **Snapback** — their Advanced section shows ladders +
+  snapback; we should have lessons for those three (nets included). Concepts
+  already exist in the registry (`ladders` / `nets` / `snapback`), no lessons yet.
+
+**C. Beginner-strategy beat:**
+- **"Don't chase captures — make territory."** The single biggest beginner
+  breakthrough, and our arc is tactics-heavy (capture/atari/races) without it.
+  Theirs says it plainly ("focus less on capturing the opponent's stones").
+
+**D. Lessons UX — wrong-answer handling (CONFIRMED by the 7yo playtest, blocking):**
+- Watching the 7yo: when he **picked a wrong answer to a quiz question** (the
+  `quiz` kind, e.g. lesson 9 "Safe or Gone?"), the app gave **no help and no
+  chance to try again** — he stalled and got discouraged. This is the
+  "coached corrective hints" idea from the comparison, now confirmed in play:
+  add a concept-specific nudge on a wrong answer ("not quite — look at whether
+  White can still capture this") + a retry, instead of a dead end. Folds into the
+  milestone's **lessons-polish** item (MILESTONE §1) — highest-priority of this
+  batch since it's a live, observed kid-frustration.
+
+> Bigger-picture observation from the same playtest — after easy wins vs. the
+> beginner bot the 7yo thought Go was *easy*, only sensing the depth on a harder
+> bot with no guidance. Captured separately as **[fp 30](30_difficulty_arc.md)**
+> (conveying Go's depth before a kid writes it off as shallow).
