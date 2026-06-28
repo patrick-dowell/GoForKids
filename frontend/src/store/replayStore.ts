@@ -201,9 +201,10 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
     // data → buildReview falls back to capture/atari detection.
     let highlights: ReviewHighlight[] = [];
     try {
-      const moves = Game.fromSGF(sgf).moveHistory;
+      const reviewGame = Game.fromSGF(sgf);
       const pc: Stone = (meta?.playerColor ?? 'black') === 'white' ? Color.White : Color.Black;
-      highlights = buildReview(moves, meta?.scoreHistory ?? [], pc, size);
+      // Pass handicap stones so highlight snapshots include Black's setup.
+      highlights = buildReview(reviewGame.moveHistory, meta?.scoreHistory ?? [], pc, size, reviewGame.handicapStones);
     } catch {
       // Malformed SGF — leave highlights empty rather than break the replay.
     }

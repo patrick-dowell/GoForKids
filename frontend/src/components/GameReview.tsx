@@ -39,8 +39,9 @@ export function GameReview() {
         DEMO_REVIEW_GAME.size,
       );
     }
-    // playerColor is Black/White in any real game (never Empty).
-    return buildReview(game.moveHistory, scoreHistory, playerColor as Stone, boardSize);
+    // playerColor is Black/White in any real game (never Empty). Pass handicap
+    // stones so the snapshots aren't missing Black's setup in handicap games.
+    return buildReview(game.moveHistory, scoreHistory, playerColor as Stone, boardSize, game.handicapStones);
   }, [isOpen, demo, game, scoreHistory, playerColor, boardSize]);
 
   // "Step through the game" → close the review and open this game in the

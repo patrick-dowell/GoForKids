@@ -28,6 +28,26 @@ const CAPTURE_GAME = moves([
   [B, { row: 2, col: 3 }, [{ row: 2, col: 2 }]],
 ]);
 
+/* ============================ handicap games ============================= */
+
+describe('buildReview — handicap games (snapshots include the setup stones)', () => {
+  // Handicap stone at an unused corner of the 5×5 board (far from the move-9
+  // capture at 2,2). Bug: snapshots dropped Black's handicap setup entirely.
+  const handicap: Point[] = [{ row: 0, col: 4 }];
+
+  it('places handicap stones in the reconstructed snapshot board', () => {
+    // Tactical-fallback path (no scores) yields the move-9 capture highlight.
+    const cap = buildReview(CAPTURE_GAME, [], B, 5, handicap).find((h) => h.conceptId === 'capture');
+    expect(cap).toBeDefined();
+    expect(cap!.position.stones.some((s) => s.row === 0 && s.col === 4 && s.color === B)).toBe(true);
+  });
+
+  it('without handicap, the snapshot does not contain those points (regression baseline)', () => {
+    const cap = buildReview(CAPTURE_GAME, [], B, 5, []).find((h) => h.conceptId === 'capture');
+    expect(cap!.position.stones.some((s) => s.row === 0 && s.col === 4)).toBe(false);
+  });
+});
+
 /* ============================ engine-swing selection ===================== */
 
 describe('buildReview — engine-swing selection (the primary path)', () => {

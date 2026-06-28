@@ -55,9 +55,18 @@ const DEDUPE_WINDOW = 3;
 
 /* ------------------------------------------------------------------ helpers */
 
-/** Replay moves[0..upTo] (inclusive) onto a fresh board; captures resolve. */
-function boardAfter(moves: MoveRecord[], upTo: number, size: number): Board {
+/** Replay moves[0..upTo] (inclusive) onto a fresh board — handicap stones (all
+ *  Black) placed first; captures resolve. Without the handicap stones, snapshots
+ *  for handicap games are missing Black's setup and read as nonsense (mirrors
+ *  the replay's handicap handling in replayStore). */
+function boardAfter(
+  moves: MoveRecord[],
+  upTo: number,
+  size: number,
+  handicap: Point[] = [],
+): Board {
   const b = new Board(size);
+  for (const p of handicap) b.grid[p.row * size + p.col] = Color.Black;
   for (let i = 0; i <= upTo && i < moves.length; i++) {
     const m = moves[i];
     if (m.point) b.tryPlay(m.color as Stone, m.point);
@@ -123,13 +132,14 @@ function interpret(
   size: number,
   swingBlack: number,
   playerColor: Stone,
+  handicap: Point[] = [],
 ): ReviewHighlight {
   const m = moves[i];
   const isPlayerMove = (m.color as Stone) === playerColor;
   const swingForPlayer = playerColor === Color.Black ? swingBlack : -swingBlack;
   const good = swingForPlayer >= 0;
   const pts = Math.max(1, Math.round(Math.abs(swingForPlayer)));
-  const board = boardAfter(moves, i, size);
+  const board = boardAfter(moves, i, size, handicap);
   const tactic = tacticAt(moves, i, board, size);
   const cap = tactic?.captures ?? 0;
 
@@ -181,6 +191,7 @@ export function buildReview(
   scoreHistory: ScorePoint[],
   playerColor: Stone,
   size: number,
+  handicapStones: Point[] = [],
   max = 3,
 ): ReviewHighlight[] {
   // Engine-swing selection (preferred).
@@ -194,7 +205,7 @@ export function buildReview(
   }
 
   if (swings.length === 0) {
-    return tacticalFallback(moves, playerColor, size, max);
+    return tacticalFallback(moves, playerColor, size, max, handicapStones);
   }
 
   swings.sort((a, b) => Math.abs(b.swingBlack) - Math.abs(a.swingBlack));
@@ -207,7 +218,7 @@ export function buildReview(
     if (!m || !m.point) continue; // pass / out of range
     if (used.some((u) => Math.abs(u - s.moveNumber) < DEDUPE_WINDOW)) continue;
     used.push(s.moveNumber);
-    picked.push(interpret(moves, idx, size, s.swingBlack, playerColor));
+    picked.push(interpret(moves, idx, size, s.swingBlack, playerColor, handicapStones));
   }
 
   picked.sort(leadWithGlory);
@@ -223,13 +234,14 @@ function tacticalFallback(
   playerColor: Stone,
   size: number,
   max: number,
+  handicap: Point[] = [],
 ): ReviewHighlight[] {
   const candidates: ReviewHighlight[] = [];
   for (let i = 0; i < moves.length; i++) {
     const m = moves[i];
     if (!m.point) continue;
     const isPlayer = (m.color as Stone) === playerColor;
-    const board = boardAfter(moves, i, size);
+    const board = boardAfter(moves, i, size, handicap);
     const tactic = tacticAt(moves, i, board, size);
     if (!tactic) continue;
 

@@ -65,7 +65,7 @@ Patrick's **voice pass** on the first-draft glossary copy — the kid-simple `sh
 
 ### 7. Device validation (Patrick + Roland) — the gate
 Most of Sessions 23–25 shipped in code but has **never been validated on a real device**. This pass clears that backlog. Checklist:
-- [ ] **Play of the Game** populates with sensible highlights on real KataGo scores (§3).
+- [ ] **Play of the Game** populates with sensible highlights on real KataGo scores (§3); on a **handicap game** the snapshot diagrams now include Black's handicap stones (fixed 2026-06-27 — confirm on device).
 - [ ] **Handicap-game replay scoring** is correct on a fresh handicap game (§2).
 - [ ] **Settle-fill:** bot passes promptly after the player passes (no 2–3 own-territory moves).
 - [ ] **Score graph** roughly matches the final margin, including late-game.
