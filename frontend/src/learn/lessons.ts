@@ -126,6 +126,13 @@ export interface Lesson {
   id: string;
   /** Hand-built puzzle (default) vs a live game against the bot. */
   kind?: LessonKind;
+  /** Advanced lessons live OUTSIDE the main curriculum: no progress dot,
+   *  next() never marches into them, reached via the advanced-lessons menu
+   *  (after the regular curriculum) or their glossary concept page.
+   *  (fp 03 §B: ko, ladders, nets, snapback.) All positions are
+   *  engine-verified in advancedLessons.positions.test.ts — keep the two
+   *  in sync if editing. */
+  advanced?: boolean;
   title: string;
   /** The glossary concept this lesson teaches (its `id` in concepts.ts). The
    *  lesson is named after it and the lesson header links to its concept page.
@@ -185,6 +192,14 @@ export interface Lesson {
    *  multiple equivalent moves (e.g. either eye) reveal the same rule. */
   exploreAfterSuccess?: boolean;
 }
+
+/** The main curriculum — what the progress dots show and next() marches
+ *  through. Advanced lessons are appended AFTER these in LESSONS, so a
+ *  lesson's index is the same in both arrays for the regular range. */
+export const REGULAR_LESSONS: Lesson[] = [];
+/** Advanced lessons (fp 03 §B) — reached via the advanced-lessons menu or
+ *  their glossary concept page, never by the linear curriculum. */
+export const ADVANCED_LESSONS: Lesson[] = [];
 
 export const LESSONS: Lesson[] = [
   // ---------------------------------------------------------------------------
@@ -1004,4 +1019,313 @@ export const LESSONS: Lesson[] = [
       preGameSubline: 'Same game, bigger board. Corners are the easiest place to make territory — start there!',
     },
   },
+
+  // ===========================================================================
+  // ADVANCED LESSONS (fp 03 §B) — outside the main curriculum. Reached via
+  // the advanced-lessons menu (after the regular lessons) or the glossary.
+  // Every position + playout below is engine-verified in
+  // learn/__tests__/advancedLessons.positions.test.ts — edit both together.
+  // ===========================================================================
+
+  // ---------------------------------------------------------------------------
+  // Advanced — The Ko Rule. Part 1: take the ko (capture the lone stone,
+  // landing your own stone in atari — the ko shape). The modal explains why
+  // White can't take straight back. Part 2: White has played elsewhere;
+  // finish the ko by connecting.
+  // ---------------------------------------------------------------------------
+  {
+    id: 'ko-lesson',
+    kind: 'puzzle-series',
+    advanced: true,
+    title: 'The Ko Rule',
+    conceptId: 'ko-rule',
+    instruction: 'Capture the white stone in the middle!',
+    parts: [
+      {
+        prompt: 'Capture the white stone in the middle!',
+        boardSize: 5,
+        initialStones: [
+          { row: 1, col: 1, color: Color.Black },
+          { row: 3, col: 1, color: Color.Black },
+          { row: 2, col: 0, color: Color.Black },
+          { row: 2, col: 1, color: Color.White },
+          { row: 1, col: 2, color: Color.White },
+          { row: 3, col: 2, color: Color.White },
+          { row: 2, col: 3, color: Color.White },
+        ],
+        userPlays: Color.Black,
+        highlight: [{ row: 2, col: 2 }],
+        validate: ({ capturedCount }) => (capturedCount === 1 ? 'success' : 'retry'),
+        successMessage: 'Captured — but look, now YOUR stone is in the same trap!',
+        successExplanation:
+          "White wants to capture right back — but that would repeat the exact same board, forever. The KO RULE says: not allowed! White must play somewhere else first.",
+        retryMessage: 'Tap the glowing spot — it captures the white stone!',
+      },
+      {
+        prompt: 'White had to play somewhere else. End the ko — connect your stones!',
+        boardSize: 5,
+        initialStones: [
+          // Position after Black took the ko…
+          { row: 1, col: 1, color: Color.Black },
+          { row: 3, col: 1, color: Color.Black },
+          { row: 2, col: 0, color: Color.Black },
+          { row: 2, col: 2, color: Color.Black },
+          { row: 1, col: 2, color: Color.White },
+          { row: 3, col: 2, color: Color.White },
+          { row: 2, col: 3, color: Color.White },
+          // …and White's forced play elsewhere (the ko rule at work).
+          { row: 0, col: 4, color: Color.White },
+        ],
+        userPlays: Color.Black,
+        highlight: [{ row: 2, col: 1 }],
+        validate: ({ point }) => (point.row === 2 && point.col === 1 ? 'success' : 'retry'),
+        successMessage: 'Ko finished!',
+        successExplanation:
+          'Your stones are one solid wall now — nothing left to fight over. Grown-up players trade big threats over kos; that battle is called a KO FIGHT.',
+        retryMessage: 'Connect at the glowing spot to finish the ko.',
+      },
+    ],
+    successMessage: 'You know the Ko Rule!',
+    successExplanation:
+      "No repeating the same board — that's the whole rule. It keeps the game moving forward instead of looping forever.",
+    retryMessage: 'Try again!',
+  },
+
+  // ---------------------------------------------------------------------------
+  // Advanced — Ladders. Part 1: the kid plays the first atari, then WATCHES
+  // the forced chase run White into the edge (playoutAfter). Part 2: the kid
+  // delivers the finishing capture.
+  // ---------------------------------------------------------------------------
+  {
+    id: 'ladder-lesson',
+    kind: 'puzzle-series',
+    advanced: true,
+    title: 'Ladders',
+    conceptId: 'ladders',
+    instruction: 'Put White in atari — start the chase!',
+    parts: [
+      {
+        prompt: 'Put White in atari — start the chase!',
+        boardSize: 7,
+        initialStones: [
+          { row: 1, col: 2, color: Color.Black },
+          { row: 1, col: 3, color: Color.Black },
+          { row: 1, col: 4, color: Color.Black },
+          { row: 1, col: 5, color: Color.Black },
+          { row: 1, col: 6, color: Color.Black },
+          { row: 2, col: 1, color: Color.Black },
+          { row: 2, col: 2, color: Color.White },
+        ],
+        userPlays: Color.Black,
+        highlight: [{ row: 3, col: 2 }],
+        validate: ({ point }) => (point.row === 3 && point.col === 2 ? 'success' : 'retry'),
+        // The forced march: every White escape has exactly one exit, every
+        // Black reply is atari again (engine-verified).
+        playoutAfter: [
+          { color: Color.White, point: { row: 2, col: 3 }, delayMs: 800 },
+          { color: Color.Black, point: { row: 3, col: 3 }, delayMs: 700 },
+          { color: Color.White, point: { row: 2, col: 4 }, delayMs: 700 },
+          { color: Color.Black, point: { row: 3, col: 4 }, delayMs: 700 },
+          { color: Color.White, point: { row: 2, col: 5 }, delayMs: 700 },
+          { color: Color.Black, point: { row: 3, col: 5 }, delayMs: 700 },
+        ],
+        successMessage: 'The ladder!',
+        successExplanation:
+          "Watch what happened: every time White ran, it had only ONE way out — and you were always one step ahead. That chase is called a LADDER.",
+        retryMessage: 'Tap the glowing spot — take away White’s last open side.',
+      },
+      {
+        prompt: 'White is out of room. Finish the ladder!',
+        boardSize: 7,
+        initialStones: [
+          { row: 1, col: 2, color: Color.Black },
+          { row: 1, col: 3, color: Color.Black },
+          { row: 1, col: 4, color: Color.Black },
+          { row: 1, col: 5, color: Color.Black },
+          { row: 1, col: 6, color: Color.Black },
+          { row: 2, col: 1, color: Color.Black },
+          { row: 3, col: 2, color: Color.Black },
+          { row: 3, col: 3, color: Color.Black },
+          { row: 3, col: 4, color: Color.Black },
+          { row: 3, col: 5, color: Color.Black },
+          { row: 2, col: 2, color: Color.White },
+          { row: 2, col: 3, color: Color.White },
+          { row: 2, col: 4, color: Color.White },
+          { row: 2, col: 5, color: Color.White },
+        ],
+        userPlays: Color.Black,
+        highlight: [{ row: 2, col: 6 }],
+        validate: ({ capturedCount }) => (capturedCount >= 4 ? 'success' : 'retry'),
+        successMessage: 'Four stones — captured!',
+        successExplanation:
+          'The edge is the ladder’s best friend: the board itself blocks the last escape. Before you start a ladder in a real game, peek ahead — if an enemy stone is waiting on the path, the ladder fails!',
+        retryMessage: 'White has one breathing space left — fill it!',
+        triumphSound: 'success',
+      },
+    ],
+    successMessage: 'Ladder master!',
+    successExplanation:
+      'Chase step by step, always leaving one exit — toward the edge. If the path is clear, the ladder always wins.',
+    retryMessage: 'Try again!',
+  },
+
+  // ---------------------------------------------------------------------------
+  // Advanced — Nets. Part 1: the kid plays the loose diagonal (a true geta —
+  // it doesn't touch the white stone) and watches White bounce around inside
+  // and run out of air. Part 2: the kid closes the net.
+  // ---------------------------------------------------------------------------
+  {
+    id: 'net-lesson',
+    kind: 'puzzle-series',
+    advanced: true,
+    title: 'Nets',
+    conceptId: 'nets',
+    instruction: "Chasing isn't the only way. Trap White in a NET!",
+    parts: [
+      {
+        prompt: 'Trap White WITHOUT touching it — tap the glowing spot.',
+        boardSize: 7,
+        initialStones: [
+          { row: 1, col: 2, color: Color.Black },
+          { row: 1, col: 3, color: Color.Black },
+          { row: 2, col: 1, color: Color.Black },
+          { row: 2, col: 0, color: Color.Black },
+          { row: 2, col: 2, color: Color.White },
+        ],
+        userPlays: Color.Black,
+        highlight: [{ row: 3, col: 3 }],
+        defaultShowHint: true,
+        validate: ({ point }) => (point.row === 3 && point.col === 3 ? 'success' : 'retry'),
+        // White bounces around inside the net; every Black reply is atari
+        // (engine-verified). The looseness is the point — that's a net.
+        playoutAfter: [
+          { color: Color.White, point: { row: 2, col: 3 }, delayMs: 800 },
+          { color: Color.Black, point: { row: 2, col: 4 }, delayMs: 700 },
+          { color: Color.White, point: { row: 3, col: 2 }, delayMs: 700 },
+          { color: Color.Black, point: { row: 4, col: 2 }, delayMs: 700 },
+          { color: Color.White, point: { row: 3, col: 1 }, delayMs: 700 },
+          { color: Color.Black, point: { row: 4, col: 1 }, delayMs: 700 },
+        ],
+        successMessage: 'The net holds!',
+        successExplanation:
+          "Your loose stone doesn't touch White at all — but watch: every direction White runs, it runs out of breathing spaces. That trap is called a NET.",
+        retryMessage: 'The net move sits diagonal from White — loose, not touching. Tap the glow!',
+      },
+      {
+        prompt: 'White is out of escapes. Close the net!',
+        boardSize: 7,
+        initialStones: [
+          { row: 1, col: 2, color: Color.Black },
+          { row: 1, col: 3, color: Color.Black },
+          { row: 2, col: 1, color: Color.Black },
+          { row: 2, col: 0, color: Color.Black },
+          { row: 3, col: 3, color: Color.Black },
+          { row: 2, col: 4, color: Color.Black },
+          { row: 4, col: 2, color: Color.Black },
+          { row: 4, col: 1, color: Color.Black },
+          { row: 2, col: 2, color: Color.White },
+          { row: 2, col: 3, color: Color.White },
+          { row: 3, col: 2, color: Color.White },
+          { row: 3, col: 1, color: Color.White },
+        ],
+        userPlays: Color.Black,
+        highlight: [{ row: 3, col: 0 }],
+        validate: ({ capturedCount }) => (capturedCount >= 4 ? 'success' : 'retry'),
+        successMessage: 'Four stones in the net!',
+        successExplanation:
+          'A ladder chases; a net just… waits. When you spot a net move, it’s usually even safer than a ladder — no long chase to mess up.',
+        retryMessage: 'White has one breathing space left — fill it!',
+        triumphSound: 'success',
+      },
+    ],
+    successMessage: 'Net thrower!',
+    successExplanation:
+      'Trap from a distance instead of chasing. If a ladder doesn’t work, look for the net.',
+    retryMessage: 'Try again!',
+  },
+
+  // ---------------------------------------------------------------------------
+  // Advanced — Snapback. Part 1: the kid sacrifices a stone into White's
+  // mouth; White gobbles it (afterSuccess) and lands in self-atari. Part 2:
+  // the kid recaptures the whole group.
+  // ---------------------------------------------------------------------------
+  {
+    id: 'snapback-lesson',
+    kind: 'puzzle-series',
+    advanced: true,
+    title: 'Snapback',
+    conceptId: 'snapback',
+    instruction: 'Sacrifice one stone — trust the plan!',
+    parts: [
+      {
+        prompt: "Drop a stone right into White's mouth — trust the plan!",
+        boardSize: 5,
+        initialStones: [
+          { row: 0, col: 2, color: Color.White },
+          { row: 1, col: 0, color: Color.White },
+          { row: 1, col: 1, color: Color.White },
+          { row: 1, col: 2, color: Color.White },
+          { row: 0, col: 3, color: Color.Black },
+          { row: 1, col: 3, color: Color.Black },
+          { row: 2, col: 0, color: Color.Black },
+          { row: 2, col: 1, color: Color.Black },
+          { row: 2, col: 2, color: Color.Black },
+        ],
+        userPlays: Color.Black,
+        highlight: [{ row: 0, col: 1 }],
+        defaultShowHint: true,
+        validate: ({ point }) => (point.row === 0 && point.col === 1 ? 'success' : 'retry'),
+        interimSuccessMessage: 'The bait is set…',
+        interimSuccessExplanation: 'Your stone has only one breathing space. White can’t resist!',
+        afterSuccess: {
+          color: Color.White,
+          point: { row: 0, col: 0 },
+          delayMs: 2200,
+          followUpMessage:
+            'White gobbled your stone — but LOOK: now White’s whole group has only ONE breathing space!',
+        },
+        successMessage: 'White took the bait!',
+        successExplanation:
+          'Capturing your stone squeezed White’s own group down to a single breathing space — right where your stone just was.',
+        retryMessage: 'Play the glowing spot inside White’s space — yes, really!',
+      },
+      {
+        prompt: 'SNAP! Take them all back!',
+        boardSize: 5,
+        initialStones: [
+          { row: 0, col: 0, color: Color.White },
+          { row: 0, col: 2, color: Color.White },
+          { row: 1, col: 0, color: Color.White },
+          { row: 1, col: 1, color: Color.White },
+          { row: 1, col: 2, color: Color.White },
+          { row: 0, col: 3, color: Color.Black },
+          { row: 1, col: 3, color: Color.Black },
+          { row: 2, col: 0, color: Color.Black },
+          { row: 2, col: 1, color: Color.Black },
+          { row: 2, col: 2, color: Color.Black },
+        ],
+        userPlays: Color.Black,
+        highlight: [{ row: 0, col: 1 }],
+        validate: ({ capturedCount }) => (capturedCount >= 5 ? 'success' : 'retry'),
+        successMessage: 'SNAPBACK! Five stones for one!',
+        successExplanation:
+          'You gave up one stone and took five back. That trade is called a SNAPBACK — a tiny sacrifice that springs a big trap.',
+        retryMessage: 'Play right back in the same spot — White’s group has no other breathing space!',
+        triumphSound: 'success',
+      },
+    ],
+    successMessage: 'Trap sprung!',
+    successExplanation:
+      'Sometimes losing one stone is the winning move. Watch for groups that would have only one breathing space after they capture.',
+    retryMessage: 'Try again!',
+  },
 ];
+
+// Populate the split views (kept as stable array references for React deps).
+for (const l of LESSONS) (l.advanced ? ADVANCED_LESSONS : REGULAR_LESSONS).push(l);
+
+/** True when every REGULAR lesson id is in `completed` — the gate for
+ *  surfacing the advanced-lessons menu. */
+export function regularCurriculumComplete(completed: Set<string>): boolean {
+  return REGULAR_LESSONS.every((l) => completed.has(l.id));
+}

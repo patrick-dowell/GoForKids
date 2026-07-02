@@ -205,6 +205,15 @@ test('home: primary navigation reachable at every viewport', async ({ page }) =>
   });
 });
 
+test('advanced-lessons menu: cards and title fit at every viewport', async ({ page }) => {
+  await seedPickedProfile(page);
+  await page.goto('/?learn=advanced');
+  await page.locator('.advanced-menu-grid').waitFor();
+  await sweep(page, 'advanced-menu', {
+    strict: ['.learn-reward-title', '.advanced-menu-grid', '.choose-avatar-back'],
+  });
+});
+
 test('profile: sanctioned scroll screen — everything reachable', async ({ page }) => {
   await seedPickedProfile(page);
   await page.goto('/');

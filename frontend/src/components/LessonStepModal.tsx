@@ -20,6 +20,7 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
   const quizFeedback = useLearnStore((s) => s.quizFeedback);
   const quizCorrect = useLearnStore((s) => s.quizCorrect);
   const partFeedback = useLearnStore((s) => s.partFeedback);
+  const partIndex = useLearnStore((s) => s.partIndex);
   const next = useLearnStore((s) => s.next);
   const skipAfterSuccess = useLearnStore((s) => s.skipAfterSuccess);
   const advanceQuiz = useLearnStore((s) => s.advanceQuiz);
@@ -124,7 +125,7 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
           {lesson.quizSummary && (
             <p className="lesson-step-finale">{lesson.quizSummary}</p>
           )}
-          <button className="lesson-step-btn" onClick={isLast ? onFinish : next}>
+          <button className="lesson-step-btn" onClick={isFocusLast ? next : isLast ? onFinish : next}>
             {isFocusLast ? 'Done' : isLast ? 'Finish' : 'Continue →'}
           </button>
         </div>
@@ -136,11 +137,14 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
   // (white's turn / bot's chase) hasn't fired yet. Show interim text and
   // a Continue button that triggers the auto-placement.
   const isInterim = status === 'animating';
+  // Puzzle-series: the CURRENT PART's interim copy wins over the lesson's
+  // (e.g. snapback's "The bait is set…" between the throw-in and the bite).
+  const activePart = lesson.kind === 'puzzle-series' ? lesson.parts?.[partIndex] : undefined;
   const headline = isInterim
-    ? (lesson.interimSuccessMessage ?? lesson.successMessage)
+    ? (activePart?.interimSuccessMessage ?? lesson.interimSuccessMessage ?? lesson.successMessage)
     : lesson.successMessage;
   const explanation = isInterim
-    ? (lesson.interimSuccessExplanation ?? lesson.successExplanation)
+    ? (activePart?.interimSuccessExplanation ?? lesson.interimSuccessExplanation ?? lesson.successExplanation)
     : lesson.successExplanation;
 
   const buttonLabel = isInterim ? 'Continue →' : isFocusLast ? 'Done' : (isLast ? 'Finish' : 'Continue →');
@@ -148,6 +152,11 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
   const onClick = () => {
     if (isInterim) {
       skipAfterSuccess();
+    } else if (isFocusLast) {
+      // Focused set (glossary or advanced menu): next() routes the return.
+      // Must beat the isLast check — an advanced lesson at the END of the
+      // LESSONS array is still a focus set, not "finish to home".
+      next();
     } else if (isLast) {
       onFinish();
     } else {

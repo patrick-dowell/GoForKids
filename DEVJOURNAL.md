@@ -1,5 +1,56 @@
 # Development Journal
 
+## Session 31 — July 2, 2026 (advanced lessons: ko/ladders/nets/snapback + glossary enrichment — fp 03 §A+§B)
+
+Patrick: knock out fp 03 §A and §B to round out the beginner knowledge base.
+Both shipped.
+
+### §A — glossary enrichment
+- Concept registry gained multi-diagram support (`examples`: captioned
+  DiagramPositions rendered under the lead diagram).
+- **Liberties**: + a GROUP shared-liberties diagram (3 stones, 8 glowing
+  liberties — the case that builds intuition) and a corner-stone-has-2 beat.
+- **False Eyes**: new extended concept — real-vs-false captioned pair (White
+  poking the diagonals), THE classic kid trap.
+- **Ko/Ladders/Nets/Snapback** concepts all got example diagrams (reusing the
+  verified lesson positions) — the old `ko-rule example: null` TODO resolved.
+
+### §B — four advanced lessons + the menu
+- **Position truth first**: every lesson sequence is engine-verified in
+  `advancedLessons.positions.test.ts` (10 tests) BEFORE authoring — each
+  claimed atari is atari, each capture captures, the ko retake is really
+  superko-illegal. Armchair liberty-counting failed repeatedly (bare-stone
+  "classic" ladders/nets don't actually work); the engine designed the
+  positions with me. Notably: the ladder runs along a black wall (continuous
+  atari, engine-checkable), and the net demo shows the crawl-and-die
+  refutation while the copy avoids over-claiming — nets are NOT
+  continuous-atari, that looseness being exactly what distinguishes them.
+- **Lessons** (kind: puzzle-series, `advanced: true`): Ko (take the ko →
+  ko-rule explanation → White forced elsewhere → fill), Ladders (first atari
+  → watch the 6-move forced chase → deliver the edge kill), Nets (loose
+  diagonal → watch White bounce and suffocate → close the net), Snapback
+  (bait throw-in → White bites via afterSuccess → 5-stone recapture).
+- **Advanced-lessons menu** (`AdvancedLessonsMenu`, starfield styling):
+  4 cards w/ concept blurbs + done-checkmarks. Surfaced when the regular
+  curriculum finishes (next() gates at the advanced boundary; the 9×9
+  graduation game's end modal gets a "⭐ Advanced lessons →" button), and each
+  menu-launched lesson returns to it (focus-set with no concept). Glossary
+  "Do the lesson" works for all four (LESSONS_FOR_CONCEPT) and returns to the
+  concept page. `?learn=advanced` deep-links it (QA). Progress dots +
+  "Lesson N of M" now count REGULAR_LESSONS only; advanced lessons show an
+  "Advanced Lesson" eyebrow and no dots.
+- **Two latent bugs fixed en route**: (1) LessonStepModal's final button
+  matched its LABEL on isFocusLast but its CLICK on isLast — a focus-set
+  lesson sitting at the END of the LESSONS array exited to home instead of
+  returning (also fixed in the quiz-results button); (2) part-level
+  interimSuccessMessage was never consumed — the snapback "The bait is set…"
+  beat now renders. Also: vitest was sweeping Playwright's layout.spec.ts
+  (`*.spec.ts` default include) — excluded e2e/ in vite.config.
+- Layout suite grew an advanced-menu screen test (9 tests, all 14 viewports).
+
+All four lessons + the menu + both glossary loops verified end-to-end in the
+preview. 180 unit tests, 9 e2e layout tests, build green.
+
 ## Session 30 — July 1–2, 2026 (quiz wrong-answer retry — the 7yo-playtest dead-end, fp 03 §D)
 
 **Addendum (07-02) — big-iPad portrait replay: side-by-side panel VETOED.**

@@ -85,6 +85,12 @@ interface LearnState {
    *  for the rest of that part. */
   eyeHighlight: Point[] | null;
 
+  /** True when the advanced-lessons menu (fp 03 §B) is showing instead of a
+   *  lesson. Surfaced when the regular curriculum finishes, when an advanced
+   *  lesson (launched from the menu) completes, or explicitly via
+   *  openAdvancedMenu. */
+  showAdvancedMenu: boolean;
+
   /** Non-null when playing a focused lesson set launched from the glossary:
    *  the lesson indices to play in order, and the concept id to return to when
    *  the set finishes (instead of marching on through the curriculum). */
@@ -99,6 +105,10 @@ interface LearnState {
    *  lesson" button). When the last one finishes, return to that concept's
    *  glossary page rather than continuing the curriculum. */
   startConceptLessons: (lessonIndices: number[], conceptId: string) => void;
+  /** Show the advanced-lessons menu inside the lesson view. */
+  openAdvancedMenu: () => void;
+  /** Launch one advanced lesson from the menu; finishing returns to the menu. */
+  startAdvancedLesson: (index: number) => void;
   exit: () => void;
   startLesson: (index: number) => void;
   tryMove: (point: Point) => void;
@@ -212,6 +222,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
   secondTurnInitialBoard: null,
   completed: loadCompleted(),
   showReward: false,
+  showAdvancedMenu: false,
   quizIndex: 0,
   quizCorrect: 0,
   quizMissedCurrent: false,
@@ -249,11 +260,22 @@ export const useLearnStore = create<LearnState>((set, get) => ({
   },
 
   exit: () => {
-    set({ active: false, focusLessons: null, focusConcept: null });
+    set({ active: false, focusLessons: null, focusConcept: null, showAdvancedMenu: false });
+  },
+
+  openAdvancedMenu: () => {
+    set({ active: true, showReward: false, showAdvancedMenu: true, focusLessons: null, focusConcept: null });
+  },
+
+  startAdvancedLesson: (index: number) => {
+    // Focused single-lesson set with NO concept: next() returns to the menu.
+    set({ active: true, showReward: false, showAdvancedMenu: false, focusLessons: [index], focusConcept: null });
+    get().startLesson(index);
   },
 
   startLesson: (index: number) => {
     if (index < 0 || index >= LESSONS.length) return;
+    set({ showAdvancedMenu: false });
     // Cancel any pending auto-place timer so it doesn't fire on the new lesson.
     const { _afterSuccessTimer } = get();
     if (_afterSuccessTimer !== null) clearTimeout(_afterSuccessTimer);
@@ -815,8 +837,14 @@ export const useLearnStore = create<LearnState>((set, get) => ({
       const pos = focusLessons.indexOf(get().lessonIndex);
       const nextFocus = pos >= 0 ? focusLessons[pos + 1] : undefined;
       if (nextFocus === undefined) {
-        set({ active: false, focusLessons: null, focusConcept: null });
-        if (focusConcept) useGlossaryStore.getState().openConcept(focusConcept);
+        if (focusConcept) {
+          // Glossary-launched: return to the concept page.
+          set({ active: false, focusLessons: null, focusConcept: null });
+          useGlossaryStore.getState().openConcept(focusConcept);
+        } else {
+          // Menu-launched advanced lesson: back to the advanced menu.
+          set({ focusLessons: null, focusConcept: null, showAdvancedMenu: true });
+        }
         return;
       }
       get().startLesson(nextFocus);
@@ -824,8 +852,10 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     }
 
     const idx = get().lessonIndex + 1;
-    if (idx >= LESSONS.length) {
-      set({ active: false });
+    // Curriculum finished (or would march into the advanced block): reveal
+    // the advanced-lessons menu instead of exiting / bleeding into it.
+    if (idx >= LESSONS.length || LESSONS[idx].advanced) {
+      set({ showAdvancedMenu: true });
       return;
     }
     // Reward fires specifically before the first-battle lesson, when the

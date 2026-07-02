@@ -828,3 +828,74 @@
     font-size: 11px;
   }
 }
+
+/* ---------- Advanced-lessons menu (fp 03 §B) ---------- */
+.advanced-menu-content {
+  max-width: 560px;
+}
+
+.advanced-menu-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.advanced-menu-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.advanced-menu-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 209, 102, 0.4);
+}
+
+.advanced-menu-card-done {
+  border-color: rgba(255, 209, 102, 0.55);
+  box-shadow: 0 0 14px rgba(255, 209, 102, 0.18);
+}
+
+.advanced-menu-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.advanced-menu-card-done .advanced-menu-card-title {
+  color: #ffd166;
+}
+
+.advanced-menu-card-blurb {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Phone landscape: keep the four cards + title on one screen (layout policy). */
+@media (max-height: 500px) and (orientation: landscape) {
+  .advanced-menu-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .advanced-menu-card {
+    padding: 10px 12px;
+  }
+  .advanced-menu-card-blurb {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+}

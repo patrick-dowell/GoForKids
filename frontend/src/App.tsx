@@ -77,9 +77,11 @@ function App() {
     const review = params.get('review');
     if (review === 'demo') useGameReviewStore.getState().openDemo();
     else if (review) useGameReviewStore.getState().open();
-    // `?learn=N` jumps straight into lesson N (QA — no route otherwise).
+    // `?learn=N` jumps straight into lesson N; `?learn=advanced` opens the
+    // advanced-lessons menu (QA — no route otherwise).
     const learn = params.get('learn');
-    if (learn !== null) useLearnStore.getState().resumeAt(Number(learn) || 0);
+    if (learn === 'advanced') useLearnStore.getState().openAdvancedMenu();
+    else if (learn !== null) useLearnStore.getState().resumeAt(Number(learn) || 0);
     // `?replay=demo` loads the demo game into the replay with highlights (QA).
     if (params.get('replay') === 'demo') {
       import('./learn/gameReview').then(({ demoReplay }) => {
@@ -238,17 +240,33 @@ function App() {
 
   // Compute the next lesson after the game-kind lesson the player is in,
   // if any. Used to show "Next lesson →" on the lesson game-end modal.
+  // The advanced block doesn't count — finishing the LAST regular lesson
+  // (the 9×9 graduation game) routes to the advanced-lessons menu instead
+  // of bleeding into ko/ladders/nets/snapback.
   const nextLessonAfterGame = (() => {
     if (!activeGameLessonId) return null;
     const idx = LESSONS.findIndex((l) => l.id === activeGameLessonId);
-    if (idx === -1 || idx + 1 >= LESSONS.length) return null;
+    if (idx === -1 || idx + 1 >= LESSONS.length || LESSONS[idx + 1].advanced) return null;
     return idx + 1;
+  })();
+
+  // True when the game lesson just played was the curriculum finale — its
+  // end modal offers the advanced-lessons menu as the "what's next".
+  const advancedMenuAfterGame = (() => {
+    if (!activeGameLessonId) return false;
+    const idx = LESSONS.findIndex((l) => l.id === activeGameLessonId);
+    return idx !== -1 && (idx + 1 >= LESSONS.length || LESSONS[idx + 1].advanced);
   })();
 
   const handleNextLessonAfterGame = () => {
     if (nextLessonAfterGame === null) return;
     setActiveGameLessonId(null);
     resumeLearnAt(nextLessonAfterGame);
+  };
+
+  const handleAdvancedMenuAfterGame = () => {
+    setActiveGameLessonId(null);
+    useLearnStore.getState().openAdvancedMenu();
   };
 
   const handleMoveOnFromLessonGame = () => {
@@ -567,6 +585,7 @@ function App() {
       <LessonGameEndModal
         onMoveOn={handleMoveOnFromLessonGame}
         onNextLesson={nextLessonAfterGame !== null ? handleNextLessonAfterGame : undefined}
+        onAdvancedMenu={advancedMenuAfterGame ? handleAdvancedMenuAfterGame : undefined}
       />
       <GameEndModal onQuit={() => { useGameStore.getState().dismissGameEnd(); setShowHome(true); }} />
       <AutoPlayGameEndModal

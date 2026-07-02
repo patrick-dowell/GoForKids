@@ -65,7 +65,7 @@ Two inputs landed together: a content comparison against
 rules-complete tutorial with coached interactive exercises), and the **first
 non-Roland/non-Max 7yo** through the app (Roland's friend's son). Concrete adds:
 
-**A. Glossary / concept enrichment (do in the glossary — fp 29):**
+**A. Glossary / concept enrichment — ✅ SHIPPED 2026-07-02 (S31: liberties group + corner diagrams, false-eyes concept with real-vs-false captioned pair, multi-diagram `examples` support in the registry):**
 - **`liberties`** — add an explicit explanation **plus a large-group liberties
   diagram** (theirs shows a whole group's shared liberties; ours only shows a
   lone center stone with 4). Patrick's call — the group case is what actually
@@ -74,9 +74,7 @@ non-Roland/non-Max 7yo** through the app (Roland's friend's son). Concrete adds:
   *The* classic kid trap ("I have two eyes!" — no, one is false and the group
   dies). Theirs teaches it explicitly (`falseEye` scenario); we don't.
 
-**B. New advanced lessons** (today taught only in-game / as glossary stubs).
-These need the richer board-annotation primitives flagged in "Not yet built"
-(arrows, labels, ghost stones):
+**B. New advanced lessons — ✅ SHIPPED 2026-07-02 (S31: ko/ladders/nets/snapback as interactive puzzle-series lessons — no annotation primitives needed; every position engine-verified in `advancedLessons.positions.test.ts`; advanced-lessons menu after the curriculum + glossary links):**
 - **Ko** — Patrick: ko is important and we only explain it in-game; give it an
   advanced lesson. (Note the registry's `ko-rule` example is `null` — a static
   diagram reads poorly; a stepped lesson is the right vehicle.)

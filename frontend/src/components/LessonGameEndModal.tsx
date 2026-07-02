@@ -8,6 +8,8 @@ interface LessonGameEndModalProps {
   /** Called when the user picks "Next lesson" — App exits the game and resumes
    *  the lesson view at the next lesson. Only present when there IS a next lesson. */
   onNextLesson?: () => void;
+  /** Curriculum finale: offer the advanced-lessons menu as the next step. */
+  onAdvancedMenu?: () => void;
 }
 
 /**
@@ -16,7 +18,7 @@ interface LessonGameEndModalProps {
  * just finishing their first game need a clear "you won/lost" call-out and
  * two obvious next steps.
  */
-export function LessonGameEndModal({ onMoveOn, onNextLesson }: LessonGameEndModalProps) {
+export function LessonGameEndModal({ onMoveOn, onNextLesson, onAdvancedMenu }: LessonGameEndModalProps) {
   const lessonContext = useGameStore((s) => s.lessonContext);
   const phase = useGameStore((s) => s.phase);
   const result = useGameStore((s) => s.result);
@@ -107,6 +109,10 @@ export function LessonGameEndModal({ onMoveOn, onNextLesson }: LessonGameEndModa
           {onNextLesson ? (
             <button className="lesson-end-btn lesson-end-btn-primary" onClick={onNextLesson}>
               Next lesson →
+            </button>
+          ) : onAdvancedMenu ? (
+            <button className="lesson-end-btn lesson-end-btn-primary" onClick={onAdvancedMenu}>
+              ⭐ Advanced lessons →
             </button>
           ) : userWon ? (
             <button className="lesson-end-btn lesson-end-btn-primary" onClick={onMoveOn}>

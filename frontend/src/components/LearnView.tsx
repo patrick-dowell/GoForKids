@@ -1,7 +1,8 @@
 import { GoBoard } from '../board/GoBoard';
 import { useLearnStore } from '../store/learnStore';
 import { useProfileStore } from '../store/profileStore';
-import { LESSONS, type GameConfig } from '../learn/lessons';
+import { LESSONS, REGULAR_LESSONS, type GameConfig } from '../learn/lessons';
+import { AdvancedLessonsMenu } from './AdvancedLessonsMenu';
 import { LessonStepModal } from './LessonStepModal';
 import { ChooseAvatarScreen } from './ChooseAvatarScreen';
 import { ConceptLink } from './ConceptLink';
@@ -39,6 +40,7 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
   const quizIndex = useLearnStore((s) => s.quizIndex);
   const answerQuiz = useLearnStore((s) => s.answerQuiz);
   const avatarPicked = useProfileStore((s) => s.avatarPicked);
+  const showAdvancedMenu = useLearnStore((s) => s.showAdvancedMenu);
   const activeQuestion = isQuizLesson && lesson.questions ? lesson.questions[quizIndex] : null;
 
   const handleExit = () => {
@@ -55,6 +57,12 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
   // Confirming sets profileStore.avatarPicked, which flips this gate forever.
   if (!avatarPicked) {
     return <ChooseAvatarScreen onExit={handleExit} />;
+  }
+
+  // Advanced-lessons menu (fp 03 §B) — shown when the curriculum finishes and
+  // between menu-launched advanced lessons.
+  if (showAdvancedMenu) {
+    return <AdvancedLessonsMenu onExit={handleExit} />;
   }
 
   // Reward overlay — fires once after all puzzles are done, before the first game.
@@ -87,7 +95,7 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
             ← Home
           </button>
           <div className="learn-header-title" key={`title-${lessonIndex}`}>
-            <div className="learn-header-eyebrow">Lesson {lessonIndex + 1} of {LESSONS.length}</div>
+            <div className="learn-header-eyebrow">{lesson.advanced ? 'Advanced Lesson' : `Lesson ${lessonIndex + 1} of ${REGULAR_LESSONS.length}`}</div>
             <h1 className="learn-header-lesson">{lesson.title}</h1>
             {lesson.conceptId && (
               <div className="learn-header-concept">
@@ -96,7 +104,7 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
             )}
           </div>
           <div className="learn-progress">
-            {LESSONS.map((l, i) => (
+            {lesson.advanced ? null : REGULAR_LESSONS.map((l, i) => (
               <button
                 key={l.id}
                 className={
@@ -146,7 +154,7 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
           ← Home
         </button>
         <div className="learn-header-title" key={`title-${lessonIndex}`}>
-          <div className="learn-header-eyebrow">Lesson {lessonIndex + 1} of {LESSONS.length}</div>
+          <div className="learn-header-eyebrow">{lesson.advanced ? 'Advanced Lesson' : `Lesson ${lessonIndex + 1} of ${REGULAR_LESSONS.length}`}</div>
           <h1 className="learn-header-lesson">{lesson.title}</h1>
           {lesson.conceptId && (
             <div className="learn-header-concept">
@@ -155,7 +163,7 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
           )}
         </div>
         <div className="learn-progress">
-          {LESSONS.map((l, i) => (
+          {lesson.advanced ? null : REGULAR_LESSONS.map((l, i) => (
             <button
               key={l.id}
               className={
