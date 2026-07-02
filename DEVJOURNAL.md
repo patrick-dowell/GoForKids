@@ -1,5 +1,44 @@
 # Development Journal
 
+## Session 33 — July 2, 2026 (replay upload thin slice + selector-log capture — milestone §5)
+
+The milestone got rescoped today (original scope closed; five items remain —
+see MILESTONE_tester_round.md) and §5 shipped first because it arms §2: the
+ko-pass bug has survived ≥3 fix attempts, so the decision is **capture-first**
+— no attempt #4 until a field repro names its pass path. Uploaded games now
+carry the selector's diagnostic log.
+
+- **Selector-log ring buffer** (`ai/selectorLog.ts`, 200 lines, timestamped):
+  fed by `logPass` reasons, the superko legal-fallback line, and both bridge
+  "engine rejected KataGo's pick — passing instead" warns in client.ts.
+  Cleared on `newGame`, snapshotted into `SavedGame.selectorLog` by
+  autoSaveGame — so even an un-uploaded library game carries its diagnosis.
+- **Backend uploads module** — deliberately its OWN storage
+  (`app/uploads/storage.py`, `uploaded_games` table, payload = the SavedGame
+  JSON verbatim, no FKs into players/games) so the planned pre-App-Store
+  split to a separate DB is a table copy, not surgery. Share codes are
+  8 chars from an unambiguous alphabet (no 0/O/1/I/L) — kid-readable-aloud.
+  Router (`app/routers/uploads.py`): POST /api/uploads (1MB cap, requires
+  sgf), GET /api/uploads/{id} (case-insensitive). Uses the existing Render
+  persistent disk — no new infra, no config change.
+- **Frontend share loop**: Share button per Library row → uploads with
+  player name + board size (parsed from SGF) → button becomes the share
+  code, persisted via `SavedGame.sharedId` (re-share shows the same code,
+  no duplicates). Tap copies a ready link on web origins, the bare code
+  inside the iOS app (an app:// URL is useless to a friend). `?shared=CODE`
+  deep link fetches and hydrates the replay — verified cold-loading with an
+  emptied local library and a lowercase code.
+- Verified: backend smoke (round-trip, 404/400/413, columns), full preview
+  loop (upload → cold load → step through moves, no console errors), iPhone
+  375px library layout. `npm run build` green, **186 unit tests** (+6:
+  selectorLog buffer, sharedId/selectorLog persistence), **9 layout tests**
+  across 14 viewports.
+
+**Deploy note:** the upload endpoints need a **Render redeploy** (backend
+change — unlike most recent work); the share UI ships with the next Xcode
+build. Device-validation: share a real iPad game, open the link on the web,
+confirm `selectorLog` in the payload; then §2 waits for the next bad pass.
+
 ## Session 32 — July 2, 2026 (learn/glossary polish batch from Patrick's device testing)
 
 Rapid-fire fixes from Patrick working through the new content on his devices,
