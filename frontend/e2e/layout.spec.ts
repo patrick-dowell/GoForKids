@@ -31,17 +31,24 @@ const VIEWPORTS = [
   { name: 'iPad Air landscape', width: 1180, height: 820 }, // replay grid bug (S29 #2)
   { name: 'iPad Pro 12.9 portrait', width: 1024, height: 1366 },
   { name: 'iPad Pro 12.9 landscape', width: 1366, height: 1024 },
+  { name: 'iPad Pro 13 portrait', width: 1032, height: 1376 }, // replay-panel bug (S29 addendum)
+  { name: 'iPad Pro 13 landscape', width: 1376, height: 1032 },
 ];
 
 /** Selector prefixed with `btn:` matches a button by exact trimmed text. */
 interface ProbeSpec {
   strict?: string[];
   reachable?: string[];
+  /** When true, page/body scrolling does NOT count toward reachability —
+   *  only an explicit scrollable ancestor does. WKWebView body scrolling is
+   *  unreliable (S17 profile bug; S29 addendum: 13" iPad Pro replay panel),
+   *  so screens that depend on scrolling must own an explicit container. */
+  noBodyScroll?: boolean;
 }
 
 /** Returns [] when clean, else human-readable issue strings. */
 async function probe(page: Page, spec: ProbeSpec): Promise<string[]> {
-  return page.evaluate(({ strict = [], reachable = [] }) => {
+  return page.evaluate(({ strict = [], reachable = [], noBodyScroll = false }) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const issues: string[] = [];
@@ -60,6 +67,7 @@ async function probe(page: Page, spec: ProbeSpec): Promise<string[]> {
         if (/(auto|scroll)/.test(s.overflowY) && p.scrollHeight > p.clientHeight + 1) return true;
         p = p.parentElement;
       }
+      if (noBodyScroll) return false;
       return document.documentElement.scrollHeight > vh + 1;
     };
 
@@ -94,7 +102,7 @@ async function probe(page: Page, spec: ProbeSpec): Promise<string[]> {
     }
 
     return issues;
-  }, spec as { strict?: string[]; reachable?: string[] });
+  }, spec as { strict?: string[]; reachable?: string[]; noBodyScroll?: boolean });
 }
 
 /** Sweep all viewports on the current screen; fail with every issue listed. */
@@ -140,6 +148,9 @@ test('replay: board fits, controls reachable at every viewport', async ({ page }
   await sweep(page, 'replay', {
     strict: ['.go-board-canvas'],
     reachable: ['.replay-controls', 'btn:Download SGF'],
+    // Body scroll doesn't exist reliably in WKWebView — replay must own an
+    // explicit scroll container (or fit outright, as big-iPad portrait does).
+    noBodyScroll: true,
   });
 });
 

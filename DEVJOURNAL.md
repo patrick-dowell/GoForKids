@@ -2,6 +2,31 @@
 
 ## Session 29 — July 1, 2026 (responsive sweep: 5 cut-off bugs, incl. Roland's iPad-landscape board)
 
+**Addendum (same evening) — Patrick's 13" iPad Pro found bug #6 + a probe
+blind spot.** Replay portrait on the 13" Pro (1032×1376 — NOT the same as
+the 12.9's 1024×1366, and not in the original matrix) showed the replay
+panel cut off. Dimensionally the panel just tails past the fold and *desktop*
+body-scroll reaches it — which is exactly why the suite passed: the probe
+counted body scroll as "reachable," but **WKWebView body scrolling is
+unreliable** (the S17 profile-scroll lesson, re-learned). Three fixes
+(commit after `91403d0`):
+1. **Big-iPad portrait (1000–1099px) replay: panel sits BESIDE the board**
+   (320px column, board flexes to ~680px) — everything visible, zero
+   scrolling. Flex-wrap gotcha: wrap happens on BASE sizes (items never
+   shrink to avoid wrapping), so the canvas max-width needs an explicit
+   `calc(100vw - 356px)` term or the panel wraps below anyway.
+2. **All ≤1099px replay: `.app-replay` is an explicit scroll container**
+   (height: 100dvh + overflow-y: auto + touch scrolling) — the S17 fix
+   pattern, so reachability never depends on WKWebView body scroll. Phone
+   landscape keeps its own overflow:hidden + panel-scroll (later in file).
+3. **Suite hardened:** 13" Pro added to the matrix (now 6 screens × 14
+   viewports = 84 assertions) and replay's reachability probe got
+   `noBodyScroll: true` — body scroll no longer counts, only an explicit
+   scrollable ancestor. The stricter probe immediately flagged 10.2"
+   landscape replay as latently broken on-device too (controls +13px past
+   the fold, body-scroll-only) — covered by fix 2.
+
+
 Roland's iPad cut off the bottom two rows of the board in landscape, and
 Patrick had seen replay-mode cut-offs on several devices — so instead of
 whack-a-mole we probed every major screen across 12 device viewports (iPhone

@@ -1507,6 +1507,47 @@ body {
   }
 }
 
+/* Replay, medium and below (≤1099px): the replay panel overflows the
+   viewport (stacked below the board in portrait; a few px past the fold
+   beside it on 10.2" landscape) and relies on scrolling — but WKWebView
+   body scrolling is unreliable (same class as the S17 profile-scroll bug;
+   Patrick's 13" iPad Pro showed the panel cut off with no way to reach it,
+   2026-07-01). Make the app itself the scroll container so the panel is
+   always reachable on device. Game mode is plain `.app` and unaffected;
+   phone landscape's own `.app { overflow: hidden }` rule comes later in
+   the file and wins there (its side panel scrolls internally instead). */
+@media (max-width: 1099px) {
+  .app-replay {
+    height: 100dvh;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Big-iPad portrait (12.9"/13" Pro: 1024/1032px wide): enough width to keep
+   the replay panel BESIDE the board instead of stacked below — the whole
+   panel is visible with no scrolling at all. The board flexes to the
+   remaining ~680px, a fine size on a 13" screen and a better trade than a
+   full-width board whose controls live below the fold. */
+@media (min-width: 1000px) and (max-width: 1099px) and (orientation: portrait) {
+  .app-replay .side-panel {
+    width: 320px;
+    flex-shrink: 0;
+  }
+  .app-replay .go-board-canvas {
+    /* The stacked-layout reserve (100dvh - 520px) doesn't apply when the
+       panel sits beside the board; width-bind to the flex row instead,
+       with the same landscape-style height guard. The 100vw term matters:
+       flex-wrap wraps on BASE sizes (it never shrinks items to avoid a
+       wrap), so the canvas's max-width must leave room for the panel
+       (320px) + gap (12px) + layout padding (24px) or the panel wraps
+       below the board anyway. */
+    width: 100%;
+    max-width: min(700px, calc(100vw - 356px), calc(100dvh - 280px));
+  }
+}
+
 /* Sub-1100px iPad LANDSCAPE (10.2" = 1080×810, 9.7" = 1024×768): the medium
    branch above was written for portrait + Pro Max landscape, and its board
    height cap lives in the `orientation: portrait` block — so these iPads got
