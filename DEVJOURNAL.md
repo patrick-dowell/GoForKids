@@ -45,11 +45,19 @@ lessons / home / profile / glossary / library / end-modals (incl. the S28
 124px hero avatar at 393px height — the end-card already scrolls internally).
 Build green, 165 tests.
 
-**Testing pattern worth keeping** (candidate for a scripted Playwright pass
-later): resize → `getBoundingClientRect` probe per critical element
-(board canvas strict; controls allowed if scroll-reachable), assert per
-viewport. The probe caught two bugs a visual skim missed (replay controls
-"present but unreachable" behind overflow:hidden).
+**Testing pattern worth keeping** — SHIPPED same session as a scripted
+Playwright suite: `frontend/e2e/layout.spec.ts` + `playwright.config.ts`,
+run with **`npm run test:layout`** (spins up / reuses the vite dev server).
+Six specs × the 12-viewport matrix = 72 assertions in ~14s: game (board +
+Pass/Resign strict), replay (board strict, controls scroll-reachable),
+lesson, choose-avatar gate (fresh profile), ranked picker, home. STRICT =
+fully in viewport; REACHABLE = allowed past the fold only if a scrollable
+ancestor can get there — the distinction that caught the "present but
+unreachable" bugs a visual skim missed. Validated by re-introducing the
+Roland board bug: the suite fails with `[game @ iPad 10.2 landscape
+1080x810] .go-board-canvas: bottom +154px past viewport`. Run it before
+camp builds / after any CSS-breakpoint work. (Not wired into `npm run
+build`; it needs the dev server + chromium, so it stays an explicit step.)
 
 ## Session 28 — July 1, 2026 (avatar art: kid characters + villains, end-screen hero shots, character-select NUX)
 
