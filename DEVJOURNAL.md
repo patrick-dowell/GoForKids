@@ -2,6 +2,34 @@
 
 ## Session 29 — July 1, 2026 (responsive sweep: 5 cut-off bugs, incl. Roland's iPad-landscape board)
 
+**Addendum 2 — LAYOUT POLICY adopted (Patrick): scrolling in exactly two
+places — Profile and the Library list. Everything else fits, period.**
+Recorded in designdoc.md Resolved Decisions; enforced by the suite (STRICT
+probes by default, REACHABLE only for the two sanctioned screens). Applying
+it meant making replay actually FIT on all 14 viewports instead of leaning
+on scroll:
+- **Compact replay panel** wherever height is tight (≤1099px, or wide+short):
+  tighter gaps/padding, hint line dropped, narrative clamped to 3 lines
+  (2 on phone landscape — known trade-off: a clamped note can hide its
+  "Learn: <concept>" link on narrow panels), and the S17-era 122px
+  scroll-clearance padding-bottom removed (dead weight when nothing scrolls).
+- **Player-card strip hidden in replay under 1000px width** (and wide+short):
+  the panel header carries the matchup; the vertical space is what lets
+  board + full controls coexist. 12.9"/13" keep the cards.
+- **Stacked portrait replay** boards height-bind to `100dvh - 530px`;
+  phone-landscape replay drops the meta/result lines and fits the panel
+  beside the height-bound board.
+- **Bug found by eyeball, not probe:** a leftover 700–999px-landscape board
+  rule distorted the canvas on phones (width-capped while height stayed
+  100%) — every visibility probe passed. Removed the rule (no iPad is that
+  narrow in landscape) and added a **squareness assertion** (`square:` probe,
+  |w−h| ≤ 2px) to the suite so distortion is now machine-checked too.
+- **Choose-avatar + ranked picker, phone landscape:** compacted to fit
+  outright (single-row avatar grid; horizontal bot row with 56px avatar).
+- Suite grew profile + library tests (the sanctioned scrollers, explicit
+  scroll containers required) — 8 tests, ~20s, all green; build green,
+  165 unit tests.
+
 **Addendum (same evening) — Patrick's 13" iPad Pro found bug #6 + a probe
 blind spot.** Replay portrait on the 13" Pro (1032×1376 — NOT the same as
 the 12.9's 1024×1366, and not in the original matrix) showed the replay

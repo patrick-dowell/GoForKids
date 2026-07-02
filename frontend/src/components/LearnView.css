@@ -788,3 +788,43 @@
     height: 64px !important;
   }
 }
+
+/* Phone landscape (layout policy 2026-07-01: no scrolling outside Profile/
+   Library): compact the choose-avatar / reward overlay so it fits ~393px of
+   height outright — 7 avatars land in a single row at 852px+ widths. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .learn-reward-content {
+    padding: 12px;
+    gap: 8px;
+  }
+  .learn-reward-title {
+    font-size: 22px;
+  }
+  .learn-reward-sub {
+    font-size: 12px;
+  }
+  .learn-reward-badge {
+    width: 56px;
+    height: 56px;
+    font-size: 30px;
+  }
+  .learn-reward-btn {
+    margin-top: 0;
+    padding: 8px 20px;
+    font-size: 14px;
+  }
+  .choose-avatar-grid {
+    gap: 8px;
+  }
+  .choose-avatar-option {
+    min-width: 80px;
+    padding: 8px 8px 6px;
+  }
+  .choose-avatar-option .avatar {
+    width: 48px !important;
+    height: 48px !important;
+  }
+  .choose-avatar-name {
+    font-size: 11px;
+  }
+}

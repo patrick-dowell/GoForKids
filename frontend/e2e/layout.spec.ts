@@ -3,16 +3,14 @@ import { test, expect, type Page } from '@playwright/test';
 /**
  * Layout-regression sweep: walk the device-viewport matrix on every major
  * screen and assert nothing critical is cut off. Codifies the manual sweep
- * from DEVJOURNAL Session 29 (2026-07-01), which found five real cut-offs —
- * including Roland's iPad-landscape board and a phone-landscape ranked
- * picker whose Play button was unreachable.
+ * from DEVJOURNAL Session 29 (2026-07-01).
  *
- * Probe semantics:
- *  - STRICT: the element must be entirely inside the viewport. Used for the
- *    board during play (you can never scroll mid-game) and primary actions.
- *  - REACHABLE: the element may extend past the viewport IF the page or a
- *    scrollable ancestor can bring it into view. Used for long control
- *    stacks (replay panel, profile page).
+ * LAYOUT POLICY (Patrick, 2026-07-01): scrolling is allowed in exactly TWO
+ * places — the Profile page and the Library's replay list. Every other
+ * screen must fit the viewport entirely, at every supported viewport.
+ * So STRICT is the default probe; REACHABLE (scrollable-ancestor allowed;
+ * body scroll never counts — WKWebView, S17 lesson) exists only for the two
+ * sanctioned screens.
  *
  * Viewports resize WITHOUT reloading, so each test navigates once and then
  * sweeps the whole matrix — fast, and exactly how the manual sweep worked.
@@ -44,11 +42,16 @@ interface ProbeSpec {
    *  unreliable (S17 profile bug; S29 addendum: 13" iPad Pro replay panel),
    *  so screens that depend on scrolling must own an explicit container. */
   noBodyScroll?: boolean;
+  /** Elements that must render square (|w − h| ≤ 2px). Catches the class of
+   *  bug where a stray width/height cap distorts the board canvas while
+   *  every visibility check still passes (found 2026-07-01, phone-landscape
+   *  replay). */
+  square?: string[];
 }
 
 /** Returns [] when clean, else human-readable issue strings. */
 async function probe(page: Page, spec: ProbeSpec): Promise<string[]> {
-  return page.evaluate(({ strict = [], reachable = [], noBodyScroll = false }) => {
+  return page.evaluate(({ strict = [], reachable = [], noBodyScroll = false, square = [] }) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const issues: string[] = [];
@@ -101,8 +104,17 @@ async function probe(page: Page, spec: ProbeSpec): Promise<string[]> {
       if (r.right > vw + 1) issues.push(`${sel}: right +${Math.round(r.right - vw)}px past viewport`);
     }
 
+    for (const sel of square) {
+      const el = find(sel);
+      if (!el) continue; // absence is the strict/reachable lists' concern
+      const r = el.getBoundingClientRect();
+      if (Math.abs(r.width - r.height) > 2) {
+        issues.push(`${sel}: NOT SQUARE (${Math.round(r.width)}x${Math.round(r.height)})`);
+      }
+    }
+
     return issues;
-  }, spec as { strict?: string[]; reachable?: string[]; noBodyScroll?: boolean });
+  }, spec as { strict?: string[]; reachable?: string[]; noBodyScroll?: boolean; square?: string[] });
 }
 
 /** Sweep all viewports on the current screen; fail with every issue listed. */
@@ -137,6 +149,7 @@ test('game screen: board and controls fit at every viewport', async ({ page }) =
   await page.locator('.go-board-canvas').waitFor();
   await sweep(page, 'game', {
     strict: ['.go-board-canvas', 'btn:Pass', 'btn:Resign', '.avatar-panel'],
+    square: ['.go-board-canvas'],
   });
 });
 
@@ -145,12 +158,11 @@ test('replay: board fits, controls reachable at every viewport', async ({ page }
   await page.goto('/?replay=demo');
   await page.locator('.go-board-canvas').waitFor();
   await page.locator('.replay-controls').waitFor();
+  // Policy: replay is NOT one of the two sanctioned scroll screens — the
+  // board and the full control panel must fit outright.
   await sweep(page, 'replay', {
-    strict: ['.go-board-canvas'],
-    reachable: ['.replay-controls', 'btn:Download SGF'],
-    // Body scroll doesn't exist reliably in WKWebView — replay must own an
-    // explicit scroll container (or fit outright, as big-iPad portrait does).
-    noBodyScroll: true,
+    strict: ['.go-board-canvas', '.replay-controls', 'btn:Download SGF'],
+    square: ['.go-board-canvas'],
   });
 });
 
@@ -159,8 +171,8 @@ test('lesson: board fits at every viewport', async ({ page }) => {
   await page.goto('/?learn=1');
   await page.locator('.go-board-canvas').waitFor();
   await sweep(page, 'lesson', {
-    strict: ['.go-board-canvas'],
-    reachable: ['.learn-back-btn'],
+    strict: ['.go-board-canvas', '.learn-back-btn'],
+    square: ['.go-board-canvas'],
   });
 });
 
@@ -169,8 +181,7 @@ test('choose-avatar gate: confirm button reachable at every viewport', async ({ 
   await page.goto('/?learn=1');
   await page.locator('.choose-avatar-grid').waitFor();
   await sweep(page, 'choose-avatar', {
-    strict: ['.choose-avatar-back'],
-    reachable: ["btn:That's me! →", '.learn-reward-title'],
+    strict: ['.choose-avatar-back', "btn:That's me! →", '.learn-reward-title'],
   });
 });
 
@@ -181,7 +192,7 @@ test('ranked match-picker: start button reachable at every viewport', async ({ p
   await page.getByRole('button', { name: /^▶/ }).click();
   await page.locator('.autoplay-view').waitFor();
   await sweep(page, 'ranked-picker', {
-    reachable: ['btn:▶Play'],
+    strict: ['btn:▶Play'],
   });
 });
 
@@ -190,6 +201,28 @@ test('home: primary navigation reachable at every viewport', async ({ page }) =>
   await page.goto('/');
   await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
   await sweep(page, 'home', {
-    reachable: ['btn:✨Learn to Play', 'btn:▶Play', 'btn:👤Profile'],
+    strict: ['btn:✨Learn to Play', 'btn:▶Play', 'btn:👤Profile'],
+  });
+});
+
+test('profile: sanctioned scroll screen — everything reachable', async ({ page }) => {
+  await seedPickedProfile(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: /Profile/ }).click();
+  await page.locator('.profile-avatar-grid').waitFor();
+  await sweep(page, 'profile', {
+    reachable: ['.profile-avatar-grid'],
+    noBodyScroll: true, // WKWebView: must be an explicit container (S17 fix)
+  });
+});
+
+test('library: sanctioned scroll screen — list reachable, close visible', async ({ page }) => {
+  await seedPickedProfile(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: /Library/ }).click();
+  await page.locator('.game-library, [class*=library]').first().waitFor();
+  await sweep(page, 'library', {
+    // The close affordance must always be visible; the list itself may scroll.
+    strict: ['btn:Close'],
   });
 });

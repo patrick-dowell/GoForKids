@@ -299,3 +299,41 @@
     background: #0d1117;
   }
 }
+
+/* Phone landscape (layout policy 2026-07-01: no scrolling outside Profile/
+   Library): compact the match card so ▶ Play sits on screen outright.
+   The bot block goes horizontal and the 120px avatar shrinks to 56. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .autoplay-main {
+    padding: 4px 0 8px;
+  }
+  .autoplay-header {
+    padding: 6px 12px;
+  }
+  .autoplay-card {
+    padding: 10px 20px;
+    gap: 8px;
+  }
+  .autoplay-bot {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  .autoplay-bot .avatar {
+    width: 56px !important;
+    height: 56px !important;
+  }
+  .autoplay-bot-name {
+    font-size: 18px;
+  }
+  .autoplay-bot-rank {
+    font-size: 13px;
+  }
+  .autoplay-eyebrow {
+    display: none;
+  }
+  .autoplay-handicap-line {
+    font-size: 11px;
+  }
+}

@@ -1548,6 +1548,88 @@ body {
   }
 }
 
+/* ---------- LAYOUT POLICY (Patrick, 2026-07-01) ----------
+   Scrolling is allowed in exactly two places: the Profile page and the
+   Library list. Everything else — replay included — must fit the viewport
+   with no scrolling. The .app-replay overflow rules elsewhere in this file
+   stay as a safety net for devices with unusual insets, but the layout is
+   designed to never need them. Enforced by e2e/layout.spec.ts. */
+
+/* Compact replay panel wherever height is constrained: every sub-1100px
+   viewport, plus wide-but-short (iPad mini/Air landscape wide-grid). */
+@media (max-width: 1099px), (min-width: 1100px) and (max-height: 900px) {
+  .app-replay .replay-controls {
+    gap: 6px;
+    padding: 10px;
+    /* Beats the narrow block's S17-era scroll-clearance padding-bottom
+       (~122px for the settings gear) — dead weight under the fit policy. */
+    padding-bottom: 10px;
+  }
+  .app-replay .replay-hint {
+    display: none;
+  }
+  .app-replay .replay-highlight-note {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+  .app-replay .replay-header h3 {
+    font-size: 14px;
+  }
+  .app-replay .replay-position {
+    font-size: 12px;
+  }
+  .app-replay .replay-btn {
+    height: 32px;
+  }
+}
+
+/* Replay under 1000px wide (phones + small/mid iPads): drop the player-card
+   strip — the panel header already names the matchup, and the vertical space
+   is what lets board + full controls fit with zero scrolling. The 12.9"/13"
+   iPads keep the cards. Same for wide-but-short, where the left grid column
+   belongs entirely to the controls. */
+@media (max-width: 999px), (min-width: 1100px) and (max-height: 900px) {
+  .app-replay .avatar-panel {
+    display: none;
+  }
+}
+
+/* Stacked replay (portrait, under 1000px wide): with the strip gone, board +
+   compact panel must share the column — height-bind the board to leave the
+   panel ~380px. On phones the width bound usually wins anyway. */
+@media (max-width: 999px) and (orientation: portrait) {
+  .app-replay .go-board-canvas {
+    width: min(100%, calc(100dvh - 530px));
+    max-width: none;
+  }
+}
+
+/* (No 700-999px landscape board rule: every landscape device in that width
+   band is a PHONE, which the max-height:500px block below handles with
+   height-bound sizing — a width cap there just distorts the canvas.) */
+
+/* Replay, phone landscape: ultra-compact — drop the matchup/result lines
+   (the move counter + narrative carry the review) so the panel fits the
+   ~380px column with the board beside it. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .app-replay .replay-meta,
+  .app-replay .replay-result,
+  .app-replay .speed-control label {
+    display: none;
+  }
+  .app-replay .replay-controls {
+    gap: 4px;
+  }
+  .app-replay .replay-highlight-note {
+    -webkit-line-clamp: 2;
+  }
+  .app-replay .side-panel {
+    padding-top: 24px;
+  }
+}
+
 /* Sub-1100px iPad LANDSCAPE (10.2" = 1080×810, 9.7" = 1024×768): the medium
    branch above was written for portrait + Pro Max landscape, and its board
    height cap lives in the `orientation: portrait` block — so these iPads got
