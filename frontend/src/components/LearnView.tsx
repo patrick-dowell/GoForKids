@@ -148,7 +148,12 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
   }
 
   return (
-    <div className="learn-view">
+    // learn-view-results: on quiz results the answer buttons vanish, the
+    // board's flex area grows, and a centered board would re-center DOWN
+    // into the bottom-anchored results popup — covering the very territory
+    // the kid wants to count (Patrick, iPhone Pro Max portrait, 2026-07-02).
+    // The modifier pins the board to the top so it slides AWAY instead.
+    <div className={'learn-view' + (isQuizLesson && status === 'success' ? ' learn-view-results' : '')}>
       <header className="learn-header">
         <button className="learn-back-btn" onClick={handleExit} aria-label="Back to home">
           ← Home

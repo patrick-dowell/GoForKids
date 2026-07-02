@@ -899,3 +899,11 @@
     overflow: hidden;
   }
 }
+
+/* Quiz results: pin the board to the top of its flex area so it slides away
+   from the bottom-anchored results popup instead of re-centering down into
+   it when the answer buttons vanish (the kid needs the whole board visible
+   to count the territory the popup is talking about). */
+.learn-view-results .learn-board-wrap {
+  align-items: flex-start;
+}
