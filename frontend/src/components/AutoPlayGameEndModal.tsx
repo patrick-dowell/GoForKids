@@ -3,7 +3,7 @@ import { useAutoPlayStore, UNDO_BANK_MAX } from '../store/autoPlayStore';
 import { Color } from '../engine/types';
 import { winsToPromote, lossSetbackActive, nextRung } from '../autoplay/matchmaker';
 import { useGameReviewStore } from '../store/gameReviewStore';
-import { ScoreSide } from './GameEndModal';
+import { EndHeroAvatar, ScoreSide } from './GameEndModal';
 import './AutoPlayGameEndModal.css';
 // Pulls in the shared lesson-end-* close button, scoreboard, and panel styles.
 import './LessonGameEndModal.css';
@@ -34,6 +34,8 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
   const phase = useGameStore((s) => s.phase);
   const result = useGameStore((s) => s.result);
   const playerColor = useGameStore((s) => s.playerColor);
+  const playerAvatar = useGameStore((s) => s.playerAvatar);
+  const botAvatar = useGameStore((s) => s.botAvatar);
   const dismissed = useGameStore((s) => s.gameEndDismissed);
   const dismiss = useGameStore((s) => s.dismissGameEnd);
   const showRankUp = useAutoPlayStore((s) => s.showRankUp);
@@ -100,7 +102,7 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
         <button className="lesson-end-close" onClick={dismiss} aria-label="Close — see the board">
           ×
         </button>
-        <div className="autoplay-end-icon" aria-hidden>{userWon ? '🏆' : '🤖'}</div>
+        <EndHeroAvatar type={userWon ? playerAvatar : botAvatar} won={userWon} />
         <h2 className="autoplay-end-title">
           {userWon ? 'You won!' : 'The bot won this one'}
         </h2>

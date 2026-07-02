@@ -1,6 +1,6 @@
 import { useGameStore } from '../store/gameStore';
 import { Color } from '../engine/types';
-import { BOT_AVATARS } from './Avatar';
+import { Avatar, BOT_AVATARS, type AvatarType } from './Avatar';
 // Shares the lesson-end-* styles. Same overlay/card/scoreboard look; nothing
 // in the CSS is lesson-specific. If we split LessonGameEndModal out further
 // later, factor the CSS into a generic GameEndModal.css and have both modals
@@ -38,6 +38,8 @@ export function GameEndModal({ onQuit }: GameEndModalProps) {
   const whiteRank = useGameStore((s) => s.whiteRank);
   const botName = useGameStore((s) => s.botName);
   const targetRank = useGameStore((s) => s.targetRank);
+  const playerAvatar = useGameStore((s) => s.playerAvatar);
+  const botAvatar = useGameStore((s) => s.botAvatar);
   const lessonContext = useGameStore((s) => s.lessonContext);
   const autoplayContext = useGameStore((s) => s.autoplayContext);
   const dismissed = useGameStore((s) => s.gameEndDismissed);
@@ -102,9 +104,11 @@ export function GameEndModal({ onQuit }: GameEndModalProps) {
         <button className="lesson-end-close" onClick={dismiss} aria-label="Close — see the board">
           ×
         </button>
-        <div className="lesson-end-icon" aria-hidden>
-          {isAIGame ? (userWonAIGame ? '🏆' : '🤖') : '🏁'}
-        </div>
+        {isAIGame ? (
+          <EndHeroAvatar type={userWonAIGame ? playerAvatar : botAvatar} won={userWonAIGame} />
+        ) : (
+          <div className="lesson-end-icon" aria-hidden>🏁</div>
+        )}
         <h2 className="lesson-end-title">{titleText}</h2>
 
         {isResignation ? (
@@ -205,6 +209,19 @@ export function GameEndPanel() {
       <button className="lesson-end-panel-btn" onClick={reopen}>
         See results
       </button>
+    </div>
+  );
+}
+
+/**
+ * Big end-of-game portrait: the winner's avatar takes the spot the emoji
+ * icon used to hold. Win → the player's own avatar (hero moment); loss →
+ * the bot's avatar looming. Shared by GameEndModal + AutoPlayGameEndModal.
+ */
+export function EndHeroAvatar({ type, won }: { type: AvatarType; won: boolean }) {
+  return (
+    <div className={'end-hero-avatar ' + (won ? 'end-hero-avatar-win' : 'end-hero-avatar-loss')} aria-hidden>
+      <Avatar type={type} size={124} />
     </div>
   );
 }
