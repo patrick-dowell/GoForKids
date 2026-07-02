@@ -2,6 +2,29 @@
 
 ## Session 31 — July 2, 2026 (advanced lessons: ko/ladders/nets/snapback + glossary enrichment — fp 03 §A+§B)
 
+**Addendum — Patrick's playthrough found 3 polish bugs; all fixed + full
+correct/incorrect path re-verification:**
+1. **Stone flicker on repeat (his ko report):** clicking "Next puzzle" while
+   the capture animation was still running let the AnimationManager's repaint
+   closure redraw the PREVIOUS part's grid over the fresh board — part 2's
+   new white stone flashed out and back. Same mechanism corrupted re-entering
+   the same lesson from the menu (the cleanup effect keyed on lessonIndex,
+   which doesn't change). Fix: cleanup now fires on any board-instance swap
+   with `lastMove === null` — the reset signature (new lesson / next part /
+   retry) — while mid-play swaps (which carry a lastMove) keep their queued
+   animations.
+2. **Final modal dropped the payoff copy:** finishPart's last-part branch
+   jumps straight to the lesson-level modal, so the authored part-2
+   successExplanation ("You gave up one stone and took five back…") never
+   rendered. The advanced-lesson final modal now leads with the last part's
+   concrete payoff and keeps the lesson-level moral as the finale line.
+3. **Wrong finale:** an advanced lesson at the end of the LESSONS array
+   claimed "You've finished the intro!" — now regular-curriculum only.
+Re-verified all four lessons end-to-end with wrong-move paths (retry hints
+show, boards reset), fast part-transitions (no flicker), interim beats
+("The bait is set…"), and every Done returning to the menu. 180 unit +
+9 layout tests, build green.
+
 Patrick: knock out fp 03 §A and §B to round out the beginner knowledge base.
 Both shipped.
 

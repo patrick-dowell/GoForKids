@@ -420,7 +420,10 @@ export const useLearnStore = create<LearnState>((set, get) => ({
             moveSeq: get().moveSeq + 1,
             successSeq: get().successSeq + 1,
             status: 'success',
-            feedback: isLastLesson ? "You've finished the intro!" : null,
+            // The intro-finale line belongs to the regular curriculum — an
+            // advanced lesson sitting at the end of the LESSONS array must
+            // not claim "You've finished the intro!".
+            feedback: isLastLesson && !lesson.advanced ? "You've finished the intro!" : null,
             showHint: false,
             completed,
           });
@@ -613,7 +616,10 @@ export const useLearnStore = create<LearnState>((set, get) => ({
           set({
             successSeq: get().successSeq + 1,
             status: 'success',
-            feedback: isLastLesson ? "You've finished the intro!" : null,
+            // The intro-finale line belongs to the regular curriculum — an
+            // advanced lesson sitting at the end of the LESSONS array must
+            // not claim "You've finished the intro!".
+            feedback: isLastLesson && !lesson.advanced ? "You've finished the intro!" : null,
             showHint: false,
             completed,
           });

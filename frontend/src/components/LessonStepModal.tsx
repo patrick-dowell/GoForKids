@@ -143,9 +143,18 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
   const headline = isInterim
     ? (activePart?.interimSuccessMessage ?? lesson.interimSuccessMessage ?? lesson.successMessage)
     : lesson.successMessage;
+  // Advanced puzzle-series: the final modal leads with the LAST PART's
+  // concrete payoff ("You gave up one stone and took five back…") and keeps
+  // the lesson-level moral as the finale line below — previously the part-2
+  // success copy was authored but never shown (finishPart jumps straight to
+  // the lesson-level modal on the last part).
+  const lastPartPayoff =
+    !isInterim && lesson.advanced && lesson.kind === 'puzzle-series'
+      ? lesson.parts?.[partIndex]?.successExplanation
+      : undefined;
   const explanation = isInterim
     ? (activePart?.interimSuccessExplanation ?? lesson.interimSuccessExplanation ?? lesson.successExplanation)
-    : lesson.successExplanation;
+    : (lastPartPayoff ?? lesson.successExplanation);
 
   const buttonLabel = isInterim ? 'Continue →' : isFocusLast ? 'Done' : (isLast ? 'Finish' : 'Continue →');
 
@@ -171,6 +180,9 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
       <div className="lesson-step-card">
         <h2 className="lesson-step-headline">{headline}</h2>
         {explanation && <p className="lesson-step-explanation">{explanation}</p>}
+        {lastPartPayoff && lesson.successExplanation && (
+          <p className="lesson-step-finale">{lesson.successExplanation}</p>
+        )}
         {feedback && status === 'success' && (
           <p className="lesson-step-finale">{feedback}</p>
         )}

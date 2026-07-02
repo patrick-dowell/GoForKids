@@ -541,15 +541,23 @@ export function GoBoard() {
   // Mirrors the live-game effect above but reads from learnStore.
   const prevLearnMoveSeqRef = useRef(0);
 
-  // When the lesson changes (auto-advance or manual jump), cut any leftover
-  // animation closure from the previous lesson — otherwise the AnimationManager
-  // can repaint with stale state and the new lesson's setup may flicker.
+  // When the lesson board is RESET (new lesson, next part, retry, or
+  // re-entering the SAME lesson from the advanced menu), cut any leftover
+  // animation closure — otherwise the AnimationManager repaints the previous
+  // board's grid over the fresh one (found 2026-07-02: clicking "Next puzzle"
+  // while the ko capture animation was still running made part 2's new white
+  // stone flash in and out). A board-instance swap with lastMove === null is
+  // exactly the reset signature; mid-play moves swap the board too but carry
+  // a lastMove, and must NOT clear (their own animation was just queued).
+  const learnBoardObj = useLearnStore((s) => s.board);
   useEffect(() => {
     if (!learnActive) return;
+    if (learnLastMove !== null) return;
     animManagerRef.current.clear();
     animManagerRef.current.detach();
     prevLearnMoveSeqRef.current = learnMoveSeq;
-  }, [learnLessonIndex, learnActive]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [learnBoardObj, learnLessonIndex, learnActive]);
 
   useEffect(() => {
     if (!learnActive) return;
