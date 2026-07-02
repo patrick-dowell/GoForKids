@@ -390,8 +390,17 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     if (!board) return;
     // Allow clicks during awaiting OR retry (so a denied click doesn't lock the board).
     if (status !== 'awaiting' && status !== 'retry') return;
+    // A feedback popup owns the turn. Part/quiz modals keep status 'awaiting'
+    // (the board must stay visible under the card — the overlay passes
+    // pointer events through by design), but a tap behind the popup must not
+    // place stones: the finished part's validator would run against a stale
+    // board and wedge the lesson (Patrick, 2026-07-02).
+    if (get().partFeedback || get().quizFeedback) return;
     const lesson = LESSONS[get().lessonIndex];
     if (lesson.kind === 'game') return;
+    // Quiz lessons answer through buttons — the board is a diagram, not an
+    // input.
+    if (lesson.kind === 'quiz') return;
 
     // Puzzle-series: each sub-puzzle has its own userPlays + validate, runs
     // independently of the lesson-level fields.
