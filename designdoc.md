@@ -24,6 +24,7 @@ A Go app that feels as rewarding to touch as Pokémon TCG Pocket, with a teachin
 - **Monetization**: Cheap one-time purchase (~$4–8), no IAP, no ads, no recurring. No monetized reward loops.
 - **Infra cost**: Not a v1 constraint. Funded separately. This unlocks GPU-backed KataGo from day one for both live play and study analysis — no CPU compromises, no rate-limited analysis. Hosting likely Modal or Runpod, autoscaled GPU workers. Specific architecture deferred but cost no longer shapes design.
 - **Layout policy (2026-07-01)**: Scrolling is allowed in exactly two places — the Profile page and the Library's game list. Every other screen (game, replay, lessons, pickers, modals) must fit the viewport entirely on all supported devices, both orientations. Rationale: kids don't discover scroll affordances, and WKWebView body-scroll is unreliable anyway (two shipped bugs traced to it). Enforced by `frontend/e2e/layout.spec.ts` (`npm run test:layout`).
+- **Board size beats panel placement (2026-07-02)**: On any screen showing a board (game, replay, lessons), the board gets the space — panels compact, hide secondary chrome (e.g. the player-card strip in replay), or stack underneath before the board shrinks. A side-by-side replay panel on 13" iPad portrait was vetoed for costing ~170px of board: too small for 19×19 review.
 
 ## V1 Scope
 
