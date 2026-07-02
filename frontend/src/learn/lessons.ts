@@ -1081,7 +1081,7 @@ export const LESSONS: Lesson[] = [
         validate: ({ point }) => (point.row === 2 && point.col === 1 ? 'success' : 'retry'),
         successMessage: 'Ko finished!',
         successExplanation:
-          'Your stones are one solid wall now — nothing left to fight over. Grown-up players trade big threats over kos; that battle is called a KO FIGHT.',
+          'Your stones are one solid wall now — nothing left to fight over. Advanced players trade big threats over kos; that battle is called a KO FIGHT.',
         retryMessage: 'Connect at the glowing spot to finish the ko.',
       },
     ],
