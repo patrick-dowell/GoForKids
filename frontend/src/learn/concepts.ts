@@ -38,6 +38,10 @@ export interface Concept {
   short: string;
   /** A small illustrative diagram. null ⇒ not yet authored/verified. */
   example?: DiagramPosition | null;
+  /** Additional captioned diagrams shown below `example` — for concepts a
+   *  single picture can't carry (real vs false eyes, a group's shared
+   *  liberties vs a corner stone's two). Keep to 2-3, kid-length captions. */
+  examples?: Array<DiagramPosition & { caption: string }>;
   /** Related concept ids (Wikipedia-style cross-links). */
   related?: string[];
   /** Lessons that teach this concept (wired as lessons are retrofitted). */
@@ -87,6 +91,39 @@ const CORE: Concept[] = [
         { row: 2, col: 3 },
       ],
     },
+    // fp 03 §A (learn-to-play-go comparison, 2026-06-27): the GROUP case is
+    // what actually builds intuition — a lone stone's 4 liberties undersells
+    // the idea. Plus the edge/corner gotcha.
+    examples: [
+      {
+        caption: 'A GROUP shares its liberties. These three stones breathe together — 8 spaces!',
+        size: 5,
+        stones: [
+          { row: 2, col: 1, color: B },
+          { row: 2, col: 2, color: B },
+          { row: 2, col: 3, color: B },
+        ],
+        highlight: [
+          { row: 1, col: 1 },
+          { row: 1, col: 2 },
+          { row: 1, col: 3 },
+          { row: 3, col: 1 },
+          { row: 3, col: 2 },
+          { row: 3, col: 3 },
+          { row: 2, col: 0 },
+          { row: 2, col: 4 },
+        ],
+      },
+      {
+        caption: 'Careful near the edge — a corner stone has only 2 liberties. Easier to catch!',
+        size: 5,
+        stones: [{ row: 0, col: 0, color: B }],
+        highlight: [
+          { row: 0, col: 1 },
+          { row: 1, col: 0 },
+        ],
+      },
+    ],
   },
   {
     id: 'capture',
@@ -191,10 +228,22 @@ const CORE: Concept[] = [
     tier: 'core',
     short: "After a capture, you can't immediately take back to make the exact same board again. Play somewhere else first. This stops endless back-and-forth.",
     related: ['capture', 'ko-fights'],
-    // TODO verify: ko is a dynamic rule — a single static diagram reads poorly.
-    // Decide with Patrick whether to show a before/after pair or skip the
-    // diagram and teach it live. Left null rather than ship a confusing shape.
-    example: null,
+    // Ko is dynamic, so the diagram pairs with the interactive lesson (the
+    // ko-lesson position, engine-verified): Black captures at the glow, and
+    // White must wait a turn before taking back.
+    example: {
+      size: 5,
+      stones: [
+        { row: 1, col: 1, color: B },
+        { row: 3, col: 1, color: B },
+        { row: 2, col: 0, color: B },
+        { row: 2, col: 1, color: W },
+        { row: 1, col: 2, color: W },
+        { row: 3, col: 2, color: W },
+        { row: 2, col: 3, color: W },
+      ],
+      highlight: [{ row: 2, col: 2 }],
+    },
   },
   {
     id: 'territory-count',
@@ -258,6 +307,28 @@ const EXTENDED: Concept[] = [
     tier: 'extended',
     short: "A ladder is a chase: you keep putting a stone in atari, step by step, until it runs into the edge and dies — unless something on its path saves it.",
     related: ['atari', 'capture', 'nets'],
+    // Mid-chase snapshot from the ladder lesson: White's chain crawls along
+    // Black's wall; the glow is the last breathing space at the edge.
+    example: {
+      size: 7,
+      stones: [
+        { row: 1, col: 2, color: B },
+        { row: 1, col: 3, color: B },
+        { row: 1, col: 4, color: B },
+        { row: 1, col: 5, color: B },
+        { row: 1, col: 6, color: B },
+        { row: 2, col: 1, color: B },
+        { row: 3, col: 2, color: B },
+        { row: 3, col: 3, color: B },
+        { row: 3, col: 4, color: B },
+        { row: 3, col: 5, color: B },
+        { row: 2, col: 2, color: W },
+        { row: 2, col: 3, color: W },
+        { row: 2, col: 4, color: W },
+        { row: 2, col: 5, color: W },
+      ],
+      highlight: [{ row: 2, col: 6 }],
+    },
   },
   {
     id: 'nets',
@@ -265,6 +336,20 @@ const EXTENDED: Concept[] = [
     tier: 'extended',
     short: "A net (geta) traps a stone loosely from a distance instead of chasing it, so it can't escape even by running.",
     related: ['ladders', 'capture'],
+    // The net-lesson position: the glowing stone is the net move — it never
+    // touches White, but every escape runs out of breathing spaces.
+    example: {
+      size: 7,
+      stones: [
+        { row: 1, col: 2, color: B },
+        { row: 1, col: 3, color: B },
+        { row: 2, col: 1, color: B },
+        { row: 2, col: 0, color: B },
+        { row: 3, col: 3, color: B },
+        { row: 2, col: 2, color: W },
+      ],
+      highlight: [{ row: 3, col: 3 }],
+    },
   },
   {
     id: 'life-and-death',
@@ -279,6 +364,64 @@ const EXTENDED: Concept[] = [
     tier: 'extended',
     short: "Let a stone be captured, then capture a bigger group right back. A tiny sacrifice for a big gain.",
     related: ['capture', 'atari'],
+    // The snapback-lesson position: Black sacrifices at the glow; when White
+    // captures it, White's whole group is left with one breathing space.
+    example: {
+      size: 5,
+      stones: [
+        { row: 0, col: 2, color: W },
+        { row: 1, col: 0, color: W },
+        { row: 1, col: 1, color: W },
+        { row: 1, col: 2, color: W },
+        { row: 0, col: 3, color: B },
+        { row: 1, col: 3, color: B },
+        { row: 2, col: 0, color: B },
+        { row: 2, col: 1, color: B },
+        { row: 2, col: 2, color: B },
+      ],
+      highlight: [{ row: 0, col: 1 }],
+    },
+  },
+  {
+    id: 'false-eyes',
+    name: 'False Eyes',
+    tier: 'extended',
+    linkPrompt: 'Real eye or fake?',
+    short: "A false eye LOOKS like an eye, but enemy stones poke its corners. Sooner or later you'll have to fill it — so it doesn't count toward the two eyes a group needs.",
+    related: ['two-eyes', 'life-and-death'],
+    // fp 03 §A: THE classic kid trap ("I have two eyes!" — one is false and
+    // the group dies). Real-vs-false side by side.
+    examples: [
+      {
+        caption: 'A REAL eye: Black owns every point around it AND the corners. Safe.',
+        size: 5,
+        stones: [
+          { row: 0, col: 1, color: B },
+          { row: 1, col: 0, color: B },
+          { row: 1, col: 1, color: B },
+          { row: 2, col: 1, color: B },
+          { row: 3, col: 0, color: B },
+          { row: 3, col: 1, color: B },
+        ],
+        highlight: [
+          { row: 0, col: 0 },
+          { row: 2, col: 0 },
+        ],
+      },
+      {
+        caption: "A FALSE eye: White pokes the corners. Black will eventually have to fill this point — it's not a real eye.",
+        size: 5,
+        stones: [
+          { row: 0, col: 1, color: B },
+          { row: 1, col: 0, color: B },
+          { row: 1, col: 2, color: B },
+          { row: 2, col: 1, color: B },
+          { row: 0, col: 2, color: W },
+          { row: 2, col: 2, color: W },
+        ],
+        highlight: [{ row: 1, col: 1 }],
+      },
+    ],
   },
   {
     id: 'capture-races',
@@ -398,6 +541,11 @@ export const LESSONS_FOR_CONCEPT: Readonly<Record<string, string[]>> = {
   'two-eyes': ['capture-the-eye', 'two-eyes-uncapturable', 'safe-or-gone', 'two-eyes-puzzles'],
   'territory-count': ['count-your-land'],
   'capture-races': ['capture-race-9x9'],
+  // Advanced lessons (fp 03 §B) — also surfaced by the advanced-lessons menu.
+  'ko-rule': ['ko-lesson'],
+  ladders: ['ladder-lesson'],
+  nets: ['net-lesson'],
+  snapback: ['snapback-lesson'],
 };
 
 /** The first lesson id that teaches `conceptId`, or undefined if none. */

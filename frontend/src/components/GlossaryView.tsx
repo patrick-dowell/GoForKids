@@ -104,6 +104,15 @@ function ConceptPage({ concept }: { concept: Concept }) {
         </div>
       )}
 
+      {/* Additional captioned diagrams — for concepts one picture can't carry
+          (real vs false eyes, a group's shared liberties vs a corner stone). */}
+      {concept.examples?.map((ex, i) => (
+        <div key={i} className="glossary-diagram-wrap glossary-diagram-captioned">
+          <DiagramBoard size={ex.size} stones={ex.stones} highlight={ex.highlight} px={200} />
+          <p className="glossary-diagram-caption">{ex.caption}</p>
+        </div>
+      ))}
+
       {/* Optional depth, below the fold of attention. */}
       {hasLesson && (
         <button className="glossary-lesson-btn" onClick={doLesson}>

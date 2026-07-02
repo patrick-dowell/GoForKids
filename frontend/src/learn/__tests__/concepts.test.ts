@@ -26,7 +26,7 @@ describe('concept registry — well-formedness', () => {
   });
 
   it('has the extended concepts, all tagged extended', () => {
-    expect(EXTENDED_CONCEPTS).toHaveLength(13); // 11 + komi + handicap
+    expect(EXTENDED_CONCEPTS).toHaveLength(14); // 11 + komi + handicap + false-eyes (fp 03 §A)
     expect(EXTENDED_CONCEPTS.every((c) => c.tier === 'extended')).toBe(true);
   });
 
