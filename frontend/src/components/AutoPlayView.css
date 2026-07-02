@@ -284,3 +284,18 @@
   color: #8b949e;
   margin-top: 2px;
 }
+
+/* Phone landscape: the match-picker column is taller than the ~393px
+   viewport and the container's overflow: hidden (there to clip the
+   decorative starfield) left the ▶ Play button unreachable below the fold
+   (found 2026-07-01 responsive sweep). Allow vertical scroll; the solid
+   background stands in for the backdrop gradient on the scrolled-past
+   region (the absolute-inset backdrop only paints the first 100dvh). */
+@media (max-height: 500px) and (orientation: landscape) {
+  .autoplay-view {
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    background: #0d1117;
+  }
+}

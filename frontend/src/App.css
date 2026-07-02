@@ -1507,6 +1507,25 @@ body {
   }
 }
 
+/* Sub-1100px iPad LANDSCAPE (10.2" = 1080×810, 9.7" = 1024×768): the medium
+   branch above was written for portrait + Pro Max landscape, and its board
+   height cap lives in the `orientation: portrait` block — so these iPads got
+   a width-bound 700px board with only ~810px of viewport and the bottom two
+   rows cut off (Roland's iPad, 2026-07-01). Height-bind the canvas the same
+   way the portrait rule does: header (~65) + avatar strip (~160) + layout
+   paddings/gaps ≈ 280 of vertical overhead above/below the board. Phone
+   landscape (max-height: 500px) has its own later block, which wins. */
+@media (max-width: 1099px) and (orientation: landscape) {
+  .go-board-canvas {
+    /* Cap via max-width (not `width: min(...)` + `max-width: none` like the
+       portrait rule) — with max-width lifted, the canvas's intrinsic size
+       (its internal pixel resolution) feeds the board-container's flex-basis
+       and the side panel wraps below the board, pushing Pass/Resign
+       off-screen. max-width bounds the intrinsic contribution too. */
+    max-width: min(700px, calc(100dvh - 280px));
+  }
+}
+
 @media (max-width: 699px) {
   /* --------- NARROW (iPhone portrait) --------- */
 
@@ -1813,6 +1832,14 @@ body {
   .side-panel {
     width: 180px;
     padding-top: 32px;     /* clear the floating header buttons up top */
+    /* The app is height-capped with overflow: hidden on phone landscape,
+       so anything taller than the viewport is otherwise UNREACHABLE —
+       replay controls (~630px of slider/narrative/speed/Download) were
+       simply cut off (found 2026-07-01, iPhone landscape replay). Let the
+       column scroll internally; game-mode content is short and unaffected. */
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .control-buttons {
@@ -1863,6 +1890,28 @@ body {
    Base rules above default to flex-row for legacy reasons; this block
    overrides them on wide viewports. */
 @media (min-width: 1100px) {
+  /* Replay: hard-cap the app to the viewport (same trick as phone
+     landscape). Without a definite height, the grid's 1fr row sizes to the
+     replay panel's content instead of the viewport leftover, and the
+     row-spanning board gets dragged below the fold (found 2026-07-01:
+     iPad mini/Air landscape replay, board cut ~150-200px; 12.9" only
+     survived by having enough pixels). The side panel's own
+     min-height: 0 + overflow-y: auto (below) makes the too-tall controls
+     scroll in place. Scoped to .app-replay — home and live-game content
+     must stay free to grow. */
+  .app-replay {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* flex-item min-height: auto would keep the grid at its content height
+     even inside the capped .app-replay — release it so the 1fr row can
+     actually resolve to the viewport leftover. */
+  .app-replay .game-layout {
+    min-height: 0;
+  }
+
   .game-layout {
     display: grid;
     grid-template-columns: 260px 1fr;
@@ -1892,6 +1941,17 @@ body {
        the top of the bottom row instead of stretching vertically. */
     width: auto;
     align-self: start;
+    /* min-height: 0 lets the 1fr row size to the viewport leftover instead
+       of the panel's content — without it, a content stack taller than the
+       viewport (replay controls on landscape iPads: slider + narrative +
+       speed + Download SGF ≈ 850px) inflates the row, and the board (which
+       fills the row via 100cqb) gets dragged past the bottom of the screen
+       (found 2026-07-01: iPad mini/Air landscape replay, board cut ~150-200px).
+       max-height + overflow keep the too-tall panel scrollable in place. */
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .board-container {

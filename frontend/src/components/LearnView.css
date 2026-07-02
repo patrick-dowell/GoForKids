@@ -337,7 +337,11 @@
     radial-gradient(ellipse at center, rgba(255, 209, 102, 0.12), transparent 65%),
     radial-gradient(ellipse at top, rgba(88, 166, 255, 0.06), transparent 60%),
     var(--bg-primary);
-  overflow: hidden;
+  /* Scroll when the content is taller than the viewport — the choose-avatar
+     screen at phone-landscape heights (~393px) put the confirm button below
+     the fold with no way to reach it (found 2026-07-01). x stays hidden. */
+  overflow-x: hidden;
+  overflow-y: auto;
   animation: learn-reward-fade-in 0.5s ease-out;
 }
 
@@ -377,6 +381,10 @@
   text-align: center;
   padding: 40px;
   max-width: 560px;
+  /* With the overlay scrollable, flex centering alone clips the top of
+     taller-than-viewport content; margin auto centers when it fits AND
+     keeps the top reachable when it doesn't. */
+  margin: auto;
 }
 
 .learn-reward-badge {
