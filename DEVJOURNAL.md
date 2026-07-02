@@ -1,5 +1,42 @@
 # Development Journal
 
+## Session 32 — July 2, 2026 (learn/glossary polish batch from Patrick's device testing)
+
+Rapid-fire fixes from Patrick working through the new content on his devices,
+plus his own hand edits (`9c6b020`: false-eye diagram gained a supporting
+white wall; "Grown-up" → "Advanced" in the ko copy). Commits
+`9c6b020`→`3d9cf8f`, each verified in preview before push.
+
+- **Glossary page-flip navigation** (`c791d92`): prev/next buttons on every
+  concept page (labeled with the neighbor's name, "N / 24" between), swipe
+  left/right (horizontal must clearly dominate so scrolling never flips),
+  arrow keys on desktop. Index order, no wrap; flips scroll the panel to top.
+- **Board taps ignored while a feedback popup is up** (`f4e795b`): the
+  lesson-step overlay passes pointer events by design (board stays visible),
+  which was safe until part/quiz popups arrived keeping status 'awaiting' —
+  taps behind the card placed stones on the finished board and ran the stale
+  validator. tryMove now returns when partFeedback/quizFeedback is set; quiz
+  boards ignore taps entirely (answers go through buttons).
+- **Territory-quiz results popup uncovered the count** (`b1e624e`): the real
+  bug was the BOARD moving, not the popup — when the answer buttons vanish
+  on success, the centered board re-centers down into the bottom-anchored
+  card, hiding exactly the territory being scored. `learn-view-results` pins
+  the board top so it slides away (165px clear at 430×932); step card
+  compacts a bit on narrow phones.
+- **Advanced-menu Home button unclickable on iPhone** (`3d9cf8f`): missing
+  safe-area inset — the status-bar clock sat on it. Fixed for the menu AND
+  the choose-avatar screen (shared class).
+- **Download SGF finally works on iOS** (`3d9cf8f`, pending device
+  validation): the May TestFlight bug, fixed with the predicted shape — a
+  `shareSGF` bridge command (temp file + UIActivityViewController, iPad
+  popover anchored) with the web Blob download as fallback (also covers
+  older native builds via unknown-cmd rejection). "Share SGF" in-app,
+  "Download SGF" on web. Both Swift copies updated.
+
+**Device-validation list for Patrick's next build:** share sheet on iPhone +
+iPad (popover path), Home button clickable on the advanced menu, glossary
+swipe feel.
+
 ## Session 31 — July 2, 2026 (advanced lessons: ko/ladders/nets/snapback + glossary enrichment — fp 03 §A+§B)
 
 **Addendum — Patrick's playthrough found 3 polish bugs; all fixed + full
