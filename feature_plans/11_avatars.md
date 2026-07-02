@@ -1,7 +1,27 @@
 # 11 — Avatars (expansion & polish)
 
-**Status:** 📝 Planned
+**Status:** 🔨 Partially shipped (2026-07-01, Session 28)
 **Priority:** Medium
+
+## Shipped 2026-07-01 (Session 28)
+- **4 image player avatars** — Tide, Eclipse, Prism, Comet — from Patrick +
+  Roland's ChatGPT art set, alongside the 3 CSS ones (7 total; the "add 4 more
+  player avatars" first-cut line, via images rather than SVG).
+- **Villain art for the top 3 bots** — Ember (6k), Storm (3k), Void (1d).
+  Lower rungs remain CSS-drawn.
+- **The NUX choose-moment (item 7)** — one-time "Choose your character!"
+  screen at Learn to Play entry, gated by `profileStore.avatarPicked` (any
+  deliberate pick, there or in Profile, suppresses it forever). Profile-page
+  changing already existed (feature 23).
+- **End-screen hero shots** — win shows your avatar big, loss shows the bot's
+  (shared `EndHeroAvatar`, ranked + custom AI end modals).
+- Pipeline: 640px JPEGs in `frontend/public/avatars/` (~200KB each); PNG
+  originals in `art/avatar-sources/`. `Avatar.tsx` `AVATAR_IMAGES` maps type →
+  image; unlisted types fall back to CSS — adding art for a rung is one entry.
+
+Still open from the plan below: lower-rung bot art, signature motion,
+active-turn treatments bonded to each avatar, unlocks (feature 15), and the
+SVG-vs-image question is settled in practice (images won).
 
 ## What
 Today there are 3 player avatars (Black Hole, Nova, Nebula) and 8 bot avatars (Seedling → Void). We want more of both, and a quality pass on the existing ones so they feel like characters rather than CSS shapes.

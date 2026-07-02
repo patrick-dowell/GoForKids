@@ -1,5 +1,57 @@
 # Development Journal
 
+## Session 28 — July 1, 2026 (avatar art: kid characters + villains, end-screen hero shots, character-select NUX)
+
+Patrick and Roland made a 7-image avatar set in ChatGPT (four kid characters,
+three crystal villains playing Go over star-boards) and we shipped it end to
+end in one session. Commits `05ce629` → `298801d` (+ docs). First real bite of
+[fp 11 avatars](feature_plans/11_avatars.md). All verified in web preview
+(desktop + 375px) and on Patrick's device mid-session; build green, 165 tests.
+
+### Art → app pipeline
+- Originals are ~3MB PNGs each (~21MB — would've shipped inside the WKWebView
+  bundle from `public/assets/`). Resized to 640px JPEGs (~1.4MB total) in
+  `frontend/public/avatars/`; originals preserved in `art/avatar-sources/`
+  (they're Patrick + Roland's creations — treated as source assets, committed).
+- `Avatar.tsx` grew an image path: types listed in `AVATAR_IMAGES` render an
+  `<img>` (object-position 50% 18% — top-anchored cover crop so faces survive
+  the circle at 36–56px); everything else stays CSS-drawn. Paths are
+  `import.meta.env.BASE_URL`-relative (vite `base: './'`) for the iOS bundle.
+
+### Who's who
+- **Players** (4 new, joining the 3 CSS ones — existing picks survive via
+  `VALID_AVATARS`): **Tide** (water boy), **Eclipse** (purple-vortex girl),
+  **Prism** (rainbow boy), **Comet** (gold boy). Names are Jarvis picks —
+  Roland may want to rename; one-line changes in `PLAYER_AVATARS`.
+- **Top bots**: **Ember 6k** = black dragon-scale + molten gold (reads as
+  embers in charcoal), **Storm 3k** = green figure flanked by two cyclone
+  vortexes, **Void 1d** = white-crystal being under the set's most prominent
+  black hole (matches Void's cosmic-dark CSS in spirit). Assignment logic:
+  Ember was unambiguous; Storm-green vs Void-white is the judgment call —
+  swappable in `AVATAR_IMAGES` if device feel disagrees. Lower rungs stay CSS.
+
+### End-screen hero shots (Patrick's idea, on-device reaction to the art)
+Win → your avatar big (124px, gold ring, pop-in); lose → the bot's avatar
+looms (cool purple ring). Shared `EndHeroAvatar` in `GameEndModal.tsx`
+replaces the 🏆/🤖 emoji in both the ranked and custom-AI end modals; local
+hot-seat / bot-vs-bot keep 🏁. Degrades fine for CSS avatars.
+
+### One-time character select at Learn to Play entry (fp 11 item 7)
+Patrick: "most people don't know to set their avatar" — so the first screen
+of Learn to Play is now **Choose your character!** (`ChooseAvatarScreen.tsx`,
+reward-overlay starfield styling, all 7 avatars, ← Home escape per the S26
+menu-trap rule). Gate = new persisted `profileStore.avatarPicked`, set by ANY
+deliberate pick (this screen or the Profile picker) → shows at most once,
+ever. Existing testers all see it once on next Learn entry (intended — none
+of them know the avatars exist). Backing out without picking leaves the flag
+unset. Design call: current avatar is preselected so one tap exits; flip to
+forced-active-pick if rushing kids keep the default.
+
+### Open threads
+- Roland naming pass on Tide/Eclipse/Prism/Comet.
+- Storm/Void assignment sanity-check on device.
+- Lower-rung bot art + signature motion + unlocks remain in fp 11.
+
 ## Session 27 — June 26–27, 2026 (bot endgame bugs: ko-superko pass + dame fill)
 
 Patrick reported two on-device (iPhone, direct Xcode build) bot-play bugs while
@@ -2772,4 +2824,4 @@ Not worth further tuning right now — fixing H3 exactly requires either making 
 - [ ] **Lessons 6–9 don't prepare the kid for 9x9** — the ramp into a real game is too steep. Likely need to refine the existing lessons and possibly add new ones bridging concept → first 9x9 game. Folds into [03 concept lessons](feature_plans/03_concept_lessons.md)
 - [ ] **Replays should show more analysis** — at minimum, surface the live score (scoreLead) graph during replay; eventual hookup to study mode / AI teacher narrative. Folds into [04 AI teacher review](feature_plans/04_ai_teacher_review.md)
 - [ ] **More animation + "make it fun" polish** — extends [12 animations & sound](feature_plans/12_animations_and_sound.md) beyond the current beta cut
-- [ ] **More + cooler avatars for bots and players** — expand the avatar set, give each bot a distinct cosmic-themed look. Ties into [11 avatars](feature_plans/11_avatars.md) and the [15 rewards loop](feature_plans/15_rewards_loop.md) (avatars as unlockables)
+- [ ] **More + cooler avatars for bots and players** — PARTIAL 2026-07-01 (Session 28): 4 image player avatars (Tide/Eclipse/Prism/Comet, Patrick + Roland's ChatGPT art) + villain art for Ember/Storm/Void, plus end-screen hero shots and a one-time character-select at Learn entry. Remaining: art for the lower bot rungs, signature motion, unlocks. Ties into [11 avatars](feature_plans/11_avatars.md) and the [15 rewards loop](feature_plans/15_rewards_loop.md) (avatars as unlockables)
