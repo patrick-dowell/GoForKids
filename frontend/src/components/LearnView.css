@@ -726,8 +726,11 @@
 /* ---------- One-time "choose your character" screen (ChooseAvatarScreen) ---------- */
 .choose-avatar-back {
   position: absolute;
-  top: 16px;
-  left: 16px;
+  /* Clear the iOS status bar (clock sits top-left) — without the safe-area
+     inset the Home button was unclickable on iPhone (Patrick, 2026-07-02).
+     Used by both ChooseAvatarScreen and AdvancedLessonsMenu. */
+  top: calc(16px + var(--safe-top, 0px));
+  left: calc(16px + var(--safe-left, 0px));
   z-index: 2;
 }
 

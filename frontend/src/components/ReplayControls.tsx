@@ -1,4 +1,5 @@
 import { useReplayStore } from '../store/replayStore';
+import { getKataGoBridge } from '../api/nativeKataGo';
 import { ConceptLink } from './ConceptLink';
 import { getConcept } from '../learn/concepts';
 
@@ -151,7 +152,7 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
 
       <div className="replay-actions">
         <button onClick={downloadSGF} className="btn btn-secondary" style={{ fontSize: 12 }}>
-          Download SGF
+          {getKataGoBridge() ? 'Share SGF' : 'Download SGF'}
         </button>
       </div>
 

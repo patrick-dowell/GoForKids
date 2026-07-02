@@ -1,5 +1,6 @@
 import Foundation
 import WebKit
+import UIKit
 
 final class KataGoBridge: NSObject, WKScriptMessageHandler {
     static let shared = KataGoBridge()
@@ -58,6 +59,8 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
             return try analyze(params: params)
         case "ping":
             return ["pong": true]
+        case "shareSGF":
+            return shareSGF(params: params)
         case "log":
             // Diagnostic: print JS console / errors into Xcode console.
             let level = (params["level"] as? String) ?? "log"
@@ -313,6 +316,50 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
     }
 }
 
+extension KataGoBridge {
+    /// Present the iOS share sheet for an SGF file (AirDrop / Files / other
+    /// Go apps). WKWebView can't do the web's Blob-URL download flow, so the
+    /// JS side posts the SGF text here instead (TestFlight bug, 2026-05-14).
+    fileprivate func shareSGF(params: [String: Any]) -> [String: Any] {
+        guard let sgf = params["sgf"] as? String,
+              var filename = params["filename"] as? String else {
+            return ["ok": false, "error": "missing sgf/filename"]
+        }
+        // Keep the filename filesystem-safe.
+        filename = filename.replacingOccurrences(of: "/", with: "-")
+        if !filename.hasSuffix(".sgf") { filename += ".sgf" }
+        DispatchQueue.main.async { [weak self] in
+            guard let webView = self?.webView else { return }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+            do {
+                try sgf.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                print("[Bridge] shareSGF: temp write failed: \(error)")
+                return
+            }
+            let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            // iPad requires a popover anchor or UIKit throws.
+            if let pop = activity.popoverPresentationController {
+                pop.sourceView = webView
+                pop.sourceRect = CGRect(x: webView.bounds.midX, y: webView.bounds.midY, width: 1, height: 1)
+                pop.permittedArrowDirections = []
+            }
+            var presenter: UIViewController? = nil
+            if let scene = UIApplication.shared.connectedScenes
+                .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+                presenter = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController
+            }
+            while let presented = presenter?.presentedViewController { presenter = presented }
+            guard let vc = presenter else {
+                print("[Bridge] shareSGF: no presenting view controller")
+                return
+            }
+            vc.present(activity, animated: true)
+        }
+        return ["ok": true]
+    }
+}
+
 enum KataGoJSShim {
     static let source: String = """
     (function() {
@@ -335,7 +382,8 @@ enum KataGoJSShim {
       }
       window.kataGo = {
         ping: () => call('ping', {}),
-        analyze: (params) => call('analyze', params)
+        analyze: (params) => call('analyze', params),
+        shareSGF: (params) => call('shareSGF', params)
       };
 
       // --- Diagnostic console / error interceptor ---------------------------

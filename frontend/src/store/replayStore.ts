@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { getKataGoBridge } from '../api/nativeKataGo';
 import { Game } from '../engine/Game';
 import { Board } from '../engine/Board';
 import { Color, BOARD_SIZE, type Point, type Stone } from '../engine/types';
@@ -373,14 +374,27 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   downloadSGF: () => {
     const { sgf, opponentRank } = get();
     if (!sgf) return;
+    const filename = `game-vs-${opponentRank || 'unknown'}-${Date.now()}.sgf`;
 
-    const blob = new Blob([sgf], { type: 'application/x-go-sgf' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `game-vs-${opponentRank || 'unknown'}-${Date.now()}.sgf`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // Inside the native app, the Blob-URL download flow silently no-ops in
+    // WKWebView (TestFlight bug, 2026-05-14) — hand the SGF to Swift for the
+    // iOS share sheet (AirDrop / Files / other Go apps) instead. Falls back
+    // to the web path if the native build predates the shareSGF handler.
+    const bridge = getKataGoBridge();
+    const webDownload = () => {
+      const blob = new Blob([sgf], { type: 'application/x-go-sgf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+    if (bridge?.shareSGF) {
+      bridge.shareSGF({ sgf, filename }).catch(webDownload);
+    } else {
+      webDownload();
+    }
   },
 
   close: () => {

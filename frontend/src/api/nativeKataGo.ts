@@ -50,6 +50,10 @@ export interface KataGoBridge {
      *  parses them and returns them on `BridgeAnalysis.ownership`. */
     ownership?: boolean;
   }): Promise<BridgeAnalysis>;
+  /** Present the iOS share sheet for an SGF (AirDrop / Files / other Go
+   *  apps). Absent on older native builds — callers must catch and fall
+   *  back to the web download path. */
+  shareSGF?(params: { sgf: string; filename: string }): Promise<{ ok: boolean }>;
 }
 
 declare global {
