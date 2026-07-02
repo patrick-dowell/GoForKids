@@ -959,6 +959,37 @@ body {
   background: rgba(255, 107, 107, 0.1);
 }
 
+.library-share {
+  background: none;
+  border: 1px solid var(--text-muted);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+  white-space: nowrap;
+  align-self: center;
+}
+
+.library-share:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.library-share:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Uploaded: the button shows the share code (tap to copy the link). */
+.library-share.shared {
+  font-family: monospace;
+  letter-spacing: 0.5px;
+  color: var(--accent, #6fc3ff);
+  border-color: var(--accent, #6fc3ff);
+}
+
 /* Replay controls */
 .replay-controls {
   display: flex;

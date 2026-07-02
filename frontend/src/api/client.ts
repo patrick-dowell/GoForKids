@@ -18,7 +18,9 @@ import {
   type MoveCandidate,
 } from '../ai/moveSelector';
 import { Color, type Stone, type Point } from '../engine/types';
+import { recordSelectorLog } from '../ai/selectorLog';
 import { localGameRouter } from './localGameRouter';
+import type { SavedGame } from '../store/libraryStore';
 import type {
   AIMoveDTO,
   CreateGameOptions,
@@ -236,6 +238,30 @@ export const api = {
       '/games/score-position',
       { method: 'POST', body: JSON.stringify({ board }) },
     ),
+
+  /** Upload a finished game (the SavedGame verbatim) for sharing/diagnostics.
+   *  Returns the share code. Always an HTTP call — uploads only exist on the
+   *  server, there is no local-router path. */
+  uploadGame: (
+    game: SavedGame,
+    meta: { playerName?: string; boardSize?: number },
+  ): Promise<{ id: string }> =>
+    request<{ id: string }>('/uploads', {
+      method: 'POST',
+      body: JSON.stringify({
+        payload: game,
+        player_name: meta.playerName || null,
+        board_size: meta.boardSize ?? null,
+        opponent_rank: game.opponentRank,
+        result: game.result,
+      }),
+    }),
+
+  /** Fetch a shared game by its share code, for replay hydration. */
+  fetchSharedGame: (shareId: string): Promise<{ id: string; payload: SavedGame }> =>
+    request<{ id: string; payload: SavedGame }>(
+      `/uploads/${encodeURIComponent(shareId.trim())}`,
+    ),
 };
 
 export type { GameStateDTO, AIMoveDTO, PointDTO, CreateGameOptions };
@@ -379,9 +405,9 @@ async function getAIMoveViaBridge(
     newState = await api.playMove(gameId, chosen.row, chosen.col);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn(
-      `[getAIMoveViaBridge] engine rejected KataGo's pick (${chosen.row},${chosen.col}): ${msg} — passing instead`,
-    );
+    const line = `[getAIMoveViaBridge] engine rejected KataGo's pick (${chosen.row},${chosen.col}): ${msg} — passing instead`;
+    console.warn(line);
+    recordSelectorLog(line);
     const passState = await api.pass(gameId);
     const tEnd = performance.now();
     console.log(
@@ -554,9 +580,9 @@ async function finishMoveViaBridge(
     newState = await api.playMove(gameId, decoded.row, decoded.col);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn(
-      `[finishMoveViaBridge] engine rejected KataGo's pick (${decoded.row},${decoded.col}): ${msg} — passing instead`,
-    );
+    const line = `[finishMoveViaBridge] engine rejected KataGo's pick (${decoded.row},${decoded.col}): ${msg} — passing instead`;
+    console.warn(line);
+    recordSelectorLog(line);
     const passState = await api.pass(gameId);
     return {
       point: { row: -1, col: -1 },

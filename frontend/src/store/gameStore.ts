@@ -6,6 +6,7 @@ import { api } from '../api/client';
 import { toGtp } from '../api/nativeKataGo';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
+import { clearSelectorLog, snapshotSelectorLog } from '../ai/selectorLog';
 import { useAutoPlayStore } from './autoPlayStore';
 import { BOT_AVATARS, type PlayerAvatarType, type BotAvatarType } from '../components/Avatar';
 
@@ -38,6 +39,10 @@ function autoSaveGame(state: GameState, sgfOverride?: string) {
     whiteRank: isBotVsBot ? (state.whiteRank ?? undefined) : undefined,
     scoreHistory: state.scoreHistory.length > 1 ? state.scoreHistory : undefined,
     deadStones: state.deadStones.length > 0 ? state.deadStones : undefined,
+    selectorLog: (() => {
+      const log = snapshotSelectorLog();
+      return log.length > 0 ? log : undefined;
+    })(),
   };
 
   useLibraryStore.getState().saveGame(saved);
@@ -517,6 +522,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     // Clear any running bot-vs-bot timer
     const prevTimer = get()._botVsBotTimer;
     if (prevTimer) clearTimeout(prevTimer);
+
+    // Fresh diagnostic buffer so the finished game's SavedGame carries only
+    // its own selector lines (autoSaveGame snapshots it).
+    clearSelectorLog();
 
     const gameMode = options?.gameMode ?? 'ai';
     const requestedSize = options?.boardSize ?? BOARD_SIZE;

@@ -24,12 +24,20 @@ export interface SavedGame {
    *  replay's heuristic / Render call can't reach the on-device engine).
    *  Undefined for older saves and games that ended by resignation. */
   deadStones?: Array<{ row: number; col: number; color: number }>;
+  /** Bot-selector diagnostic lines from this game (pass reasons, superko
+   *  fallbacks — see ai/selectorLog.ts). Rides the upload payload so a field
+   *  repro of a bad bot pass carries its own diagnosis. */
+  selectorLog?: string[];
+  /** Share code from a previous upload of this game, so re-sharing shows the
+   *  existing code instead of storing a duplicate. */
+  sharedId?: string;
 }
 
 interface LibraryState {
   games: SavedGame[];
   saveGame: (game: SavedGame) => void;
   deleteGame: (id: string) => void;
+  setSharedId: (id: string, sharedId: string) => void;
   clearAll: () => void;
   loadFromStorage: () => void;
 }
@@ -55,6 +63,12 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   deleteGame: (id: string) => {
     const games = get().games.filter((g) => g.id !== id);
+    set({ games });
+    persistGames(games);
+  },
+
+  setSharedId: (id: string, sharedId: string) => {
+    const games = get().games.map((g) => (g.id === id ? { ...g, sharedId } : g));
     set({ games });
     persistGames(games);
   },

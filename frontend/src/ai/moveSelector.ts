@@ -24,6 +24,7 @@ import {
 } from '../engine/types';
 import { Board } from '../engine/Board';
 import { getProfile, type RankProfile } from './profileLoader';
+import { recordSelectorLog } from './selectorLog';
 
 /** Single candidate from KataGo analysis — mirrors the Python MoveCandidate. */
 export interface MoveCandidate {
@@ -312,7 +313,9 @@ function selectBeginnerMove(board: Board, color: Stone, profile: RankProfile): S
  *  (`katago-*`) vs the settle pass-threshold (`pass-threshold`). Plain
  *  console.log so it surfaces in the iOS bridge / Xcode console. */
 function logPass(reason: string): void {
-  console.log(`[selector] PASS reason=${reason}`);
+  const line = `[selector] PASS reason=${reason}`;
+  console.log(line);
+  recordSelectorLog(line);
 }
 
 /** A legal move that doesn't fill our own eye — the safety fallback for when
@@ -358,7 +361,9 @@ function selectWithKataGo(
     // legal heuristic move instead; only pass if nothing legal remains.
     const fallback = pickLegalNonEyeMove(board, color);
     if (fallback) {
-      console.log('[selector] all KataGo candidates illegal (likely superko) — playing legal fallback instead of passing');
+      const line = '[selector] all KataGo candidates illegal (likely superko) — playing legal fallback instead of passing';
+      console.log(line);
+      recordSelectorLog(line);
       return fallback;
     }
     logPass('filtered-empty-no-legal-move');

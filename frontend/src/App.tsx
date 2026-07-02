@@ -17,7 +17,7 @@ import { GameEndModal } from './components/GameEndModal';
 import { SettingsButton } from './components/SettingsButton';
 import { HomeButton } from './components/HomeButton';
 import { FeedbackButton } from './components/FeedbackButton';
-import { abortPendingRequests } from './api/client';
+import { abortPendingRequests, api } from './api/client';
 import { PrivacyTermsModal } from './components/PrivacyTermsModal';
 import { ScoringInProgressModal } from './components/ScoringInProgressModal';
 import { useGameStore } from './store/gameStore';
@@ -82,6 +82,27 @@ function App() {
     const learn = params.get('learn');
     if (learn === 'advanced') useLearnStore.getState().openAdvancedMenu();
     else if (learn !== null) useLearnStore.getState().resumeAt(Number(learn) || 0);
+    // `?shared=CODE` fetches an uploaded game and opens it in the replay —
+    // the receiving end of the library's Share button.
+    const shared = params.get('shared');
+    if (shared) {
+      api.fetchSharedGame(shared).then(
+        ({ payload }) => {
+          setShowHome(false);
+          useReplayStore.getState().loadGame(payload.sgf, {
+            result: payload.result,
+            playerColor: payload.playerColor,
+            opponentRank: payload.opponentRank,
+            scoreHistory: payload.scoreHistory,
+            deadStones: payload.deadStones,
+          });
+        },
+        (e) => {
+          console.warn(`[shared] failed to load shared game ${shared}:`, e);
+          alert(`Couldn't load shared game "${shared}" — check the code and try again.`);
+        },
+      );
+    }
     // `?replay=demo` loads the demo game into the replay with highlights (QA).
     if (params.get('replay') === 'demo') {
       import('./learn/gameReview').then(({ demoReplay }) => {
