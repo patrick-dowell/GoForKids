@@ -25,5 +25,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    // e2e/ is Playwright's (layout.spec.ts) — vitest's default include of
+    // *.spec.ts would try to run it and explode.
+    exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**'],
   },
 })
