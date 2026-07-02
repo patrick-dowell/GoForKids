@@ -1,4 +1,4 @@
-/* Avatar system — CSS-only character portraits */
+/* Avatar system — CSS-drawn portraits + image art for kids/top bots */
 
 .avatar {
   border-radius: 50%;
@@ -25,6 +25,18 @@
   height: 40%;
   border-radius: 50%;
   position: relative;
+}
+
+/* Image-art avatars (kid + top-bot art). Full-body portraits: anchor the
+   crop near the top so the face stays in the circle at small sizes. */
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 18%;
+  display: block;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Active turn glow */
