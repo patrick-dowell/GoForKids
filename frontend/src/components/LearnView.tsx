@@ -1,7 +1,9 @@
 import { GoBoard } from '../board/GoBoard';
 import { useLearnStore } from '../store/learnStore';
+import { useProfileStore } from '../store/profileStore';
 import { LESSONS, type GameConfig } from '../learn/lessons';
 import { LessonStepModal } from './LessonStepModal';
+import { ChooseAvatarScreen } from './ChooseAvatarScreen';
 import { ConceptLink } from './ConceptLink';
 import { getConcept } from '../learn/concepts';
 import './LearnView.css';
@@ -36,6 +38,7 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
   const isQuizLesson = lesson.kind === 'quiz';
   const quizIndex = useLearnStore((s) => s.quizIndex);
   const answerQuiz = useLearnStore((s) => s.answerQuiz);
+  const avatarPicked = useProfileStore((s) => s.avatarPicked);
   const activeQuestion = isQuizLesson && lesson.questions ? lesson.questions[quizIndex] : null;
 
   const handleExit = () => {
@@ -47,6 +50,12 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
     if (!lesson.gameConfig) return;
     onStartGameLesson(lesson.gameConfig, lesson.id);
   };
+
+  // One-time character select before the first lesson (see ChooseAvatarScreen).
+  // Confirming sets profileStore.avatarPicked, which flips this gate forever.
+  if (!avatarPicked) {
+    return <ChooseAvatarScreen onExit={handleExit} />;
+  }
 
   // Reward overlay — fires once after all puzzles are done, before the first game.
   if (showReward) {
