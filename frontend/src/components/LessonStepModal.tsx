@@ -23,6 +23,7 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
   const next = useLearnStore((s) => s.next);
   const skipAfterSuccess = useLearnStore((s) => s.skipAfterSuccess);
   const advanceQuiz = useLearnStore((s) => s.advanceQuiz);
+  const retryQuiz = useLearnStore((s) => s.retryQuiz);
   const advancePart = useLearnStore((s) => s.advancePart);
   const exploreAgain = useLearnStore((s) => s.exploreAgain);
   const focusLessons = useLearnStore((s) => s.focusLessons);
@@ -55,7 +56,10 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
     );
   }
 
-  // Quiz: per-question feedback modal (correct/wrong + brief message).
+  // Quiz: per-question feedback modal. Correct → advance; wrong → the hint
+  // plus "Try again" on the SAME question (fp 03 §D — the 7yo playtest kid
+  // was told "look again" by the failMessage while the only button marched
+  // him forward; wrong answers must never dead-end).
   if (quizFeedback) {
     return (
       <div className="lesson-step-overlay" role="dialog" aria-modal="true">
@@ -67,9 +71,15 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
             {quizFeedback.correct ? 'Correct!' : 'Not quite'}
           </h2>
           <p className="lesson-step-explanation">{quizFeedback.message}</p>
-          <button className="lesson-step-btn" onClick={advanceQuiz}>
-            {quizFeedback.isLastQuestion ? 'See results →' : 'Next question →'}
-          </button>
+          {quizFeedback.correct ? (
+            <button className="lesson-step-btn" onClick={advanceQuiz}>
+              {quizFeedback.isLastQuestion ? 'See results →' : 'Next question →'}
+            </button>
+          ) : (
+            <button className="lesson-step-btn" onClick={retryQuiz}>
+              Try again
+            </button>
+          )}
         </div>
       </div>
     );
@@ -102,8 +112,14 @@ export function LessonStepModal({ onFinish }: LessonStepModalProps) {
           {lesson.successExplanation && (
             <p className="lesson-step-explanation">{lesson.successExplanation}</p>
           )}
+          {/* With retries, every question ends answered — the score counts
+              first-try corrects, and the phrasing says so when it matters. */}
           <p className="lesson-step-quiz-score">
-            You got <strong>{quizCorrect}</strong> of <strong>{total}</strong> right!
+            {quizCorrect >= total ? (
+              <>You got <strong>{total}</strong> of <strong>{total}</strong> right!</>
+            ) : (
+              <>You got <strong>{quizCorrect}</strong> of <strong>{total}</strong> on the first try — and figured out the rest!</>
+            )}
           </p>
           {lesson.quizSummary && (
             <p className="lesson-step-finale">{lesson.quizSummary}</p>

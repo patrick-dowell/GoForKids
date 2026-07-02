@@ -60,6 +60,10 @@ interface LearnState {
   /** Quiz state — only meaningful when LESSONS[lessonIndex].kind === 'quiz'. */
   quizIndex: number;
   quizCorrect: number;
+  /** True once the player has missed the CURRENT question. Wrong answers
+   *  re-open the same question (fp 03 §D — no dead ends), and only a
+   *  first-try correct counts toward quizCorrect. Reset on advance. */
+  quizMissedCurrent: boolean;
   /** Set the moment the player picks an answer; cleared when they Continue. */
   quizFeedback: {
     correct: boolean;
@@ -111,6 +115,9 @@ interface LearnState {
   /** Quiz: dismiss the feedback modal and either move to the next question or
    *  complete the lesson if it was the last one. */
   advanceQuiz: () => void;
+  /** Quiz: dismiss a wrong-answer modal and re-open the SAME question so the
+   *  kid can apply the hint (fp 03 §D — wrong answers must never dead-end). */
+  retryQuiz: () => void;
   /** Puzzle-series: dismiss the part-feedback modal and rebuild the board for
    *  the next sub-puzzle. */
   advancePart: () => void;
@@ -207,6 +214,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
   showReward: false,
   quizIndex: 0,
   quizCorrect: 0,
+  quizMissedCurrent: false,
   quizFeedback: null,
   partIndex: 0,
   partFeedback: null,
@@ -297,6 +305,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
       secondTurnInitialBoard: null,
         quizIndex: 0,
         quizCorrect: 0,
+        quizMissedCurrent: false,
         quizFeedback: null,
         eyeHighlight: null,
         _afterSuccessTimer: null,
@@ -904,7 +913,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
 
   answerQuiz: (answerIndex: number) => {
     resumeAudio();
-    const { board, quizIndex, quizCorrect, status } = get();
+    const { board, quizIndex, quizCorrect, quizMissedCurrent, status } = get();
     const lesson = LESSONS[get().lessonIndex];
     if (!lesson || lesson.kind !== 'quiz' || !lesson.questions) return;
     if (status !== 'awaiting') return;
@@ -937,7 +946,8 @@ export const useLearnStore = create<LearnState>((set, get) => ({
           lastCaptures: captures,
           lastMoveColor: Color.Black,
           moveSeq: get().moveSeq + 1,
-          quizCorrect: quizCorrect + 1,
+          // Retried-into-correct doesn't score — quizCorrect is first-try only.
+          quizCorrect: quizMissedCurrent ? quizCorrect : quizCorrect + 1,
         });
         setTimeout(() => {
           set({
@@ -954,15 +964,26 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     }
 
     set({
-      quizCorrect: isCorrect ? quizCorrect + 1 : quizCorrect,
+      // First-try corrects only — a retried question no longer scores.
+      quizCorrect: isCorrect && !quizMissedCurrent ? quizCorrect + 1 : quizCorrect,
+      quizMissedCurrent: quizMissedCurrent || !isCorrect,
       quizFeedback: {
         correct: isCorrect,
         message: isCorrect
           ? question.successMessage
-          : (question.failMessage ?? 'Not quite — try the next one!'),
+          : (question.failMessage ?? 'Not quite — take another look and try again!'),
         isLastQuestion,
       },
     });
+  },
+
+  // fp 03 §D (7yo playtest 2026-06-27): a wrong answer used to dead-end into
+  // "Next question" — the failMessages say "Look again…" but the UI never let
+  // the kid look again. Retry re-opens the SAME question; the board never
+  // changed on a wrong answer, so clearing the modal is sufficient.
+  retryQuiz: () => {
+    if (!get().quizFeedback) return;
+    set({ quizFeedback: null });
   },
 
   advanceQuiz: () => {
@@ -997,6 +1018,7 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     set({
       quizIndex: nextIdx,
       quizFeedback: null,
+      quizMissedCurrent: false,
       status: 'awaiting',
       message: q.prompt,
       board,

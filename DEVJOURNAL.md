@@ -1,5 +1,38 @@
 # Development Journal
 
+## Session 30 — July 1, 2026 (quiz wrong-answer retry — the 7yo-playtest dead-end, fp 03 §D)
+
+Patrick flagged it as the top-priority bug: the wrong-answer dead-end from the
+2026-06-27 playtest was still unfixed. Confirmed, then shipped the agreed fix.
+
+**What the code did (the frustration, precisely):** a wrong quiz answer showed
+the question's `failMessage` — which literally says *"Look again…"* /
+*"Count again…"* — while the only button was **"Next question →"**. The kid
+was invited to look again and marched forward anyway; the question was burned.
+Worse: wrong on the LAST question showed "See results →" and **completed the
+lesson anyway**. (Board-move lessons already had a `retry` status; only the
+`quiz` kind dead-ended.)
+
+**The fix (learnStore + LessonStepModal):**
+- Wrong answer → hint + **Try again** re-opens the SAME question
+  (`retryQuiz`; the board never changed on a wrong answer, so clearing the
+  feedback modal is sufficient). No path advances past an unanswered question
+  anymore — completion only ever happens through a correct answer.
+- Scoring is **first-try only** (`quizMissedCurrent` flag; killMove branch
+  included), and the results line adapts: perfect → "You got 3 of 3 right!",
+  otherwise → "You got 2 of 3 on the first try — and figured out the rest!"
+- Fallback failMessage rewritten for retry ("take another look and try
+  again!"); the real failMessages were already written as corrective hints.
+
+Verified in-browser end-to-end (lesson 9 "Two Eyes 3": wrong → hint →
+Try again → same question → correct → doesn't score → advance → finish →
+first-try phrasing). 5 new store tests (`learnStore.quizRetry.test.ts`,
+SoundManager mocked for node); 170 total, build green. Milestone §1
+wrong-answer item + fp 03 §D marked shipped.
+
+Still open from the same playtest cluster: the depth-appreciation arc (fp 30)
+and the learn-to-play-go.github.io content borrows (fp 03).
+
 ## Session 29 — July 1, 2026 (responsive sweep: 5 cut-off bugs, incl. Roland's iPad-landscape board)
 
 **Addendum 2 — LAYOUT POLICY adopted (Patrick): scrolling in exactly two

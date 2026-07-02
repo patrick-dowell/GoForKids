@@ -89,7 +89,7 @@ These need the richer board-annotation primitives flagged in "Not yet built"
   breakthrough, and our arc is tactics-heavy (capture/atari/races) without it.
   Theirs says it plainly ("focus less on capturing the opponent's stones").
 
-**D. Lessons UX — wrong-answer handling (CONFIRMED by the 7yo playtest, blocking):**
+**D. Lessons UX — wrong-answer handling — ✅ SHIPPED 2026-07-01 (retry + hint on the same question, first-try scoring; see DEVJOURNAL S30):**
 - Watching the 7yo: when he **picked a wrong answer to a quiz question** (the
   `quiz` kind, e.g. lesson 9 "Safe or Gone?"), the app gave **no help and no
   chance to try again** — he stalled and got discouraged. This is the

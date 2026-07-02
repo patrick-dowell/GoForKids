@@ -12,7 +12,7 @@
 ### 1. Lessons polish
 The lessons are now the front door for any returning/new player, and they were reworked in Session 25 (renamed per-concept, grammar/voice, "self-capture", new 9×9 pre-game card). Remaining:
 - **The ramp gap** — lessons 6–9 don't prepare a kid for a real 9×9 game; the jump is too steep (flagged in DEVJOURNAL "Polish / Feature gaps"). Tighten the bridge from concept → first 9×9.
-- **Wrong-answer handling (observed in the first-7yo playtest, 2026-06-27):** a quiz `kind` lesson gives **no help and no retry** on a wrong answer — the kid stalled and got discouraged. Add a concept-specific nudge + a try-again instead of a dead end. Highest-priority lessons-polish item; details in [03 concept lessons](03_concept_lessons.md) §"Next batch" D.
+- **Wrong-answer handling — SHIPPED 2026-07-01 (Session 30):** a wrong quiz answer now shows the question's corrective hint + **Try again** on the SAME question (no more dead-end "Next question"); score counts first-try corrects and the results line says so ("You got 2 of 3 on the first try — and figured out the rest!"). A wrong answer can no longer complete the lesson. `learnStore.retryQuiz` + `quizMissedCurrent`; 5 tests in `learnStore.quizRetry.test.ts`. Originally: no help and no retry — the 7yo stalled and got discouraged (2026-06-27). Details in [03 concept lessons](03_concept_lessons.md) §"Next batch" D.
 - Flow/copy issues surfaced during device play.
 - _Acceptance:_ a player finishing the lesson arc can sit down to a 9×9 ranked game without feeling dropped off a cliff, and a wrong quiz answer coaches rather than dead-ends. Folds into [03 concept lessons](03_concept_lessons.md).
 
