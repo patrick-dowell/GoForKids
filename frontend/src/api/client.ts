@@ -506,7 +506,9 @@ async function finishMoveViaBridge(
   // outside a degenerate position) treat as a pass so the loop terminates
   // gracefully instead of throwing.
   if (!top) {
-    console.warn('[finishMoveViaBridge] bridge returned no candidates — passing');
+    const line = '[finishMoveViaBridge] bridge returned no candidates — passing';
+    console.warn(line);
+    recordSelectorLog(line);
     const passState = await api.pass(gameId);
     return {
       point: { row: -1, col: -1 },
@@ -537,11 +539,12 @@ async function finishMoveViaBridge(
     const bestForMover = sign * top.scoreLead;
     const passForMover = sign * passCand.scoreLead;
     if (bestForMover - passForMover < FINISH_PASS_THRESHOLD) {
-      console.log(
+      const line =
         `[finishMoveViaBridge] eager-pass best=${bestForMover.toFixed(2)} ` +
-          `pass=${passForMover.toFixed(2)} thr=${FINISH_PASS_THRESHOLD} ` +
-          `(passV=${passCand.visits} bestV=${top.visits})`,
-      );
+        `pass=${passForMover.toFixed(2)} thr=${FINISH_PASS_THRESHOLD} ` +
+        `(passV=${passCand.visits} bestV=${top.visits})`;
+      console.log(line);
+      recordSelectorLog(line);
       const passState = await api.pass(gameId);
       return {
         point: { row: -1, col: -1 },
@@ -557,6 +560,7 @@ async function finishMoveViaBridge(
   // is settled, we pass, two passes triggers localGameRouter.pass's
   // on-device scoring.
   if (decoded === 'pass' || decoded === 'resign') {
+    recordSelectorLog(`[finishMoveViaBridge] KataGo top candidate is ${decoded} — passing`);
     const passState = await api.pass(gameId);
     const tEnd = performance.now();
     console.log(
