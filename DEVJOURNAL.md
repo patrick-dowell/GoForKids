@@ -1,5 +1,56 @@
 # Development Journal
 
+## Session 29 — July 1, 2026 (responsive sweep: 5 cut-off bugs, incl. Roland's iPad-landscape board)
+
+Roland's iPad cut off the bottom two rows of the board in landscape, and
+Patrick had seen replay-mode cut-offs on several devices — so instead of
+whack-a-mole we probed every major screen across 12 device viewports (iPhone
+Pro/Max, iPad mini/10.2"/Air/11"/12.9", both orientations) with a
+bounding-box probe in the preview browser (element fully visible OR reachable
+via a scrollable ancestor — eyeballing 100 screenshots doesn't scale).
+Commit `c7fa5f9`. **Five real cut-offs found, all fixed:**
+
+1. **Game board, sub-1100px iPad landscape** — Roland's bug, reproduced
+   exactly at 1080×810 (board bottom +153px ≈ 2 rows of 9×9). The medium
+   branch (700–1099px) assumed "iPad landscape is ≥1100px" and only
+   height-caps the board under `orientation: portrait`; 10.2" (1080×810) and
+   9.7" (1024×768) iPads in landscape are medium-width. Fix: height-bind via
+   `max-width: min(700px, calc(100dvh - 280px))`. Subtlety: it must be
+   `max-width` — lifting max-width and using `width: min(...)` (like the
+   portrait rule) lets the canvas's intrinsic size inflate the
+   board-container's flex-basis, wrapping the side panel (Pass/Resign) below
+   the fold. So Roland's iPad is a 10.2"-class device.
+2. **Replay board, wide-branch landscape iPads (mini 1133×744, Air
+   1180×820)** — board dragged 150–205px past the viewport. The wide grid
+   has no definite height, so the 1fr row sized to the ~850px replay-controls
+   stack (the row-spanning board fills rows via 100cqb). 12.9" only survived
+   by having enough pixels. Fix: `.app-replay` gets the phone-landscape
+   treatment (height: 100dvh + overflow: hidden), `min-height: 0` on the
+   game-layout (flex min-height:auto trap) and side panel, which now scrolls
+   in place.
+3. **Replay controls, phone landscape (852×393, 932×430)** — `.app` is
+   overflow:hidden there and the side-panel column had no scroll: controls
+   ~240px below the fold, UNREACHABLE. Fix: side panel `overflow-y: auto`.
+4. **Choose-avatar screen (S28!), phone landscape** — "That's me!" 43px
+   below the fold, nothing scrolled. Fix: reward overlay scrolls +
+   `margin: auto` content centering (flex-center alone clips the top of
+   overflowing content). Also fixes the Cosmic Board reward screen.
+5. **Ranked match-picker, phone landscape** — ▶ Play 212px below the fold
+   behind AutoPlayView's starfield-clipping `overflow: hidden`: you could
+   not start a ranked match on a landscape phone at all. Fix: scoped
+   `overflow-y: auto` at max-height:500px landscape.
+
+Everything else passed: game screen across all 12 viewports, replay across 8,
+lessons / home / profile / glossary / library / end-modals (incl. the S28
+124px hero avatar at 393px height — the end-card already scrolls internally).
+Build green, 165 tests.
+
+**Testing pattern worth keeping** (candidate for a scripted Playwright pass
+later): resize → `getBoundingClientRect` probe per critical element
+(board canvas strict; controls allowed if scroll-reachable), assert per
+viewport. The probe caught two bugs a visual skim missed (replay controls
+"present but unreachable" behind overflow:hidden).
+
 ## Session 28 — July 1, 2026 (avatar art: kid characters + villains, end-screen hero shots, character-select NUX)
 
 Patrick and Roland made a 7-image avatar set in ChatGPT (four kid characters,
