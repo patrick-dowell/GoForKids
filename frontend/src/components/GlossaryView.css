@@ -176,3 +176,41 @@
   text-align: center;
   margin: 0;
 }
+
+/* Page-flip navigation between concepts (buttons + swipe + arrow keys) */
+.glossary-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.glossary-nav-btn {
+  max-width: 42%;
+  padding: 9px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.glossary-nav-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.glossary-nav-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
