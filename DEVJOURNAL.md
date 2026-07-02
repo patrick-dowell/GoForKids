@@ -1,6 +1,16 @@
 # Development Journal
 
-## Session 30 — July 1, 2026 (quiz wrong-answer retry — the 7yo-playtest dead-end, fp 03 §D)
+## Session 30 — July 1–2, 2026 (quiz wrong-answer retry — the 7yo-playtest dead-end, fp 03 §D)
+
+**Addendum (07-02) — big-iPad portrait replay: side-by-side panel VETOED.**
+Patrick on his 13" Pro: putting the replay controls beside the board (S29
+addendum fix) shrank the board to ~676px — too small for 19×19 review. The
+board is the point; the panel serves it. Reverted to the stacked layout for
+ALL portrait ≤1099px: strip hidden + compact panel + board height-bound to
+`100dvh - 530px` → **846px board** on the 13" (bigger than the side-by-side
+gave!), controls fully visible underneath, no scrolling. Design principle to
+remember: on portrait iPads the vertical budget beats a side column — never
+trade board size for panel placement. Suite still green (8 tests).
 
 Patrick flagged it as the top-priority bug: the wrong-answer dead-end from the
 2026-06-27 playtest was still unfixed. Confirmed, then shipped the agreed fix.
