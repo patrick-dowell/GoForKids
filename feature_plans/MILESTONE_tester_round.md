@@ -24,7 +24,7 @@ Still open from fp 03 but **not gating this milestone**: §C "make territory, do
 
 ## Remaining — rescoped 2026-07-02
 
-**Order of attack: §5 → §3 → §1 → §4a.** §2 is in capture-mode, not queued for a fix attempt.
+**Order of attack: §5 → §3 → §1 → §4a.** §2 is in capture-mode, not queued for a fix attempt. **§5 closed 2026-07-02 — next up: §3.**
 
 ### 1. Score graph in replays
 Mount the existing `ScoreGraph` in the replay view with a position cursor synced to the timeline. Small and frontend-only: `scoreHistory` is already persisted on every library entry (`libraryStore.ts`), so past on-device games already have the data. Web/stub games without `scoreHistory` simply don't show the graph.
@@ -46,7 +46,7 @@ Patrick played 15k even on 9×9 and it played perfectly through the entire game.
 Play-of-the-Game highlights become tappable: a highlight opens a quick replay scoped to that moment (reuses the existing replay infra — jump to the move, a few moves of context either side). Explanation copy improvements welcome where cheap, but the deep version is 4b.
 - _Acceptance:_ from the game-end highlights, tapping one lands you in the game at that move with the existing per-move explanation; back returns to highlights.
 
-### 5. Replay upload — thin slice (decided IN, 2026-07-02)  ✅ built + device-validated 2026-07-02 (capture channel confirmed on iPhone)
+### 5. Replay upload — thin slice  ✅ CLOSED 2026-07-02 (Patrick's call after device validation + share test)
 Upload a finished game to the backend; get a shareable ID. Motivation: a friend wants to review games with Patrick, and it's the diagnostic channel for §2 (embedded selector logs) and §3 (bot-felt-wrong games become calibration evidence).
 
 > **Status: built (Session 33).** Backend: `app/uploads/storage.py` (own module,
