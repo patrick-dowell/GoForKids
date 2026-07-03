@@ -39,6 +39,36 @@ change — unlike most recent work); the share UI ships with the next Xcode
 build. Device-validation: share a real iPad game, open the link on the web,
 confirm `selectorLog` in the payload; then §2 waits for the next bad pass.
 
+**Addendum — device validation + the lost-upload incident (same day):**
+- Patrick's first shared game (19×19 vs 18k, `QGGMWXF5`) matched the payload
+  field-for-field but had an **empty selectorLog** → three theories (old-build
+  save / silent HTTP fallback / capture bug). Chased them with: finish-path
+  pass logging (`3fe4547`), then self-describing logs (`cc22952`) — every game
+  opens with a `[game] start … bridge=yes|no` header + store-level pass
+  records on all five pass paths, so a payload alone names its story.
+- **Second test upload (`DT8VXPSD`) vanished server-side** while the server
+  had issued the code. It landed in the temporal window of the cc22952 API
+  deploy (finished 5:18); older rows survived. **Mechanism narrower than
+  first thought:** a controlled probe uploaded mid-build during the NEXT
+  deploy (cd386d4) *survived* its swap — so build-phase writes generally
+  persist, and the loss is likely confined to the instance-swap seconds (or
+  a disk-handoff durability edge). The render.yaml comment overclaims the
+  build-window mechanism — soften it on the next backend change. Either
+  way the practical rule stands: **don't upload while an API deploy is in
+  flight**, and the pre-App-Store split to a dedicated DB is the durable
+  fix. Hardening shipped (`cd386d4`): **render.yaml
+  buildFilter** (API deploys only on backend/profiles changes — frontend
+  pushes no longer open the loss window), **self-healing share codes** (tap
+  verifies server-side; definitive 404 reverts the button to Share so the
+  game can re-upload; network errors don't clear), and the share-code
+  alphabet drops 5/S, 8/B, 2/Z, U/V lookalikes.
+- **Third test (`E2QAREHV`, 9×9 vs 6k on iPhone) = full confirmation:**
+  `bridge=yes` header, both player passes, and the bot's pass with its
+  selector reason (`katago-only-pass-no-nonpass`), all cross-checked. The
+  first game's empty log was simply an old-build save. **The §2 ko-pass
+  capture channel is armed on real hardware** — next bad pass, Share the
+  game and the reason line is in the payload.
+
 ## Session 32 — July 2, 2026 (learn/glossary polish batch from Patrick's device testing)
 
 Rapid-fire fixes from Patrick working through the new content on his devices,
