@@ -32,6 +32,23 @@ into one line.
   first, working as designed). Pending Patrick's device pass: graph feel on
   iPhone/iPad, drag-scrub, marker taps.
 
+**Addendum — Share moved into the replay panel (Patrick's feedback, same
+night):** the Library's per-row Share button is gone; **Share game** now sits
+next to Download/Share SGF in the replay actions. After upload the button
+becomes the link (`🔗 CODE ↗`) — tapping it copies the full web URL AND opens
+it in the browser, so you see where your game lives online and can send that
+URL to anyone. Replays opened FROM a share link show their link immediately;
+the demo replay (nothing to share) hides the button; the 404 self-heal moved
+along with it. Link base: `VITE_WEB_BASE_URL` → page origin on http(s) →
+`goforkids-web.onrender.com` fallback inside the app:// native shell.
+**Native piece (both Swift copies, needs Xcode rebuild):** the WKWebView had
+no UIDelegate, so `window.open` was a silent no-op in the app (latent
+Feedback-button bug too) — a new Coordinator hands http(s) `window.open` AND
+main-frame link navigations to Safari via `UIApplication.open`, which also
+pins the main frame to its app:// origin. Verified in preview: upload →
+link → copies + opens `?shared=` URL → cold-loads the replay (score graph
+included); Library rows clean; demo hides Share. 187 unit + 9 layout tests.
+
 ## Session 33 — July 2, 2026 (replay upload thin slice + selector-log capture — milestone §5)
 
 The milestone got rescoped today (original scope closed; five items remain —

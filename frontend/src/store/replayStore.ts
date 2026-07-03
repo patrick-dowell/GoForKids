@@ -45,6 +45,9 @@ interface ReplayState {
   /** Per-move score leads saved with the game — drives the replay score
    *  graph. Empty for older saves and stub-AI games (graph hides itself). */
   scoreHistory: ScorePoint[];
+  /** See loadGame meta. */
+  libraryId: string | null;
+  sharedId: string | null;
   /** Dead stones from the live game's scoring (saved with the game), used to
    *  reproduce accurate end-of-game territory in the replay. */
   _savedDeadStones: DeadStone[];
@@ -57,6 +60,12 @@ interface ReplayState {
       opponentRank?: string;
       scoreHistory?: ScorePoint[];
       deadStones?: Array<{ row: number; col: number; color: number }>;
+      /** Library id of the SavedGame this replay came from — lets the
+       *  replay's Share button upload it and stamp the share code back. */
+      libraryId?: string;
+      /** Share code when the replay was opened FROM a share link — the
+       *  button renders as the link straight away. */
+      sharedId?: string;
     },
   ) => void;
   goToMove: (n: number) => void;
@@ -192,6 +201,8 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   _autoPlayTimer: null,
   highlights: [],
   scoreHistory: [],
+  libraryId: null,
+  sharedId: null,
   _savedDeadStones: [],
 
   loadGame: (sgf, meta) => {
@@ -238,6 +249,8 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
       _autoPlayTimer: null,
       highlights,
       scoreHistory: meta?.scoreHistory ?? [],
+      libraryId: meta?.libraryId ?? null,
+      sharedId: meta?.sharedId ?? null,
     });
   },
 

@@ -1,8 +1,112 @@
+import { useState } from 'react';
 import { useReplayStore } from '../store/replayStore';
 import { getKataGoBridge } from '../api/nativeKataGo';
+import { api } from '../api/client';
+import { useLibraryStore } from '../store/libraryStore';
+import { useProfileStore } from '../store/profileStore';
 import { ConceptLink } from './ConceptLink';
 import { getConcept } from '../learn/concepts';
 import { ReplayScoreGraph } from './ScoreGraph';
+
+/** Web app origin for share links. Inside the native app (app:// scheme) the
+ *  page origin is useless to a friend — fall back to the deployed web URL. */
+const WEB_BASE = import.meta.env.VITE_WEB_BASE_URL
+  ?? (window.location.origin.startsWith('http')
+    ? window.location.origin + window.location.pathname.replace(/\/$/, '')
+    : 'https://goforkids-web.onrender.com');
+
+function shareLinkFor(sharedId: string): string {
+  return `${WEB_BASE}/?shared=${sharedId}`;
+}
+
+/**
+ * Share the replayed game (milestone §5 — moved here from the Library per
+ * Patrick's feedback 2026-07-02): upload once, then the button becomes the
+ * link — tap to copy it AND open it in the browser, so you can see where
+ * your game lives online and send that URL to anyone.
+ */
+function ShareGameButton() {
+  const libraryId = useReplayStore((s) => s.libraryId);
+  const replaySharedId = useReplayStore((s) => s.sharedId);
+  const libraryGame = useLibraryStore((s) =>
+    libraryId ? s.games.find((g) => g.id === libraryId) : undefined,
+  );
+  const setSharedId = useLibraryStore((s) => s.setSharedId);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Live code from the library entry (updates after upload); a replay opened
+  // FROM a share link carries its code directly.
+  const sharedId = libraryGame?.sharedId ?? replaySharedId ?? undefined;
+
+  // Demo replays and other unsharable sources: nothing to share.
+  if (!libraryGame && !sharedId) return null;
+
+  const handleShare = async () => {
+    if (!libraryGame) return;
+    setError(false);
+    setUploading(true);
+    try {
+      const sizeMatch = libraryGame.sgf.match(/SZ\[(\d+)\]/);
+      const { id } = await api.uploadGame(libraryGame, {
+        playerName: useProfileStore.getState().displayName || undefined,
+        boardSize: sizeMatch ? Number(sizeMatch[1]) : undefined,
+      });
+      setSharedId(libraryGame.id, id);
+    } catch (e) {
+      console.warn('Game upload failed:', e);
+      setError(true);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleOpenLink = () => {
+    if (!sharedId) return;
+    const link = shareLinkFor(sharedId);
+    navigator.clipboard?.writeText(link).catch(() => { /* code stays visible */ });
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+    // Native app: WKUIDelegate hands _blank opens to Safari.
+    window.open(link, '_blank', 'noopener,noreferrer');
+    // Self-heal: uploads can be lost server-side (deploy-window incident,
+    // 2026-07-02). Clear the stale code ONLY on a definitive not-found so
+    // the Share button comes back; a network error proves nothing.
+    if (libraryGame) {
+      api.fetchSharedGame(sharedId).catch((e) => {
+        if (e instanceof Error && /not found/i.test(e.message)) {
+          console.warn(`[share] server lost ${sharedId} — reverting to Share`);
+          setSharedId(libraryGame.id, undefined);
+        }
+      });
+    }
+  };
+
+  if (sharedId) {
+    return (
+      <button
+        onClick={handleOpenLink}
+        className="btn btn-secondary replay-share-link"
+        style={{ fontSize: 12 }}
+        title={shareLinkFor(sharedId)}
+      >
+        {copied ? 'Link copied!' : `🔗 ${sharedId} ↗`}
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={handleShare}
+      disabled={uploading}
+      className="btn btn-secondary"
+      style={{ fontSize: 12 }}
+      title="Upload this game and get a link anyone can open"
+    >
+      {uploading ? 'Sharing…' : error ? 'Retry share' : 'Share game'}
+    </button>
+  );
+}
 
 interface ReplayControlsProps {
   /** Called when the user taps Close. Lets the parent route back to home
@@ -177,6 +281,7 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
         <button onClick={downloadSGF} className="btn btn-secondary" style={{ fontSize: 12 }}>
           {getKataGoBridge() ? 'Share SGF' : 'Download SGF'}
         </button>
+        <ShareGameButton />
       </div>
 
       <div className="replay-hint">

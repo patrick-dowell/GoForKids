@@ -87,7 +87,7 @@ function App() {
     const shared = params.get('shared');
     if (shared) {
       api.fetchSharedGame(shared).then(
-        ({ payload }) => {
+        ({ id, payload }) => {
           setShowHome(false);
           useReplayStore.getState().loadGame(payload.sgf, {
             result: payload.result,
@@ -95,6 +95,7 @@ function App() {
             opponentRank: payload.opponentRank,
             scoreHistory: payload.scoreHistory,
             deadStones: payload.deadStones,
+            sharedId: id,
           });
         },
         (e) => {
@@ -305,6 +306,8 @@ function App() {
       opponentRank: saved.opponentRank,
       scoreHistory: saved.scoreHistory,
       deadStones: saved.deadStones,
+      libraryId: saved.id,
+      sharedId: saved.sharedId,
     });
   };
 

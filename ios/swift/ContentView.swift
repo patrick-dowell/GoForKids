@@ -95,6 +95,43 @@ struct ContentView: View {
 }
 
 struct WebView: UIViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    /// External links leave the app through Safari. `window.open(...,'_blank')`
+    /// (the replay's Share link, the Feedback button) lands in
+    /// createWebViewWith — hand http(s) to the system browser, never spawn a
+    /// child web view. Plain anchor navigations to http(s) are intercepted
+    /// the same way so the main frame can't wander off its app:// origin.
+    final class Coordinator: NSObject, WKUIDelegate, WKNavigationDelegate {
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if let url = navigationAction.request.url,
+               url.scheme == "http" || url.scheme == "https" {
+                UIApplication.shared.open(url)
+            }
+            return nil
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            if let url = navigationAction.request.url,
+               navigationAction.targetFrame?.isMainFrame != false,
+               url.scheme == "http" || url.scheme == "https" {
+                UIApplication.shared.open(url)
+                decisionHandler(.cancel)
+                return
+            }
+            decisionHandler(.allow)
+        }
+    }
+
     func makeUIView(context: Context) -> WKWebView {
         print("[ContentView] makeUIView — building WKWebView with bridge")
         let config = WKWebViewConfiguration()
@@ -139,6 +176,9 @@ struct WebView: UIViewRepresentable {
         webView.backgroundColor = .black
         webView.scrollView.backgroundColor = .black
         webView.isOpaque = false
+
+        webView.uiDelegate = context.coordinator
+        webView.navigationDelegate = context.coordinator
 
         KataGoBridge.shared.attach(to: webView)
         return webView
