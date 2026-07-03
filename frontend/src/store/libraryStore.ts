@@ -37,7 +37,9 @@ interface LibraryState {
   games: SavedGame[];
   saveGame: (game: SavedGame) => void;
   deleteGame: (id: string) => void;
-  setSharedId: (id: string, sharedId: string) => void;
+  /** Stamp (or clear, with undefined) a game's share code after upload —
+   *  cleared when the server no longer has the code so Share reappears. */
+  setSharedId: (id: string, sharedId: string | undefined) => void;
   clearAll: () => void;
   loadFromStorage: () => void;
 }
@@ -67,7 +69,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     persistGames(games);
   },
 
-  setSharedId: (id: string, sharedId: string) => {
+  setSharedId: (id: string, sharedId: string | undefined) => {
     const games = get().games.map((g) => (g.id === id ? { ...g, sharedId } : g));
     set({ games });
     persistGames(games);

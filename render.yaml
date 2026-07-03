@@ -25,6 +25,16 @@ services:
     dockerfilePath: ./backend/Dockerfile
     healthCheckPath: /health
     autoDeploy: true
+    # Only redeploy the API when backend code or bot profiles change.
+    # Frontend-only pushes used to trigger pointless API deploys — and each
+    # API deploy is a data-loss window for /api/uploads: writes made while
+    # the new instance builds belong to the old instance's disk state and
+    # vanish at the swap (lost Patrick's DT8VXPSD share, 2026-07-02).
+    buildFilter:
+      paths:
+        - backend/**
+        - data/profiles/**
+        - render.yaml
     envVars:
       - key: GOFORKIDS_DB
         value: /data/goforkids.db
@@ -45,6 +55,9 @@ services:
     buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
     autoDeploy: true
+    buildFilter:
+      paths:
+        - frontend/**
     envVars:
       - key: VITE_API_BASE_URL
         sync: false      # Set to the goforkids-api URL after first deploy.

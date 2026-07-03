@@ -78,6 +78,16 @@ export function GameLibrary({ onSelectGame, onClose }: GameLibraryProps) {
     } catch {
       // Clipboard unavailable (older WKWebView) — the code is visible anyway.
     }
+    // Self-heal: uploads can be lost server-side (an API deploy's disk swap
+    // ate one on 2026-07-02). Verify in the background; clear the stale code
+    // ONLY on a definitive not-found — a network error proves nothing.
+    api.fetchSharedGame(game.sharedId).catch((e) => {
+      if (e instanceof Error && /not found/i.test(e.message)) {
+        console.warn(`[share] server lost ${game.sharedId} — reverting to Share`);
+        setSharedId(game.id, undefined);
+        setCopiedId(null);
+      }
+    });
   };
 
   useEffect(() => {

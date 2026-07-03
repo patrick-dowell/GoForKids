@@ -19,8 +19,12 @@ DB_PATH = os.environ.get("GOFORKIDS_UPLOADS_DB") or os.environ.get(
 )
 
 # Share codes are read aloud / typed by kids and parents: uppercase, no
-# ambiguous glyphs (0/O, 1/I/L). 8 chars over 31 symbols ≈ 8.5e11 codes.
-SHARE_ID_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+# ambiguous glyphs — 0/O and 1/I/L were excluded from day one; the
+# shape/sound-alike pairs 5/S, 8/B, 2/Z, U/V each keep one form (hardening
+# added 2026-07-02 after chasing a "wrong code?" theory during the lost-upload
+# incident). 8 chars over 27 symbols ≈ 2.8e11 codes. Old codes containing
+# S/B/Z/U still resolve — this only constrains generation.
+SHARE_ID_ALPHABET = "23456789ACDEFGHJKMNPQRTVWXY"
 SHARE_ID_LENGTH = 8
 
 

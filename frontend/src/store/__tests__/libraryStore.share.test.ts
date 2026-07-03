@@ -62,6 +62,17 @@ describe('libraryStore sharing', () => {
     ).toBe('ABCD2345');
   });
 
+  it('setSharedId(id, undefined) clears a stale code (server lost the upload)', () => {
+    const s = useLibraryStore.getState();
+    s.saveGame(makeGame('a', { sharedId: 'DEADC0DE' }));
+    useLibraryStore.getState().setSharedId('a', undefined);
+    expect(useLibraryStore.getState().games[0].sharedId).toBeUndefined();
+
+    useLibraryStore.setState({ games: [] });
+    useLibraryStore.getState().loadFromStorage();
+    expect(useLibraryStore.getState().games[0].sharedId).toBeUndefined();
+  });
+
   it('selectorLog round-trips through save + storage', () => {
     const log = ['2026-07-02T00:00:00.000Z [selector] PASS reason=pass-threshold'];
     useLibraryStore.getState().saveGame(makeGame('c', { selectorLog: log }));
