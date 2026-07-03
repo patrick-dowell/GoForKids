@@ -49,6 +49,14 @@ pins the main frame to its app:// origin. Verified in preview: upload →
 link → copies + opens `?shared=` URL → cold-loads the replay (score graph
 included); Library rows clean; demo hides Share. 187 unit + 9 layout tests.
 
+**Device validation (Patrick, same night): both S34 changes look good** —
+score-graph scrubber + replay-panel Share/link. One bug found: **the
+key-move highlight note is cut off on iPhone Pro Max portrait** (fine
+landscape). Same exact-budget mechanism the graph hit; invisible to the
+layout suite because the replay sweep runs at move 0 where no note mounts —
+logged in MILESTONE §1 with the test-gap fix to do first. §1 and §5 both
+closed; milestone remainder: §3 (9×9 profiles) → §4a, §2 in capture-mode.
+
 ## Session 33 — July 2, 2026 (replay upload thin slice + selector-log capture — milestone §5)
 
 The milestone got rescoped today (original scope closed; five items remain —
