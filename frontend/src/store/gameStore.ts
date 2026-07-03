@@ -3,10 +3,10 @@ import { Game, type GamePhase } from '../engine/Game';
 import { Board } from '../engine/Board';
 import { Color, type Point, type GameResult, MoveResult, BOARD_SIZE } from '../engine/types';
 import { api } from '../api/client';
-import { toGtp } from '../api/nativeKataGo';
+import { getKataGoBridge, toGtp } from '../api/nativeKataGo';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
-import { clearSelectorLog, snapshotSelectorLog } from '../ai/selectorLog';
+import { clearSelectorLog, recordSelectorLog, snapshotSelectorLog } from '../ai/selectorLog';
 import { useAutoPlayStore } from './autoPlayStore';
 import { BOT_AVATARS, type PlayerAvatarType, type BotAvatarType } from '../components/Avatar';
 
@@ -415,6 +415,7 @@ function lessonAutoPass(
 
   // Bot side with no legal moves → auto-pass on its behalf.
   s._game.pass();
+  recordSelectorLog(`[game] bot pass auto move=${s._game.moveHistory.length} (lesson no-legal-moves)`);
   playPassSound();
 
   const prevHistory = s.scoreHistory;
@@ -524,8 +525,17 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (prevTimer) clearTimeout(prevTimer);
 
     // Fresh diagnostic buffer so the finished game's SavedGame carries only
-    // its own selector lines (autoSaveGame snapshots it).
+    // its own selector lines (autoSaveGame snapshots it). The header line
+    // makes every game saved by this build carry a non-empty log — so an
+    // uploaded game with NO selectorLog at all was saved by an older build —
+    // and records whether the native bridge was live (bridge=no ⇒ this game's
+    // bot ran server-side; its selector diagnostics are in Render logs).
     clearSelectorLog();
+    recordSelectorLog(
+      `[game] start capture=v2 size=${options?.boardSize ?? BOARD_SIZE} ` +
+        `rank=${options?.targetRank ?? '15k'} mode=${options?.gameMode ?? 'ai'} ` +
+        `bridge=${getKataGoBridge() ? 'yes' : 'no'}`,
+    );
 
     const gameMode = options?.gameMode ?? 'ai';
     const requestedSize = options?.boardSize ?? BOARD_SIZE;
@@ -713,6 +723,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (gameId && currentColor !== playerColor) return;
 
     _game.pass();
+    recordSelectorLog(`[game] player pass move=${_game.moveHistory.length}`);
     playPassSound();
     // Player chose Pass — clear the bot-passed + out-of-moves flags.
     set({ botJustPassed: false, playerOutOfMoves: false });
@@ -963,6 +974,12 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Server's AIMoveResponse for a pass also includes its prior score_lead.
       const wasPlayingBeforePass = _game.phase === 'playing';
       _game.pass();
+      // Store-level record, independent of the selector: fires whichever path
+      // (bridge or HTTP) produced the pass, so an HTTP game shows the pass
+      // commits even though the Python selector's reasons live in Render logs.
+      recordSelectorLog(
+        `[game] bot pass committed move=${_game.moveHistory.length} via=${getKataGoBridge() ? 'bridge' : 'http'}`,
+      );
       playPassSound();
       const prevAi = get().scoreHistory;
       const lastAiLead = typeof aiMove.score_lead === 'number'
@@ -1059,6 +1076,9 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Bot passed — carry the prior lead forward (board unchanged).
       _game.pass();
+      recordSelectorLog(
+        `[game] bot pass committed move=${_game.moveHistory.length} via=${getKataGoBridge() ? 'bridge' : 'http'} (bot-vs-bot)`,
+      );
       playPassSound();
       const prevBvb = get().scoreHistory;
       const lastBvbLead = typeof aiMove.score_lead === 'number'
@@ -1233,6 +1253,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     // Player's pass first.
     _game.pass();
+    recordSelectorLog(`[game] player pass move=${_game.moveHistory.length} (pass-and-end)`);
     playPassSound();
 
     // If the bot hadn't already passed (consecutivePasses now === 1),
@@ -1243,6 +1264,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     // bot still has legal moves).
     if (_game.phase === 'playing') {
       _game.pass();
+      recordSelectorLog(`[game] bot pass forced move=${_game.moveHistory.length} (pass-and-end)`);
       playPassSound();
     }
     playGameEndSound();
