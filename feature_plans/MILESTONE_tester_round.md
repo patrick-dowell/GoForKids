@@ -26,9 +26,15 @@ Still open from fp 03 but **not gating this milestone**: §C "make territory, do
 
 **Order of attack: §5 → §3 → §1 → §4a.** §2 is in capture-mode, not queued for a fix attempt. **§5 closed 2026-07-02 — next up: §3.**
 
-### 1. Score graph in replays
+### 1. Score graph in replays  ✅ built + locally verified 2026-07-02 (S34; pending device pass)
 Mount the existing `ScoreGraph` in the replay view with a position cursor synced to the timeline. Small and frontend-only: `scoreHistory` is already persisted on every library entry (`libraryStore.ts`), so past on-device games already have the data. Web/stub games without `scoreHistory` simply don't show the graph.
 - _Acceptance:_ stepping through a replayed game shows the score arc with a "you are here" marker; matches the live-game graph's read of the final margin.
+> **Status: built (Session 34).** Shipped as the replay's scrubber — the panel
+> had zero vertical slack (layout suite failed 9/14 viewports on the naive
+> mount), so the graph absorbs the slider + marker strip: "Move N / M" header,
+> lead-at-cursor, tap/drag-to-seek, key-move dots on the arc. No-scoreHistory
+> saves keep the old slider. Verified on demo + Patrick's real 19×19 payload +
+> all 14 layout viewports. Remaining: Patrick's device feel-pass.
 
 ### 2. Ko-fight passes — CAPTURE MODE (no fix attempt until an instrumented repro)
 Still occurring in game-breaking situations (Patrick, ~late June — less frequent since Option B, but not gone). **Decision 2026-07-02: we've attempted fixes ≥3 times without closing it; do not attempt #4 blind.** The S27 logging can already distinguish the mechanism — `filtered-empty-*` = the known koSIMPLE-vs-superko mismatch (root fix A: align KataGo's rules config); `pass-threshold` / `katago-top-pass` = a *different* too-eager-pass bug — but no field incident has ever been captured (Patrick is never attached to Xcode when it happens).

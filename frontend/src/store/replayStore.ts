@@ -42,6 +42,9 @@ interface ReplayState {
   _autoPlayTimer: number | null;
   /** Play-of-the-Game highlights for this game (empty if no score data). */
   highlights: ReviewHighlight[];
+  /** Per-move score leads saved with the game — drives the replay score
+   *  graph. Empty for older saves and stub-AI games (graph hides itself). */
+  scoreHistory: ScorePoint[];
   /** Dead stones from the live game's scoring (saved with the game), used to
    *  reproduce accurate end-of-game territory in the replay. */
   _savedDeadStones: DeadStone[];
@@ -188,6 +191,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   autoPlaySpeed: 600,
   _autoPlayTimer: null,
   highlights: [],
+  scoreHistory: [],
   _savedDeadStones: [],
 
   loadGame: (sgf, meta) => {
@@ -233,6 +237,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
       autoPlaying: false,
       _autoPlayTimer: null,
       highlights,
+      scoreHistory: meta?.scoreHistory ?? [],
     });
   },
 

@@ -2,6 +2,7 @@ import { useReplayStore } from '../store/replayStore';
 import { getKataGoBridge } from '../api/nativeKataGo';
 import { ConceptLink } from './ConceptLink';
 import { getConcept } from '../learn/concepts';
+import { ReplayScoreGraph } from './ScoreGraph';
 
 interface ReplayControlsProps {
   /** Called when the user taps Close. Lets the parent route back to home
@@ -33,6 +34,15 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
   const currentHighlight = highlights.find((h) => h.moveNumber === currentMove);
   const concept = currentHighlight?.conceptId ? getConcept(currentHighlight.conceptId) : undefined;
 
+  // With score data, the score graph IS the scrubber (arc + key-move dots +
+  // "Move N / M" header + drag-to-seek) — the panel has no vertical room for
+  // both, so the plain slider + marker strip render only as the fallback.
+  // Must mirror ReplayScoreGraph's own render guard (it drops the move-0
+  // seed point), else a degenerate history leaves NO scrubber at all.
+  const hasScoreGraph = useReplayStore(
+    (s) => s.scoreHistory.filter((p) => p.move >= 1).length >= 2,
+  );
+
   return (
     <div className="replay-controls">
       <div className="replay-header">
@@ -42,50 +52,63 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
         </button>
       </div>
 
-      {opponentRank && <div className="replay-meta">vs {opponentRank}</div>}
-      {gameResult && <div className="replay-result">{gameResult}</div>}
+      {/* One line, not two — the replay panel fits the viewport with zero
+          slack (layout policy), and the score graph needed the row back. */}
+      {(opponentRank || gameResult) && (
+        <div className="replay-meta">
+          {opponentRank ? `vs ${opponentRank}` : ''}
+          {opponentRank && gameResult ? ' · ' : ''}
+          {gameResult}
+        </div>
+      )}
 
-      <div className="replay-position">
-        Move {currentMove} / {totalMoves}
-        {currentHighlight && <span style={{ color: currentHighlight.kind === 'good' ? '#ffd36e' : '#9bd1ff' }}> ★ key move</span>}
-      </div>
-
-      {/* Timeline with Play-of-the-Game markers above the scrubber. */}
-      <div className="replay-slider" style={{ position: 'relative' }}>
-        {hasHighlights && totalMoves > 0 && (
-          <div style={{ position: 'relative', height: 12, margin: '0 6px 2px' }}>
-            {highlights.map((h) => (
-              <button
-                key={h.moveNumber}
-                onClick={() => goToMove(h.moveNumber)}
-                title={`Move ${h.moveNumber}: ${h.headline}`}
-                aria-label={`Key move ${h.moveNumber}`}
-                style={{
-                  position: 'absolute',
-                  left: `calc(${(h.moveNumber / totalMoves) * 100}% - 4px)`,
-                  top: 0,
-                  width: 8,
-                  height: 12,
-                  padding: 0,
-                  border: 'none',
-                  borderRadius: 2,
-                  cursor: 'pointer',
-                  background: h.kind === 'good' ? '#ffd36e' : '#9bd1ff',
-                  opacity: h.moveNumber === currentMove ? 1 : 0.7,
-                  outline: h.moveNumber === currentMove ? '2px solid #fff' : 'none',
-                }}
-              />
-            ))}
+      {hasScoreGraph ? (
+        <ReplayScoreGraph />
+      ) : (
+        <>
+          <div className="replay-position">
+            Move {currentMove} / {totalMoves}
+            {currentHighlight && <span style={{ color: currentHighlight.kind === 'good' ? '#ffd36e' : '#9bd1ff' }}> ★ key move</span>}
           </div>
-        )}
-        <input
-          type="range"
-          min={0}
-          max={totalMoves}
-          value={currentMove}
-          onChange={(e) => goToMove(parseInt(e.target.value))}
-        />
-      </div>
+
+          {/* Timeline with Play-of-the-Game markers above the scrubber. */}
+          <div className="replay-slider" style={{ position: 'relative' }}>
+            {hasHighlights && totalMoves > 0 && (
+              <div style={{ position: 'relative', height: 12, margin: '0 6px 2px' }}>
+                {highlights.map((h) => (
+                  <button
+                    key={h.moveNumber}
+                    onClick={() => goToMove(h.moveNumber)}
+                    title={`Move ${h.moveNumber}: ${h.headline}`}
+                    aria-label={`Key move ${h.moveNumber}`}
+                    style={{
+                      position: 'absolute',
+                      left: `calc(${(h.moveNumber / totalMoves) * 100}% - 4px)`,
+                      top: 0,
+                      width: 8,
+                      height: 12,
+                      padding: 0,
+                      border: 'none',
+                      borderRadius: 2,
+                      cursor: 'pointer',
+                      background: h.kind === 'good' ? '#ffd36e' : '#9bd1ff',
+                      opacity: h.moveNumber === currentMove ? 1 : 0.7,
+                      outline: h.moveNumber === currentMove ? '2px solid #fff' : 'none',
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            <input
+              type="range"
+              min={0}
+              max={totalMoves}
+              value={currentMove}
+              onChange={(e) => goToMove(parseInt(e.target.value))}
+            />
+          </div>
+        </>
+      )}
 
       {/* Explanation for the key move you're currently on. */}
       {currentHighlight && (

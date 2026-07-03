@@ -1,5 +1,37 @@
 # Development Journal
 
+## Session 34 — July 2, 2026 (replay score graph — milestone §1)
+
+The score arc in replays, shipped as **the scrubber, not another row**: the
+replay panel fits every viewport with zero slack (the S29 policy), and the
+first mount attempt blew the fold by 64–108px on 9 of 14 viewports — the
+layout suite caught it. Patrick's rule (board size beats panel placement)
+forbids shrinking the board, so the graph pays for itself by absorbing the
+range slider + the key-move marker strip, and the meta/result rows merged
+into one line.
+
+- **`ScoreGraphChart`** extracted from the live ScoreGraph (presentational:
+  history, label, cursorMove, onSeek, markers). Live game keeps its old
+  look; **`ReplayScoreGraph`** wraps it with replay state: "Move N / M" in
+  the header, lead-at-cursor on the right, white cursor line, tap/drag
+  anywhere to seek, gold/blue **key-move dots ON the score line** (tap →
+  exact move). Games without scoreHistory (older saves, stub AI) fall back
+  to the original slider + marker strip.
+- **Move-0 seed point dropped in replay**: on handicap saves its lead is a
+  raw-board-count artifact (+356.5 on Patrick's 19×19) that flattened the
+  y-scale and opened the replay showing nonsense.
+- **SVG stretch gotchas** under `preserveAspectRatio="none"`: circles render
+  as ellipses and 1px lines as ~4px bars — dots are HTML overlays (round,
+  bigger touch targets), lines use `vector-effect: non-scaling-stroke`.
+  Also: `setPointerCapture` throws on inactive pointerIds — guarded, it was
+  killing the seek in synthetic-event tests.
+- Verified: demo replay + Patrick's real 19×19 (QGGMWXF5 payload: opens at
+  the first real sample, cursor tracks steps/seeks, end matches the +158.5
+  margin) + no-history fallback + 375px mobile. Build green, 187 unit tests,
+  **layout suite 9/9 across all 14 viewports** (after the fix — it failed
+  first, working as designed). Pending Patrick's device pass: graph feel on
+  iPhone/iPad, drag-scrub, marker taps.
+
 ## Session 33 — July 2, 2026 (replay upload thin slice + selector-log capture — milestone §5)
 
 The milestone got rescoped today (original scope closed; five items remain —

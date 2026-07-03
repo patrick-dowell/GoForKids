@@ -504,6 +504,52 @@ body {
   height: 10px;
   flex-shrink: 0;
 }
+/* Plot overlay layer: dots are HTML (SVG circles would stretch into
+   ellipses under preserveAspectRatio="none"). */
+.score-graph-plot {
+  position: relative;
+}
+.score-graph-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.score-graph-marker {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+}
+.score-graph-marker.good { background: #ffd36e; }
+.score-graph-marker.bad { background: #9bd1ff; }
+.score-graph-marker.active {
+  width: 12px;
+  height: 12px;
+  outline: 2px solid #fff;
+}
+
+/* Replay score graph (milestone §1) — explicit SVG height: the 200×70
+   viewBox with width:100% would otherwise scale with the panel width
+   (~350px tall on a stacked full-width panel — same trap as the side-panel
+   rule further down). 48px (not the live graph's 70) at every size: the
+   replay panel fits the viewport with zero slack, and the graph doubles as
+   the scrubber so it must cost no more than the slider rows it replaced. */
+.replay-score-graph .score-graph svg,
+.replay-score-graph .score-graph-empty svg {
+  height: 48px;
+  width: 100%;
+}
+.replay-score-graph .score-graph {
+  margin-top: 4px;
+  padding: 4px 8px;
+}
 
 /* Buttons */
 .control-buttons {
@@ -1596,6 +1642,15 @@ body {
   .app-replay .replay-btn {
     height: 32px;
   }
+  /* Height-constrained: keep the score arc but at chart-only size. */
+  .app-replay .replay-score-graph .score-graph svg,
+  .app-replay .replay-score-graph .score-graph-empty svg {
+    height: 40px;
+  }
+  .app-replay .replay-score-graph .score-graph {
+    margin-top: 2px;
+    padding: 3px 8px;
+  }
 }
 
 /* Replay: drop the player-card strip on phones, small/mid iPads, ALL
@@ -1631,7 +1686,8 @@ body {
 @media (max-height: 500px) and (orientation: landscape) {
   .app-replay .replay-meta,
   .app-replay .replay-result,
-  .app-replay .speed-control label {
+  .app-replay .speed-control label,
+  .app-replay .replay-score-graph {
     display: none;
   }
   .app-replay .replay-controls {
