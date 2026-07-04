@@ -1,5 +1,121 @@
 # Development Journal
 
+## Session 36 — July 3, 2026 (§2 fix #4: ko-aware selector + never pass on rejection + desync recovery)
+
+Same evening as S35, other half of the 888P9NXK repro work: S35 classified
+the incident; this session shipped fix attempt #4 — justified at last,
+because the repro named its paths. Four layers (full detail in MILESTONE §2):
+
+- **Why the bot proposes banned recaptures at all:** not (only) KataGo. The
+  TS selector's `local_bias` / `random_move_chance` branches run BEFORE
+  KataGo candidate selection on a `boardFromGrid` board — grid only, no
+  history, so no superko and no ko. After the player takes a ko, the banned
+  recapture is empty, "legal" on that board, and adjacent to
+  `lastOpponentMove` — which is exactly where local-bias looks. High
+  `local_bias` at kid ranks is why this reliably fires in ko fights.
+  Verified for move 235: (5,17) was the just-vacated ko point, B(5,18) sat
+  in atari next to the anchor, and a clean-history sim confirms (5,17) was
+  genuinely superko-banned — the engine was right, the fallback was wrong.
+  KataGo itself (koSIMPLE, full `movesForBridge` history) would refuse an
+  *immediate* recapture; blaming the rules mismatch alone never explained it.
+- **Fix layer 1 — `Board.koBan`:** `{point, color}` ban set ONLY by
+  `boardFromGrid` (from the server's `ko_point` — the local router and the
+  backend both already send it), enforced at the top of `tryPlay`. One choke
+  point → every selector branch (candidate isLegal filter, local-bias
+  nearby-moves, random-legal, atari heuristics, eye-fill fallback) inherits
+  it. Real game boards never set it, so engine semantics are untouched.
+  Cleared on any committed move. This also restores TS↔Python selector
+  parity: the Python selector runs on the real history-bearing board and was
+  never ko-blind.
+- **Fix layer 2 — commit-time catches don't pass anymore:**
+  `getAIMoveViaBridge` retries up to 3 exclusion-aware
+  `pickLegalNonEyeMove` alternatives; `finishMoveViaBridge` walks KataGo's
+  next real candidates. Pass only on exhaustion, logged as
+  `PASS reason=commit-rejected-exhausted`.
+- **Fix layer 3 — the move-233 loose end was a THIRD silent pass path, in
+  the store:** when the server had committed the bot's move but the local
+  `_game.playMove` rejected it, `requestAIMove` fell through into the "AI
+  passed" block — no log line, and the engines desynced further (server
+  kept the move; local recorded a pass). A clean-history sim proves no
+  White move at 233 was locally rejectable on synced boards, so 233 is
+  also *proof of a pre-existing desync* — seed still unidentified (backend
+  undo ruled out for this all-bridge game, see S35 addendum). New behavior:
+  `LOCAL-REJECT` log + force-resync via `Game.forceApplyServerMove` from
+  the post-move server grid (`AIMoveDTO.board`, new; HTTP path falls back
+  to `getGame`). Same treatment in bot-vs-bot + the finish loop. Fourth
+  silent path found in the same audit — the eye-fill retry wrapper — now
+  logs `PASS reason=eye-fill-retries-exhausted`. Player-move sync failures
+  (`.catch(console.warn)` — a network blip = permanent desync) now log too.
+- **Fix layer 4 — desync detection:** every move response that carries a
+  server board gets a local-hash vs server-hash compare; first mismatch per
+  game logs `[desync] … move=N`. The next field repro dates its divergence
+  instead of leaving it to reconstruction.
+- Tests 199 → **202**: `Board.koBan` suite, `forceApplyServerMove` suite,
+  `moveSelector.koBan` integration (KataGo offering ONLY the banned
+  recapture must never produce it), `gameStore.desyncRecovery` (the exact
+  888P9NXK shape: server-committed move locally rejected → resync applied,
+  `api.pass` never called, `LOCAL-REJECT` logged). `npm run build` green.
+  Frontend-only change set — no backend files touched (S35's worker owned
+  those), no profile changes.
+- **Open:** root fix A (KataGo superko rules) demoted — koBan + commit-retry
+  cover the observed failure class; A now only buys stronger bot ko play.
+  Desync-seed hunt rides the new instrumentation. Patrick to device-validate
+  in real ko fights before §2 closes.
+
+**Addendum — web-path ko hole claimed + a month-old NameError found (same
+night, after the S35 thread's handoff notes).** The S35 worker flagged that
+`move_selector.py` still sends KataGo an empty `moves` list — the Render
+path was ko-blind independent of everything above. Claimed and fixed:
+
+- **KataGo now gets real history on the web path.** `engine.analyze` grew
+  optional `moves` + `initial_stones` params (`analyzeTurns=[len(moves)]`,
+  `initialPlayer` derived from the move list); evaluation-only callers
+  (score lead, ownership) keep the bare layout. New `_engine_history(game)`
+  in state.py builds (handicap-as-setup, moves-with-passes) — the exact
+  counterpart of the frontend's `buildBridgeMovesFromGame`. Threaded through
+  `select_ai_move` → `_select_with_katago` and `finish_move`.
+- **While threading it: `_select_with_katago` has referenced
+  `opponent_passed` without receiving it since 19bfbb6 (2026-06-04)** —
+  a NameError on EVERY web-path KataGo selection, swallowed by the broad
+  `except Exception` → `_pick_random_legal`. **The Render bot has been
+  playing pure random-legal moves for a month.** Nobody noticed because
+  all testers are on-device (bridge) — and the settle-path work itself
+  "validated" on-device where the TS port was correct. Fixed (param
+  threaded); the except now uses `logger.exception` so the next swallowed
+  bug carries a traceback instead of blending into KataGo hiccups.
+  ⚠️ Implication: any June web-path play-feel observations (bot strength,
+  settle behavior) were observations of a random-move bot — disregard.
+- **Server twins of the client pass-on-rejection fixed too:** `get_ai_move`
+  plays a `_pick_legal_non_eye_move` fallback on commit rejection (pass only
+  on exhaustion, logged `PASS reason=commit-rejected-exhausted`);
+  `finish_move` walks KataGo's next candidates before conceding a pass.
+- Backend tests 3 → **6** (`test_ai_move_fallback.py`): rejected-pick →
+  fallback-not-pass, `_engine_history` handicap+pass encoding, no-handicap
+  encoding. All under S35's venv/pytest scaffolding.
+- ⚠️ Deploy note: these are `backend/**` changes — the push will trigger a
+  Render API deploy (buildFilter). Remember the operational rule: no
+  uploads/shares while it builds.
+
+**Addendum 2 — undo desync holes found + fixed (Patrick's hypothesis:
+"handicap + undo seeded the desync").** Checked the undo path and found two
+concrete supporting mechanisms in `gameStore.undo`:
+1. **The handicap-only hole (all paths, bridge included):** a server game
+   with `moveHistory.length === 1` fell into the *local-only* else-branch —
+   `_game` undone, `api.undo` never called, instant silent desync. The only
+   server games with a one-move history are handicap games (bot moves
+   first). Undoing the bot's opening move = guaranteed desync. Fixed: a
+   dedicated single-undo branch that syncs one server undo.
+2. **Fire-and-forget chain:** the two `api.undo`s ran with
+   `.catch(console.warn)` — failures (and, on the slow HTTP path, request
+   interleaving) never surfaced. Fixed: the chain's final response (a full
+   `GameStateDTO`) now runs through `checkBoardSync` — every undo verifies
+   local board == server board on the spot — and failures land in the
+   selector log.
+   Tests 202 → **205** (single-move undo syncs + verifies, double undo
+   issues two + verifies, sync failure logs). If Patrick's hypothesis is
+   right, his handicap+undo device test now either just-works or names the
+   divergence with a dated `[desync]`/`undo server-sync FAILED` line.
+
 ## Session 35 — July 3, 2026 (backend handicap-undo desync — suspected §2 seed)
 
 The backend's `GameStateManager.undo` (state.py) had the exact bug the
