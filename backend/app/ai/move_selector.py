@@ -160,6 +160,8 @@ async def select_ai_move(
     board: Board, color: Color, target_rank: str,
     last_opponent_move: Optional[Point] = None,
     opponent_passed: bool = False,
+    engine_moves: Optional[list[list[str]]] = None,
+    engine_setup: Optional[list[list[str]]] = None,
 ) -> Optional[Point]:
     """Select a move for the AI at the given target rank.
 
@@ -168,15 +170,25 @@ async def select_ai_move(
     `opponent_passed` routes through a "settle cleanly" path (deeper search, no
     mistake injection) so the bot passes at a settled position instead of
     filling its own territory.
+    `engine_moves` / `engine_setup` are the real game history + handicap setup
+    in KataGo query form (see engine.analyze) — without them KataGo analyzes a
+    bare stone layout and can't see ko bans, so it suggests recaptures our
+    engine rejects (the web half of the 888P9NXK ko-pass bug).
     """
-    move = await _select_ai_move_inner(board, color, target_rank, last_opponent_move, opponent_passed)
+    move = await _select_ai_move_inner(
+        board, color, target_rank, last_opponent_move, opponent_passed,
+        engine_moves, engine_setup,
+    )
 
     # Safety check: NEVER fill your own eye. No human above 30k does this.
     if move and _is_eye_fill(board, color, move):
         logger.info(f"[{target_rank}] Rejected eye-filling move at ({move.row},{move.col})")
         # Try to find a non-eye-filling alternative
         for _ in range(5):
-            alt = await _select_ai_move_inner(board, color, target_rank, last_opponent_move, opponent_passed)
+            alt = await _select_ai_move_inner(
+                board, color, target_rank, last_opponent_move, opponent_passed,
+                engine_moves, engine_setup,
+            )
             if alt and not _is_eye_fill(board, color, alt):
                 return alt
         # All attempts fill eyes — just pass
@@ -190,6 +202,8 @@ async def _select_ai_move_inner(
     board: Board, color: Color, target_rank: str,
     last_opponent_move: Optional[Point] = None,
     opponent_passed: bool = False,
+    engine_moves: Optional[list[list[str]]] = None,
+    engine_setup: Optional[list[list[str]]] = None,
 ) -> Optional[Point]:
     """Inner move selection (before eye-fill safety check)."""
     profile = get_profile(target_rank, board.size)
@@ -200,7 +214,10 @@ async def _select_ai_move_inner(
 
     engine = await get_engine()
     if engine:
-        return await _select_with_katago(engine, board, color, target_rank, last_opponent_move)
+        return await _select_with_katago(
+            engine, board, color, target_rank, last_opponent_move,
+            opponent_passed, engine_moves, engine_setup,
+        )
     else:
         return _pick_random_legal(board, color)
 
@@ -300,6 +317,9 @@ def _select_beginner_move(
 async def _select_with_katago(
     engine, board: Board, color: Color, target_rank: str,
     last_opponent_move: Optional[Point] = None,
+    opponent_passed: bool = False,
+    engine_moves: Optional[list[list[str]]] = None,
+    engine_setup: Optional[list[list[str]]] = None,
 ) -> Optional[Point]:
     """
     KataGo-backed rank-calibrated move selection.
@@ -327,6 +347,7 @@ async def _select_with_katago(
         )
         analysis = await engine.analyze(
             board_2d, player, max_visits=analysis_visits, size=board.size,
+            moves=engine_moves, initial_stones=engine_setup,
         )
 
         # Diagnostic logging: dump KataGo's full candidate list during the
@@ -587,6 +608,10 @@ async def _select_with_katago(
 
         return Point(selected.move[0], selected.move[1])
 
-    except Exception as e:
-        logger.error(f"KataGo analysis failed: {e}")
+    except Exception:
+        # Full traceback, not just str(e): this clause silently hid a
+        # NameError (missing opponent_passed param) from 2026-06-04 to
+        # 2026-07-03 — a month of the web bot playing pure random-legal
+        # moves while the log line blended in with real KataGo hiccups.
+        logger.exception("KataGo analysis failed — falling back to random-legal")
         return _pick_random_legal(board, color)

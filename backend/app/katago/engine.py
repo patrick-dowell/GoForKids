@@ -138,22 +138,44 @@ class KataGoEngine:
         komi: float = 7.5,
         include_ownership: bool = False,
         size: int = BOARD_SIZE,
+        moves: Optional[list[list[str]]] = None,
+        initial_stones: Optional[list[list[str]]] = None,
     ) -> PositionAnalysis:
-        """Analyze a board position. Returns candidate moves with evaluations."""
+        """Analyze a board position. Returns candidate moves with evaluations.
+
+        Without `moves`, the position goes over as a bare stone layout —
+        KataGo then has no history, can't see ko/superko bans, and will
+        happily suggest the recapture our engine rejects (the web half of
+        the 888P9NXK ko-pass bug; the iPad bridge got real history in June).
+        Move-selection callers should pass `moves` (the real game sequence,
+        e.g. `[["B","Q16"], ["W","pass"], …]`) plus `initial_stones` for
+        handicap setup. Evaluation-only callers (score lead, ownership) can
+        keep the bare layout — a missed ko ban doesn't move those estimates.
+        """
         if not self.process or self.process.poll() is not None:
             raise RuntimeError("KataGo not running")
 
         query_id = f"q{self._query_id}"
         self._query_id += 1
 
-        # Build initial stones from 2D board
-        initial_stones: list[list[str]] = []
-        for row in range(size):
-            for col in range(size):
-                if board[row][col] == 1:
-                    initial_stones.append(["B", point_to_gtp(row, col, size)])
-                elif board[row][col] == 2:
-                    initial_stones.append(["W", point_to_gtp(row, col, size)])
+        if moves is None:
+            # Legacy: bare stone layout from the 2D board, no history.
+            setup: list[list[str]] = []
+            for row in range(size):
+                for col in range(size):
+                    if board[row][col] == 1:
+                        setup.append(["B", point_to_gtp(row, col, size)])
+                    elif board[row][col] == 2:
+                        setup.append(["W", point_to_gtp(row, col, size)])
+            move_list: list[list[str]] = []
+            # With no moves, initialPlayer is what tells KataGo whose turn it is.
+            initial_player = current_player
+        else:
+            setup = initial_stones or []
+            move_list = moves
+            # With explicit moves (each carries its color), initialPlayer means
+            # "who plays move 0" — derive it from the list, not the caller.
+            initial_player = move_list[0][0] if move_list else current_player
 
         query = {
             "id": query_id,
@@ -161,11 +183,11 @@ class KataGoEngine:
             "komi": komi,
             "boardXSize": size,
             "boardYSize": size,
-            "initialStones": initial_stones,
-            "moves": [],
-            "initialPlayer": current_player,
+            "initialStones": setup,
+            "moves": move_list,
+            "initialPlayer": initial_player,
             "maxVisits": max_visits or self.config.max_visits,
-            "analyzeTurns": [0],
+            "analyzeTurns": [len(move_list)],
             "includeOwnership": include_ownership,
         }
 

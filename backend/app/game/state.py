@@ -20,8 +20,8 @@ from app.models.schemas import (
     StoneColor,
     GameMode,
 )
-from app.ai.move_selector import select_ai_move
-from app.katago.engine import get_engine
+from app.ai.move_selector import select_ai_move, _pick_legal_non_eye_move
+from app.katago.engine import get_engine, point_to_gtp
 from app.game import storage
 
 logger = logging.getLogger(__name__)
@@ -99,6 +99,28 @@ def _handicap_positions(size: int, handicap: int) -> list[tuple[int, int]]:
     if not table:
         return []
     return table.get(handicap, [])
+
+
+def _engine_history(game: "ActiveGame") -> tuple[list[list[str]], list[list[str]]]:
+    """(initial_stones, moves) for a KataGo query — the real game sequence,
+    so KataGo tracks ko/superko instead of analyzing a bare stone layout
+    (which made it suggest recaptures our engine rejects — the web half of
+    the 888P9NXK ko-pass bug; the iPad bridge got real history in June).
+    Handicap stones go over as setup (they're not numbered moves), matching
+    both the frontend's buildBridgeMovesFromGame and undo's rebuild."""
+    size = game.board.size
+    setup = [
+        ["B", point_to_gtp(r, c, size)]
+        for r, c in _handicap_positions(size, game.handicap)
+    ]
+    moves = [
+        [
+            "B" if rec.color == Color.BLACK else "W",
+            point_to_gtp(rec.point.row, rec.point.col, size) if rec.point else "pass",
+        ]
+        for rec in game.move_history
+    ]
+    return setup, moves
 
 
 SUPPORTED_SIZES = (5, 9, 13, 19)
@@ -364,10 +386,12 @@ class GameManager:
 
         board_2d = game.board.to_2d()
         player = "B" if game.current_color == Color.BLACK else "W"
+        engine_setup, engine_moves = _engine_history(game)
         try:
             analysis = await engine.analyze(
                 board_2d, player, max_visits=500,
                 komi=game.komi, size=game.board.size,
+                moves=engine_moves, initial_stones=engine_setup,
             )
         except Exception as e:
             logger.error(f"finish_move KataGo failed: {e}")
@@ -385,12 +409,26 @@ class GameManager:
                 final_state=final_state,
             )
 
-        best = analysis.candidates[0]
-        point = Point(best.move[0], best.move[1])
-        result, captures = game.board.try_play(game.current_color, point)
-        if result != "ok":
-            # Full-strength KataGo shouldn't suggest illegal moves, but if it
-            # does (ko, etc.), fall back to pass so the loop keeps progressing.
+        # Walk KataGo's real candidates until one commits — with history in
+        # the query an illegal suggestion should be rare, but if the top pick
+        # is rejected (superko edge, desync), a wrong pass mid-ko hands the
+        # game away (888P9NXK). Pass only when every candidate is refused.
+        point: Optional[Point] = None
+        captures: list[Point] = []
+        for cand in analysis.candidates[:4]:
+            if cand.move[0] < 0:
+                continue
+            attempt = Point(cand.move[0], cand.move[1])
+            result, caps = game.board.try_play(game.current_color, attempt)
+            if result == "ok":
+                point, captures = attempt, caps
+                break
+            logger.warning(
+                f"finish_move: engine rejected KataGo candidate "
+                f"({attempt.row},{attempt.col}): {result} — trying next"
+            )
+        if point is None:
+            logger.warning("finish_move: PASS reason=commit-rejected-exhausted")
             pass_response = await self.pass_move(game_id)
             final_state = (
                 pass_response if pass_response and pass_response.phase == "finished" else None
@@ -449,10 +487,13 @@ class GameManager:
         # (deeper search + no mistake injection) so the bot passes back instead
         # of filling its own territory.
         opponent_passed = game.consecutive_passes >= 1
+        engine_setup, engine_moves = _engine_history(game)
         point = await select_ai_move(
             game.board, game.current_color, rank,
             last_opponent_move=last_opponent_move,
             opponent_passed=opponent_passed,
+            engine_moves=engine_moves,
+            engine_setup=engine_setup,
         )
 
         if point is None:
@@ -470,7 +511,20 @@ class GameManager:
 
         result, captures = game.board.try_play(game.current_color, point)
         if result != "ok":
-            # Fallback: pass if the selected move is illegal
+            # The pick died at commit (ko/superko the selector couldn't see).
+            # Never mutate a rejection into a pass mid-game — that's the
+            # 888P9NXK failure shape. Try a legal fallback move first; pass
+            # only when nothing legal remains.
+            logger.warning(
+                f"[{rank}] engine rejected selector pick "
+                f"({point.row},{point.col}): {result} — trying legal fallback"
+            )
+            alt = _pick_legal_non_eye_move(game.board, game.current_color)
+            if alt is not None:
+                point = alt
+                result, captures = game.board.try_play(game.current_color, point)
+        if result != "ok":
+            logger.warning(f"[{rank}] PASS reason=commit-rejected-exhausted")
             pass_response = await self.pass_move(game_id)
             final_state = pass_response if pass_response and pass_response.phase == "finished" else None
             return AIMoveResponse(
