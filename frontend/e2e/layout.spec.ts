@@ -153,6 +153,48 @@ test('game screen: board and controls fit at every viewport', async ({ page }) =
   });
 });
 
+test('game screen, late-game worst case: full trays + graph + all buttons', async ({ page }) => {
+  // Patrick's iPad Pro 13 landscape repro (2026-07-04): with enough captures
+  // the two prisoner trays (up to 5 rows each) + komi tray + score graph +
+  // all four control buttons push Resign off the bottom. The default game
+  // sweep runs at move 0 where none of that is mounted — same blindness the
+  // replay highlight-note bug exploited (S34 lesson: put the state in the
+  // suite FIRST, then make it pay for itself).
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'goforkids_settings',
+      JSON.stringify({ themeId: 'cosmic', density: 'full', showScoreGraph: true }),
+    );
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  // Local mode: no backend createGame in flight — the vs-AI default's failed
+  // request resolves mid-sweep and clobbers the injected gameId, unmounting
+  // Finish Game and turning the sweep flaky.
+  await page.getByRole('button', { name: 'Local', exact: true }).click();
+  await page.getByRole('button', { name: '19×19' }).click();
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.locator('.go-board-canvas').waitFor();
+  // Late-game worst case via the dev store hook: both trays maxed (+N
+  // overflow), Undo (moveCount>0) and Finish Game (gameId + >=20) mounted,
+  // score-graph fed real-looking data.
+  await page.evaluate(() => {
+    (window as unknown as { __gameStore: { setState: (s: object) => void } }).__gameStore.setState({
+      blackCaptures: 55,
+      whiteCaptures: 52,
+      moveCount: 180,
+      gameId: 'layout-probe',
+      scoreHistory: Array.from({ length: 40 }, (_, i) => ({ move: i, lead: Math.sin(i / 5) * 10 })),
+    });
+  });
+  await page.getByRole('button', { name: 'Finish Game' }).waitFor();
+  await sweep(page, 'game-late', {
+    strict: ['.go-board-canvas', 'btn:Pass', 'btn:Resign', 'btn:Finish Game', '.avatar-panel'],
+    square: ['.go-board-canvas'],
+  });
+});
+
 test('replay: board fits, controls reachable at every viewport', async ({ page }) => {
   await seedPickedProfile(page);
   await page.goto('/?replay=demo');

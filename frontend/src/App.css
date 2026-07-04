@@ -1653,6 +1653,72 @@ body {
   }
 }
 
+/* Game screen, wide-but-short (big-iPad LANDSCAPE): the 10×5 prisoner grids
+   can stack ~10 rows across the two player cards and, with the score graph
+   + all four control buttons mounted, push Resign off the bottom once
+   captures pile up (Patrick's iPad Pro 13 landscape repro, 2026-07-04;
+   layout suite: the "game-late" sweep). Panels pay for themselves: trays
+   compact to the narrow-strip treatment (single clipped row — the count
+   badge keeps the true number) and the side panel drops its captures rows,
+   which duplicate the cards' counts. Scoped :not(.app-replay) — the replay
+   panel's 13"-landscape layout is device-validated (S34), don't touch it. */
+@media (min-width: 1100px) and (max-height: 1150px) {
+  .app:not(.app-replay) .prisoner-tray,
+  .app:not(.app-replay) .komi-tray {
+    padding: 6px 8px;
+    min-height: 0;
+  }
+  .app:not(.app-replay) .prisoner-stones {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 2px;
+    min-height: 11px;
+    overflow: hidden;
+  }
+  .app:not(.app-replay) .prisoner-stone {
+    width: 11px;
+    height: 11px;
+    flex-shrink: 0;
+  }
+  .app:not(.app-replay) .prisoner-empty {
+    flex: 1;
+  }
+  .app:not(.app-replay) .prisoner-overflow {
+    display: none;
+  }
+  .app:not(.app-replay) .side-panel .captures-display,
+  .app:not(.app-replay) .side-panel .matchup {
+    display: none;
+  }
+}
+
+/* Shorter still (iPad mini / Air landscape): even single-row trays plus the
+   full-height score graph overshoot a ~744-820px viewport — stone rows go
+   entirely (labels + count badges carry the info) and the graph drops to
+   chart-only height, matching the replay treatment above. */
+@media (min-width: 1100px) and (max-height: 900px) {
+  .app:not(.app-replay) .prisoner-stones {
+    display: none;
+  }
+  .app:not(.app-replay) .prisoner-tray,
+  .app:not(.app-replay) .komi-tray {
+    padding: 4px 8px;
+  }
+  .app:not(.app-replay) .prisoner-label {
+    margin-bottom: 0;
+  }
+  .app:not(.app-replay) .side-panel .score-graph svg,
+  .app:not(.app-replay) .side-panel .score-graph-empty svg {
+    height: 40px;
+  }
+  .app:not(.app-replay) .side-panel .score-graph {
+    padding: 4px 8px;
+  }
+  .app:not(.app-replay) .avatar-panel {
+    gap: 8px;
+  }
+}
+
 /* Replay: drop the player-card strip on phones, small/mid iPads, ALL
    portrait iPads (incl. 12.9"/13" — the space goes to the board, which must
    stay as big as possible for 19×19 review), and wide-but-short landscape

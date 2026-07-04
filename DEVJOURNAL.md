@@ -1,5 +1,40 @@
 # Development Journal
 
+## Session 37 — July 4, 2026 (§2 device-validated + capture-tray overflow fix)
+
+**§2 closed provisionally by Patrick's device pass**: two games on iPad
+(multi-stone handicap, multiple kos, an early undo) — no bad passes, no
+desync lines. He'll keep an eye out but considers it closed for now.
+
+**New bug from the same pass: capture-count pushes Resign off-screen (iPad
+Pro 13 landscape).** The 10×5 prisoner grids can stack ~10 rows across the
+two player cards; with the score graph + all four control buttons mounted
+(late game: Undo needs moves, Finish Game needs ≥20), Resign leaves the
+viewport. Reproduced at 1376×1032: Resign bottom 1095 vs 1032. Worse on
+shorter iPads — at mini-landscape 744 the inflated left column stretched
+the flex row and the board re-sized itself to the taller container
+(+251px past the fold).
+
+- **Layout-suite state FIRST (the S34 lesson):** new "game-late" sweep —
+  Local 19×19 via Custom Match, then the dev store hook injects 55/52
+  captures, moveCount 180, a fake gameId, and score-graph data, so all four
+  buttons + full trays + graph are mounted. Red before the fix on 4
+  viewports (10.2-landscape's failure was a test artifact: the vs-AI
+  default's failed createGame resolves mid-sweep and clobbers the injected
+  gameId — Local mode makes it deterministic).
+- **Fix — panels pay for themselves, two tiers** (App.css, scoped
+  `:not(.app-replay)` so the S34 device-validated replay layout is
+  untouched): wide-but-short tier 1 (`min-width:1100px` +
+  `max-height:1150px`, i.e. big-iPad landscape) compacts trays to the
+  narrow-strip treatment (single clipped row, count badge = truth) and
+  drops the side panel's duplicate captures/matchup rows; tier 2
+  (`max-height:900px`, mini/Air landscape) hides the stone rows entirely
+  (labels + counts stay) and drops the score graph to chart-only 40px,
+  matching the replay's height-constrained treatment.
+- Verified: game-late sweep green on all 14 viewports, full layout suite
+  10/10, 205 unit tests, build green. At 1376×1032 with the worst-case
+  state: Resign bottom 851 (was 1095), board 925×925 square.
+
 ## Session 36 — July 3, 2026 (§2 fix #4: ko-aware selector + never pass on rejection + desync recovery)
 
 Same evening as S35, other half of the 888P9NXK repro work: S35 classified
