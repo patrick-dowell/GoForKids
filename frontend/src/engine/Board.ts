@@ -23,6 +23,12 @@ export class Board {
   captures: { [Color.Black]: number; [Color.White]: number };
   /** Previous board hash for simple ko (null if no ko) */
   koPoint: Point | null;
+  /** Simple-ko ban injected when the board is reconstructed from a server
+   *  grid (boardFromGrid) — a grid-only board has no positionHistory, so
+   *  superko can't catch the recapture and the selector happily proposes it
+   *  (the 888P9NXK ko-fight pass bug). Bans `color` from playing at `point`.
+   *  Real game boards never set this; they rely on positionHistory. */
+  koBan: { point: Point; color: Stone } | null;
   /** Set of all previous board hashes for positional superko */
   private positionHistory: Set<string>;
 
@@ -31,6 +37,7 @@ export class Board {
     this.grid = new Array(size * size).fill(Color.Empty);
     this.captures = { [Color.Black]: 0, [Color.White]: 0 };
     this.koPoint = null;
+    this.koBan = null;
     this.positionHistory = new Set();
     this.positionHistory.add(this.hash());
   }
@@ -41,8 +48,19 @@ export class Board {
     b.grid = [...this.grid];
     b.captures = { ...this.captures };
     b.koPoint = this.koPoint ? { ...this.koPoint } : null;
+    b.koBan = this.koBan
+      ? { point: { ...this.koBan.point }, color: this.koBan.color }
+      : null;
     b.positionHistory = new Set(this.positionHistory);
     return b;
+  }
+
+  /** Replace the superko history with just the current position. Used by the
+   *  desync-recovery path (Game.forceApplyServerMove): after a grid overwrite
+   *  the old hashes describe a board that no longer exists, and keeping them
+   *  causes false ko rejections. The server keeps enforcing real superko. */
+  resetPositionHistory(): void {
+    this.positionHistory = new Set([this.hash()]);
   }
 
   get(p: Point): Color {
@@ -86,6 +104,19 @@ export class Board {
 
     if (this.get(point) !== Color.Empty) {
       return { result: MoveResult.Occupied, captures: [] };
+    }
+
+    // Server-injected simple-ko ban (grid-reconstructed boards only — see
+    // koBan). Checked before the tentative placement so every caller that
+    // legality-tests via tryPlay (selector heuristics, candidate filter,
+    // fallback pickers) inherits it.
+    if (
+      this.koBan &&
+      color === this.koBan.color &&
+      point.row === this.koBan.point.row &&
+      point.col === this.koBan.point.col
+    ) {
+      return { result: MoveResult.Ko, captures: [] };
     }
 
     // Place the stone tentatively
@@ -139,6 +170,8 @@ export class Board {
     // Move is legal — commit
     this.captures[color] += captured.length;
     this.positionHistory.add(newHash);
+    // Any committed move expires an injected simple-ko ban.
+    this.koBan = null;
 
     // Simple ko detection: if exactly 1 stone captured and placed stone has exactly 1 liberty
     if (captured.length === 1 && ownGroup.length === 1 && this.countLiberties(ownGroup) === 1) {

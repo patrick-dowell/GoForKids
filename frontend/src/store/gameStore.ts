@@ -170,6 +170,34 @@ export function buildBridgeMovesFromGame(
   return moves;
 }
 
+/** Hash a server `number[][]` grid the same way Board.hash() hashes its flat
+ *  grid, so the two are directly comparable. */
+function gridHash(grid: number[][]): string {
+  return grid.map((row) => row.join('')).join('');
+}
+
+/** Compare the local board against a server board (when a move response
+ *  carried one) and log the first mismatch of the game to the selector log.
+ *  A desync is the seed condition of the silent ko-fight passes (888P9NXK:
+ *  move 233 was only explainable by boards that had already drifted) — one
+ *  dated line turns the next repro from a reconstruction into a lookup. */
+function checkBoardSync(
+  get: () => GameState,
+  set: (partial: Partial<GameState>) => void,
+  serverGrid: number[][] | undefined | null,
+  context: string,
+): void {
+  if (!serverGrid) return;
+  const { _game, desyncReported } = get();
+  if (desyncReported) return;
+  if (_game.board.hash() !== gridHash(serverGrid)) {
+    set({ desyncReported: true });
+    recordSelectorLog(
+      `[desync] local board != server board after ${context} move=${_game.moveHistory.length}`,
+    );
+  }
+}
+
 interface NewGameOptions {
   komi?: number;
   playerColor?: Color;
@@ -232,6 +260,11 @@ interface GameState {
    *  incremented by `undo()`; read at game-end to record `undosUsed` on the
    *  auto-play history entry. */
   undosThisGame: number;
+  /** True once a local-board vs server-board mismatch has been logged for
+   *  this game. The check runs after every move that returns a server board,
+   *  but one selector-log line per game is enough to date the divergence
+   *  without flooding the 200-line ring buffer. Reset on `newGame`. */
+  desyncReported: boolean;
   /** Set to true the moment the AI passes mid-game. UI watches this to surface
    *  a "what just happened" modal so newcomers don't think the game silently
    *  ended. Cleared by either the user passing back or dismissing. */
@@ -507,6 +540,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   lessonContext: false,
   autoplayContext: false,
   undosThisGame: 0,
+  desyncReported: false,
   botJustPassed: false,
   playerOutOfMoves: false,
   lessonGameEndDismissed: false,
@@ -611,6 +645,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       lessonContext: !!options?.lessonContext,
       autoplayContext: !!options?.autoplayContext,
       undosThisGame: 0,
+      desyncReported: false,
       botJustPassed: false,
       playerOutOfMoves: false,
       lessonGameEndDismissed: false,
@@ -691,6 +726,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (willTriggerAI) {
         api.playMove(gameId, point.row, point.col)
           .then((serverState) => {
+            checkBoardSync(get, set, serverState.board, 'player');
             // Replace local scoreTerritory-based estimate with KataGo's.
             if (typeof serverState.score_lead === 'number') {
               set((s) => ({
@@ -705,6 +741,14 @@ export const useGameStore = create<GameState>((set, get) => ({
           })
           .catch((e) => {
             console.warn('playMove sync failed:', e);
+            // The local board kept the stone but the server never saw it —
+            // from here every legality verdict can differ between the two
+            // engines (the desync seed behind the silent ko-fight passes).
+            // Log it so an uploaded repro dates the divergence.
+            recordSelectorLog(
+              `[game] player move server-sync FAILED move=${_game.moveHistory.length} ` +
+              `at (${point.row},${point.col}): ${e instanceof Error ? e.message : e} — boards may desync`,
+            );
             // Unstick the UI — without this aiThinking would stay true forever.
             set({ aiThinking: false });
           });
@@ -843,15 +887,43 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (autoplayContext && useAutoPlayStore.getState().undoBank <= 0) return false;
 
     let didUndo = false;
-    // In AI games, undo both the AI's last move and the player's last move
+    // In AI games, undo both the AI's last move and the player's last move.
+    // The server undos are async: verify the final response's board against
+    // ours (undo was the prime desync suspect in the 888P9NXK repro) and
+    // surface failures in the selector log instead of a console nobody sees.
+    const syncServerUndo = (undos: number) => {
+      let chain = api.undo(gameId!);
+      for (let i = 1; i < undos; i++) chain = chain.then(() => api.undo(gameId!));
+      chain
+        .then((serverState) => checkBoardSync(get, set, serverState.board, 'undo'))
+        .catch((e) => {
+          console.warn('undo sync failed:', e);
+          recordSelectorLog(
+            `[game] undo server-sync FAILED move=${_game.moveHistory.length} ` +
+            `(${e instanceof Error ? e.message : e}) — boards may desync`,
+          );
+        });
+    };
     if (gameId && _game.moveHistory.length >= 2) {
       _game.undo(); // undo AI's move
       _game.undo(); // undo player's move
       const lastRecord = _game.moveHistory[_game.moveHistory.length - 1];
       const trimmed = get().scoreHistory.slice(0, _game.moveHistory.length + 1);
       set({ ...snapshot(_game, { lastMove: lastRecord?.point ?? null }), scoreHistory: trimmed });
-      api.undo(gameId).then(() => api.undo(gameId!)).catch(console.warn);
+      syncServerUndo(2);
       didUndo = true;
+    } else if (gameId && _game.moveHistory.length === 1) {
+      // Handicap games: the bot moves first, so a server game can have a
+      // one-move history. This case used to fall into the local-only branch
+      // below and never told the server — an instant silent board desync
+      // (the suspected 888P9NXK seed class).
+      const success = _game.undo();
+      if (success) {
+        const trimmed = get().scoreHistory.slice(0, _game.moveHistory.length + 1);
+        set({ ...snapshot(_game, { lastMove: null }), scoreHistory: trimmed });
+        syncServerUndo(1);
+        didUndo = true;
+      }
     } else {
       // Local game: single undo
       const success = _game.undo();
@@ -940,8 +1012,30 @@ export const useGameStore = create<GameState>((set, get) => ({
         const point = { row: aiMove.point.row, col: aiMove.point.col };
         const aiColor = _game.currentColor;
         const merged = _game.board.detectMergedGroups(aiColor, point);
-        const { result, captures } = _game.playMove(point);
+        let { result, captures } = _game.playMove(point);
+        if (result !== MoveResult.Ok) {
+          // The server already committed this move, so a local rejection
+          // means the two engines disagree about the board. This used to
+          // fall through to the pass block below — the silent unlogged
+          // pass behind the ko-fight bug (888P9NXK moves 233/289), and it
+          // desynced the boards further since the server kept the move.
+          // The server is authoritative: log it and force-resync.
+          recordSelectorLog(
+            `[game] LOCAL-REJECT bot move=${_game.moveHistory.length + 1} ` +
+            `at (${point.row},${point.col}) result=${result} — force-syncing from server`,
+          );
+          try {
+            const serverGrid = aiMove.board ?? (await api.getGame(gameId)).board;
+            captures = _game.forceApplyServerMove(point, serverGrid);
+            result = MoveResult.Ok;
+          } catch (syncErr) {
+            recordSelectorLog(
+              `[game] force-sync failed (${syncErr instanceof Error ? syncErr.message : syncErr}) — treating bot move as pass (last resort)`,
+            );
+          }
+        }
         if (result === MoveResult.Ok) {
+          checkBoardSync(get, set, aiMove.board, 'bot');
           playPlaceSound(point.row, point.col);
           if (captures.length > 0) {
             setTimeout(() => playCaptureSound(captures.length), 100);
@@ -1047,7 +1141,24 @@ export const useGameStore = create<GameState>((set, get) => ({
         const point = { row: aiMove.point.row, col: aiMove.point.col };
         const botColor = _game.currentColor;
         const merged = _game.board.detectMergedGroups(botColor, point);
-        const { result, captures } = _game.playMove(point);
+        let { result, captures } = _game.playMove(point);
+        if (result !== MoveResult.Ok) {
+          // Same desync-recovery as requestAIMove: the server committed this
+          // move, so never mutate a local rejection into a pass.
+          recordSelectorLog(
+            `[game] LOCAL-REJECT bot move=${_game.moveHistory.length + 1} ` +
+            `at (${point.row},${point.col}) result=${result} — force-syncing from server (bot-vs-bot)`,
+          );
+          try {
+            const serverGrid = aiMove.board ?? (await api.getGame(gameId)).board;
+            captures = _game.forceApplyServerMove(point, serverGrid);
+            result = MoveResult.Ok;
+          } catch (syncErr) {
+            recordSelectorLog(
+              `[game] force-sync failed (${syncErr instanceof Error ? syncErr.message : syncErr}) — treating bot move as pass (last resort)`,
+            );
+          }
+        }
         if (result === MoveResult.Ok) {
           playPlaceSound(point.row, point.col);
           if (captures.length > 0) {
@@ -1166,7 +1277,25 @@ export const useGameStore = create<GameState>((set, get) => ({
         const point = { row: aiMove.point.row, col: aiMove.point.col };
         const moverColor = _game.currentColor;
         const merged = _game.board.detectMergedGroups(moverColor, point);
-        const { result, captures } = _game.playMove(point);
+        let { result, captures } = _game.playMove(point);
+        if (result !== MoveResult.Ok) {
+          // finishMove committed this move server-side; a local rejection
+          // here used to skip the board update and keep looping on a
+          // desynced board. Force-resync from the server instead.
+          recordSelectorLog(
+            `[game] LOCAL-REJECT finish move=${_game.moveHistory.length + 1} ` +
+            `at (${point.row},${point.col}) result=${result} — force-syncing from server`,
+          );
+          try {
+            const serverGrid = aiMove.board ?? (await api.getGame(gid)).board;
+            captures = _game.forceApplyServerMove(point, serverGrid);
+            result = MoveResult.Ok;
+          } catch (syncErr) {
+            recordSelectorLog(
+              `[game] force-sync failed (${syncErr instanceof Error ? syncErr.message : syncErr}) — skipping board update (last resort)`,
+            );
+          }
+        }
         if (result === MoveResult.Ok) {
           playPlaceSound(point.row, point.col);
           if (captures.length > 0) {

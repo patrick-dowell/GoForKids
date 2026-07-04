@@ -14,6 +14,7 @@ import { boardToMoves, fromGtp, getKataGoBridge, type KataGoBridge } from './nat
 import {
   selectAiMove,
   boardFromGrid,
+  pickLegalNonEyeMove,
   type PositionAnalysis,
   type MoveCandidate,
 } from '../ai/moveSelector';
@@ -292,9 +293,16 @@ async function getAIMoveViaBridge(
   const tOuterStart = performance.now();
   const state = await api.getGame(gameId);
   const tAfterGet = performance.now();
-  const board = boardFromGrid(state.board, state.board_size);
   const color: Stone = state.current_color === 'black' ? Color.Black : Color.White;
   const colorChar: 'B' | 'W' = color === Color.Black ? 'B' : 'W';
+  // ko_point was set by the opponent's last move, so the ban applies to the
+  // side about to move — us. Without it the grid-only selector board is
+  // ko-blind and the local-bias/random branches propose the recapture
+  // (888P9NXK move 235).
+  const koBan = state.ko_point
+    ? { point: { row: state.ko_point.row, col: state.ko_point.col }, color }
+    : null;
+  const board = boardFromGrid(state.board, state.board_size, koBan);
   const lastOpponentMove: Point | null = state.last_move
     ? { row: state.last_move.row, col: state.last_move.col }
     : null;
@@ -390,38 +398,53 @@ async function getAIMoveViaBridge(
       captures: [],
       score_lead: cachedScoreLead ?? newState.score_lead,
       final_state: newState.phase === 'finished' ? newState : null,
+      board: newState.board,
     };
   }
 
-  // Try to commit the chosen move. Historically KataGo would suggest a
-  // ko/superko-banned move because `boardToMoves` sent only the current
-  // stone layout (no history) — but now callers pass `movesForBridge`
-  // with the real move sequence, so this fallback should fire only on
-  // a true engine-vs-engine disagreement (e.g., the rare ko detection
-  // edge cases or suicide rules). Keep the safe-pass fallback below
-  // because it's the cleanest recovery if it ever does happen.
-  let newState: GameStateDTO;
-  try {
-    newState = await api.playMove(gameId, chosen.row, chosen.col);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const line = `[getAIMoveViaBridge] engine rejected KataGo's pick (${chosen.row},${chosen.col}): ${msg} — passing instead`;
-    console.warn(line);
-    recordSelectorLog(line);
-    const passState = await api.pass(gameId);
-    const tEnd = performance.now();
-    console.log(
-      `[perf-js] aiMove(forced-pass) get=${Math.round(tAfterGet - tOuterStart)}ms ` +
-      `select=${Math.round(tAfterSelect - tBeforeSelect)}ms ` +
-      `commit=${Math.round(tEnd - tAfterSelect)}ms ` +
-      `total=${Math.round(tEnd - tOuterStart)}ms`,
-    );
-    return {
-      point: { row: -1, col: -1 },
-      captures: [],
-      score_lead: cachedScoreLead ?? passState.score_lead,
-      final_state: passState.phase === 'finished' ? passState : null,
-    };
+  // Commit the chosen move. If the game engine rejects the pick (superko
+  // the grid-only selector board can't see, or an engine desync), do NOT
+  // pass — a wrong pass in a ko fight hands the game away (888P9NXK move
+  // 235: the recapture was rejected and the old fallback passed). Retry
+  // with legal alternatives; pass only when nothing legal remains.
+  let newState: GameStateDTO | null = null;
+  let played: Point = chosen;
+  const rejected: Point[] = [];
+  while (newState === null) {
+    try {
+      newState = await api.playMove(gameId, played.row, played.col);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      rejected.push(played);
+      const line =
+        `[getAIMoveViaBridge] engine rejected pick #${rejected.length} ` +
+        `(${played.row},${played.col}): ${msg}`;
+      console.warn(line);
+      recordSelectorLog(line);
+      const alt =
+        rejected.length <= 3 ? pickLegalNonEyeMove(board, color, rejected) : null;
+      if (!alt) {
+        recordSelectorLog(
+          `[selector] PASS reason=commit-rejected-exhausted (${rejected.length} picks refused)`,
+        );
+        const passState = await api.pass(gameId);
+        const tEnd = performance.now();
+        console.log(
+          `[perf-js] aiMove(forced-pass) get=${Math.round(tAfterGet - tOuterStart)}ms ` +
+          `select=${Math.round(tAfterSelect - tBeforeSelect)}ms ` +
+          `commit=${Math.round(tEnd - tAfterSelect)}ms ` +
+          `total=${Math.round(tEnd - tOuterStart)}ms`,
+        );
+        return {
+          point: { row: -1, col: -1 },
+          captures: [],
+          score_lead: cachedScoreLead ?? passState.score_lead,
+          final_state: passState.phase === 'finished' ? passState : null,
+          board: passState.board,
+        };
+      }
+      played = alt;
+    }
   }
   const tEnd = performance.now();
   console.log(
@@ -431,9 +454,10 @@ async function getAIMoveViaBridge(
     `total=${Math.round(tEnd - tOuterStart)}ms`
   );
   return {
-    point: chosen,
+    point: played,
     captures: [],
     score_lead: cachedScoreLead ?? newState.score_lead,
+    board: newState.board,
   };
 }
 
@@ -575,24 +599,39 @@ async function finishMoveViaBridge(
     };
   }
 
-  // Commit the move. Same ko-fallback as getAIMoveViaBridge: if our engine
-  // rejects KataGo's pick (positional superko, etc.), pass instead. See
-  // 19x19scoring.log:31:30 for the original failure mode + the TODO in
-  // getAIMoveViaBridge for the proper fix (send move history to the bridge).
-  let newState: GameStateDTO;
-  try {
-    newState = await api.playMove(gameId, decoded.row, decoded.col);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const line = `[finishMoveViaBridge] engine rejected KataGo's pick (${decoded.row},${decoded.col}): ${msg} — passing instead`;
-    console.warn(line);
-    recordSelectorLog(line);
+  // Commit the move. If the engine rejects KataGo's pick (positional
+  // superko the bridge's simple-ko rules don't see, or an engine desync),
+  // fall to KataGo's NEXT real candidate instead of passing — in a live ko
+  // fight a wrong pass hands the game away (S27; 888P9NXK). Pass only when
+  // every candidate is refused.
+  const realCandidates: Point[] = [];
+  for (const c of result.candidates) {
+    const m = fromGtp(c.move, state.board_size);
+    if (m !== 'pass' && m !== 'resign') realCandidates.push(m);
+  }
+  let newState: GameStateDTO | null = null;
+  let played: Point | null = null;
+  for (const cand of realCandidates.slice(0, 4)) {
+    try {
+      newState = await api.playMove(gameId, cand.row, cand.col);
+      played = cand;
+      break;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const line = `[finishMoveViaBridge] engine rejected candidate (${cand.row},${cand.col}): ${msg} — trying next`;
+      console.warn(line);
+      recordSelectorLog(line);
+    }
+  }
+  if (newState === null || played === null) {
+    recordSelectorLog('[selector] PASS reason=commit-rejected-exhausted (finish mode)');
     const passState = await api.pass(gameId);
     return {
       point: { row: -1, col: -1 },
       captures: [],
       score_lead: topScoreLead ?? passState.score_lead,
       final_state: passState.phase === 'finished' ? passState : null,
+      board: passState.board,
     };
   }
 
@@ -602,8 +641,9 @@ async function finishMoveViaBridge(
     `analyze=${analyzeMs}ms total=${Math.round(tEnd - tOuterStart)}ms`,
   );
   return {
-    point: decoded,
+    point: played,
     captures: [],
     score_lead: topScoreLead ?? newState.score_lead,
+    board: newState.board,
   };
 }

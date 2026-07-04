@@ -55,4 +55,9 @@ export interface AIMoveDTO {
    *  inline so the frontend doesn't need a follow-up GET (which would 404,
    *  since the active game is deleted post-scoring). */
   final_state?: GameStateDTO | null;
+  /** Post-move server board (bridge/local-router paths only; the HTTP
+   *  AIMoveResponse doesn't carry it). Lets gameStore verify the local
+   *  engine stayed in sync with the game server and force-resync when it
+   *  didn't, instead of silently turning a local rejection into a pass. */
+  board?: number[][];
 }

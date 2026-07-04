@@ -238,4 +238,67 @@ describe('Game', () => {
       expect(moves.find((m) => m.row === 3 && m.col === 3)).toBeUndefined();
     });
   });
+
+  describe('forceApplyServerMove (desync recovery)', () => {
+    // Recovery path for the 888P9NXK silent-pass bug: the game server
+    // committed a bot move our local board rejected. The server grid is
+    // authoritative — apply it verbatim and keep the game moving.
+
+    function emptyGrid(size: number): number[][] {
+      return Array.from({ length: size }, () => new Array(size).fill(0));
+    }
+
+    it('applies the move, removes captures, and flips the turn', () => {
+      const game = new Game(5.5, 9);
+      game.playMove({ row: 0, col: 1 }); // B
+      game.playMove({ row: 0, col: 0 }); // W (will be "captured" server-side)
+
+      // Server committed B(1,0), capturing W(0,0).
+      const serverGrid = emptyGrid(9);
+      serverGrid[0][1] = Color.Black;
+      serverGrid[1][0] = Color.Black;
+
+      const removed = game.forceApplyServerMove({ row: 1, col: 0 }, serverGrid);
+
+      expect(removed).toEqual([{ row: 0, col: 0 }]);
+      expect(game.board.get({ row: 1, col: 0 })).toBe(Color.Black);
+      expect(game.board.get({ row: 0, col: 0 })).toBe(Color.Empty);
+      expect(game.currentColor).toBe(Color.White);
+      expect(game.moveHistory).toHaveLength(3);
+      expect(game.moveHistory[2].point).toEqual({ row: 1, col: 0 });
+      expect(game.board.captures[Color.Black]).toBe(1);
+      expect(game.consecutivePasses).toBe(0);
+    });
+
+    it('overwrites a desynced local board with the server grid', () => {
+      const game = new Game(5.5, 9);
+      game.playMove({ row: 4, col: 4 }); // B — but suppose the server never saw it
+      // Server thinks the board has B(3,3) plus W's new move at (5,5).
+      const serverGrid = emptyGrid(9);
+      serverGrid[3][3] = Color.Black;
+      serverGrid[5][5] = Color.White;
+
+      game.forceApplyServerMove({ row: 5, col: 5 }, serverGrid);
+
+      // Local board now matches the server exactly.
+      expect(game.board.get({ row: 4, col: 4 })).toBe(Color.Empty);
+      expect(game.board.get({ row: 3, col: 3 })).toBe(Color.Black);
+      expect(game.board.get({ row: 5, col: 5 })).toBe(Color.White);
+    });
+
+    it('resets superko history so the synced position is re-playable', () => {
+      const game = new Game(5.5, 9);
+      game.playMove({ row: 0, col: 1 }); // B
+      game.playMove({ row: 8, col: 8 }); // W
+      const serverGrid = emptyGrid(9);
+      serverGrid[0][1] = Color.Black;
+      serverGrid[8][8] = Color.White;
+      serverGrid[2][2] = Color.Black;
+      game.forceApplyServerMove({ row: 2, col: 2 }, serverGrid);
+
+      // A later move must not be rejected because of pre-sync hashes.
+      const { result } = game.playMove({ row: 6, col: 6 });
+      expect(result).toBe(MoveResult.Ok);
+    });
+  });
 });

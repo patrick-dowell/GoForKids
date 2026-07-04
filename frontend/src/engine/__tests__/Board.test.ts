@@ -196,6 +196,50 @@ describe('Board', () => {
     });
   });
 
+  describe('koBan (server-injected simple-ko ban)', () => {
+    // A grid-reconstructed board (boardFromGrid) has no positionHistory, so
+    // superko can't catch the recapture — koBan is the substitute, sourced
+    // from the server's ko_point. These tests pin the 888P9NXK fix.
+
+    it('rejects the banned color at the banned point', () => {
+      const board = new Board(9);
+      board.tryPlay(Color.Black, { row: 4, col: 4 });
+      board.koBan = { point: { row: 2, col: 2 }, color: Color.White };
+      const { result } = board.tryPlay(Color.White, { row: 2, col: 2 });
+      expect(result).toBe(MoveResult.Ko);
+    });
+
+    it('does not restrict the other color at the banned point', () => {
+      const board = new Board(9);
+      board.koBan = { point: { row: 2, col: 2 }, color: Color.White };
+      const { result } = board.tryPlay(Color.Black, { row: 2, col: 2 });
+      expect(result).toBe(MoveResult.Ok);
+    });
+
+    it('does not restrict the banned color elsewhere', () => {
+      const board = new Board(9);
+      board.koBan = { point: { row: 2, col: 2 }, color: Color.White };
+      const { result } = board.tryPlay(Color.White, { row: 2, col: 3 });
+      expect(result).toBe(MoveResult.Ok);
+    });
+
+    it('survives clone()', () => {
+      const board = new Board(9);
+      board.koBan = { point: { row: 2, col: 2 }, color: Color.White };
+      const copy = board.clone();
+      const { result } = copy.tryPlay(Color.White, { row: 2, col: 2 });
+      expect(result).toBe(MoveResult.Ko);
+    });
+
+    it('expires after any committed move', () => {
+      const board = new Board(9);
+      board.koBan = { point: { row: 2, col: 2 }, color: Color.White };
+      board.tryPlay(Color.White, { row: 5, col: 5 });
+      const { result } = board.tryPlay(Color.White, { row: 2, col: 2 });
+      expect(result).toBe(MoveResult.Ok);
+    });
+  });
+
   describe('groups and liberties', () => {
     it('finds a connected group', () => {
       const board = new Board();

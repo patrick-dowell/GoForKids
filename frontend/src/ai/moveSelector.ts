@@ -150,8 +150,17 @@ function countStones(board: Board): number {
   return n;
 }
 
-/** Build a Board instance from the backend's `number[][]` grid (0/1/2). */
-export function boardFromGrid(grid: number[][], size: number): Board {
+/** Build a Board instance from the backend's `number[][]` grid (0/1/2).
+ *
+ *  A grid-only board has NO move history, so its superko check is blind —
+ *  pass `koBan` (from the server's `ko_point`, banning the side to move)
+ *  or every heuristic branch in this file will happily propose the ko
+ *  recapture the real engine then rejects (888P9NXK, 2026-07-03). */
+export function boardFromGrid(
+  grid: number[][],
+  size: number,
+  koBan?: { point: Point; color: Stone } | null,
+): Board {
   const b = new Board(size);
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
@@ -159,6 +168,7 @@ export function boardFromGrid(grid: number[][], size: number): Board {
       if (v !== 0) b.grid[r * size + c] = v as Color;
     }
   }
+  b.koBan = koBan ?? null;
   return b;
 }
 
@@ -212,7 +222,11 @@ export async function selectAiMove(
     // prefers a bad move (eye-fill) over the bot quitting, so return the
     // last attempted move instead of passing. Outside neverPass, passing
     // is the right call — filling your own eye kills the group.
-    return options.neverPass ? move : null;
+    if (options.neverPass) return move;
+    // This return used to be the one pass path with no log line — a field
+    // repro couldn't distinguish it from the commit-rejection passes.
+    logPass('eye-fill-retries-exhausted');
+    return null;
   }
 
   return move;
@@ -323,11 +337,20 @@ function logPass(reason: string): void {
  *  mismatch: KataGo runs simple ko under `japanese` rules and offers a move our
  *  positional-superko engine rejects as a whole-board repeat. Returns null only
  *  when the board's legal moves are all own-eye fills (or there are none) — then
- *  passing is genuinely correct. */
-function pickLegalNonEyeMove(board: Board, color: Stone): Point | null {
+ *  passing is genuinely correct.
+ *
+ *  `exclude` skips specific points — the commit-rejection retry in client.ts
+ *  uses it so a pick the game engine already refused isn't offered again. */
+export function pickLegalNonEyeMove(
+  board: Board,
+  color: Stone,
+  exclude: Point[] = [],
+): Point | null {
+  const excluded = (m: Point) =>
+    exclude.some((p) => p.row === m.row && p.col === m.col);
   for (let i = 0; i < 16; i++) {
     const m = pickRandomLegal(board, color);
-    if (m && !isEyeFill(board, color, m)) return m;
+    if (m && !excluded(m) && !isEyeFill(board, color, m)) return m;
   }
   return null;
 }

@@ -83,6 +83,44 @@ export class Game {
     return { result, captures };
   }
 
+  /** Apply a move the game server already committed but our own tryPlay
+   *  rejected — the desync-recovery path (888P9NXK, 2026-07-03: local
+   *  rejections were silently converted into bot passes, and the boards
+   *  drifted further apart every time). The server board is authoritative:
+   *  overwrite the grid from it, record the move, and reset the superko
+   *  history (grid-only state can't reconstruct it; the server keeps
+   *  enforcing the real rule). Returns the opponent stones that vanished,
+   *  so the caller can play capture effects. */
+  forceApplyServerMove(point: Point, serverGrid: number[][]): Point[] {
+    const size = this.board.size;
+    const mover = this.currentColor;
+    const opponent = oppositeColor(mover);
+    const removed: Point[] = [];
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        const idx = r * size + c;
+        const after = serverGrid[r][c] as Color;
+        if (this.board.grid[idx] === opponent && after === Color.Empty) {
+          removed.push({ row: r, col: c });
+        }
+        this.board.grid[idx] = after;
+      }
+    }
+    this.board.captures[mover] += removed.length;
+    this.board.koPoint = null;
+    this.board.koBan = null;
+    this.board.resetPositionHistory();
+    this.moveHistory.push({
+      color: mover,
+      point,
+      captures: removed,
+      moveNumber: this.moveNumber,
+    });
+    this.consecutivePasses = 0;
+    this.currentColor = opponent;
+    return removed;
+  }
+
   /** Pass (null move) */
   pass(): void {
     if (this.phase !== 'playing') return;
