@@ -314,9 +314,16 @@ class GameManager:
         size = game.board.size
         moves = game.move_history[:-1]
         game.board = Board(size)
-        game.current_color = Color.BLACK
         game.move_history = []
         game.consecutive_passes = 0
+
+        # Restore handicap setup so the stones don't vanish on undo — mirrors
+        # the frontend engine fix (TestFlight beta bug #8, 2026-05-14). With a
+        # handicap, White moves first, same as create_game.
+        handi_points = _handicap_positions(size, game.handicap)
+        for r, c in handi_points:
+            game.board.grid[r * size + c] = Color.BLACK
+        game.current_color = Color.WHITE if handi_points else Color.BLACK
 
         for move in moves:
             if move.point:

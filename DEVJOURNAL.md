@@ -1,5 +1,40 @@
 # Development Journal
 
+## Session 35 — July 3, 2026 (backend handicap-undo desync — suspected §2 seed)
+
+The backend's `GameStateManager.undo` (state.py) had the exact bug the
+frontend engine fixed in May (TestFlight beta bug #8, Sprint 2): it replayed
+`move_history` onto a bare `Board(size)` and reset `current_color` to BLACK
+unconditionally — never re-placing the handicap stones. So any undo in a
+casual handicap game silently stripped Black's handicap stones from the
+*backend* board while the frontend engine kept them: a permanent
+board-desync between the two engines. Suspected seed of the ko-fight
+silent-pass repro captured 2026-07-03 via a §5 share code (**888P9NXK**) —
+a backend board missing black stones changes every KataGo analysis the
+Render path runs.
+
+- **Fix mirrors the frontend:** undo now re-places handicap stones from
+  `_handicap_positions(size, game.handicap)` and starts the replay with
+  White to move when there's a handicap (matching `create_game`). The
+  replay loop was already color-safe (it drives from each `MoveRecord`'s
+  recorded color). Self-healing bonus: because undo rebuilds from
+  history + handicap, an already-desynced in-flight game repairs itself
+  the next time anyone hits undo.
+- **First backend test suite.** The backend had zero tests; now
+  `backend/tests/` + `pytest.ini` (asyncio auto mode) +
+  `requirements-dev.txt` (pytest 8.4.2, pytest-asyncio 1.2.0). Three tests
+  in `test_undo_handicap.py`: handicap stones survive undo + correct turn,
+  undo-to-empty-history restores the handicap start (White to move), and a
+  no-handicap regression. Tests run against a throwaway SQLite file and
+  monkeypatch `get_engine` → None so KataGo never spawns. 3/3 green.
+- **NOT yet verified:** the causal link to 888P9NXK. The check: was that
+  game (a) handicap and (b) undone before the ko fight? If yes, this plus
+  the known web-path empty-`moves` ko hole likely explains the web repro;
+  if no, there's a second desync source and this was a real-but-different
+  bug found while hunting. §2 stays open either way until the repro is
+  re-verified. Also: fix is local until deployed to Render — production
+  keeps desyncing on every handicap undo until then.
+
 ## Session 34 — July 2, 2026 (replay score graph — milestone §1)
 
 The score arc in replays, shipped as **the scrubber, not another row**: the
@@ -3206,6 +3241,7 @@ Not worth further tuning right now — fixing H3 exactly requires either making 
 - [x] **iPhone Pro Max: "← Home" overlaps lesson dot (1) in lesson view header** — observed + fixed 2026-05-17 (commit 046b85e). In the narrow breakpoint the `.learn-header` grid drops to `auto 1fr` (back btn | progress). The default `.learn-progress { justify-self: end }` sized the flex container to its content width (~376px), which overflowed leftward into the back-button cell and visually overlapped dot (1) on 430pt-wide Pro Max portrait. Override to `justify-self: stretch` in [LearnView.css](frontend/src/components/LearnView.css) constrains it to its grid column so `overflow-x: auto` actually scrolls the dots past the fold.
 - [x] **Homepage bot roster row bleeds off-screen on iPhone** — observed + fixed 2026-05-17 (commits 773fdde, 6b5c6b6). `.home-content` is `align-items: center`, so `.home-bots` was sizing to its (~455px) bot row content and centering it inside the narrower viewport pushed it off-screen equally on both sides (Seedling left + Void right cropped on iPhone 17 portrait). First commit added `align-self: stretch + min-width: 0` to `.home-bots` to constrain to parent width; that fixed the overflow but left Storm/Void scrolled off-screen. Second commit ([HomePage.css](frontend/src/components/HomePage.css) narrow block) shrank avatars 44→32px, gap 12→4px, and dropped label fonts 1px each so all 8 bots fit centered on ~400px-wide phones without horizontal scroll.
 - [x] **iPhone Pro (non–Pro Max) layout is cut off** — addressed via cumulative Sprint 1 + Sprint 2 CSS fixes (Sprint 2 audit at 393×852, 2026-05-17). The Pro-width complaints surfaced on iPhone 17 simulator (homepage bot roster bleeding equally off both sides, fixed in 6b5c6b6 / 773fdde) and Pro Max (lesson header dots overlapping Home, fixed in 046b85e). Audit at 393×852 of home / new-game dialog / game UI / lessons / profile / library / replay all render cleanly with no cropping. If a future Pro-specific repro surfaces a NEW cut-off location, reopen with the specific view + viewport coords.
+- [x] **Backend undo drops handicap stones (server twin of the Sprint 2 frontend bug)** — FIXED 2026-07-03 (Session 35). `GameStateManager.undo` replayed history onto a bare board with `current_color` reset to BLACK, so any undo in a casual handicap game silently removed the handicap stones from the backend board — desyncing it from the frontend engine and poisoning every subsequent Render-path KataGo analysis. Suspected seed of the §2 ko-pass web repro (share code 888P9NXK, causal link not yet verified). Fix mirrors the frontend: re-place `_handicap_positions`, White to move. First backend tests (`backend/tests/test_undo_handicap.py`, 3 green). Needs deploy to Render.
 - [x] **Undo doesn't work in handicap games vs. the bot** — fixed 2026-05-17 (Sprint 2). Two bugs in one: (1) handicap stones weren't tracked anywhere accessible to undo's rebuild, so they vanished; (2) the replay loop used `currentColor` (always Black after rebuild) instead of each move's recorded color, silently swapping W/B in handicap games where White moves first. Fix: added `handicapStones: Point[]` field + `setHandicap(stones)` method to [Game.ts](frontend/src/engine/Game.ts); `undo()` now re-places handicap stones AND sets `currentColor = move.color as Stone` before each replay step. Also fixes the related SGF gaps: `toSGF` now emits `HA[n]` + `AB[xx][yy]...` tags, and `fromSGF` parses them via `setHandicap` and uses the recorded color when replaying. localGameRouter's pre-existing undo workaround removed (no longer needed). 5 new tests in [Game.test.ts](frontend/src/engine/__tests__/Game.test.ts) lock in handicap-undo, color-replay correctness, non-handicap regression, SGF AB emission, and round-trip.
 - [ ] **Phone runs hot + elevated battery drain during play (needs profiling to confirm attribution)** — TestFlight beta 2026-05-14, iPhone. Observed warmer-than-normal device temperature and higher battery usage during sessions; unclear how much is GoForKids vs. other apps. Strong prior: Phase D shipped fully on-device KataGo Neural Engine inference, and iPhone has a tighter thermal envelope than iPad — every move (and every `finishMove` step) triggers a fresh ML inference, with no idle / low-power mode in between. Plausible secondary contributors: AudioContext nodes accumulating without `disconnect()` (already flagged in the audio bug), Canvas redraws on every animation frame even when idle, and the React re-render volume of the auto-play screen. Next step: Xcode Instruments → Energy + Time Profiler over a 5-minute play session to see where the watts go. Mitigations to consider if confirmed: lower default visit count for non-finish moves, skip inference when the bot is clearly losing/resigning, throttle Canvas to dirty-frames only.
 - [x] **Bot plays 2–3 own-territory moves after the player passes (9×9 6k, playtest 2026-06-11)** — root cause diagnosed (Session 23 wrap): the settle-cleanly path (Session 21) deepens visits + skips mistake injection, but its analysis still runs `rules: 'tromp-taylor'` with hardcoded komi 7.5 (client.ts bridge call) — and under area rules own-territory fills are free, so honest KataGo doesn't surface pass. Fix shape, proven by `finishMoveViaBridge`: settle analyses → `rules: 'japanese'` + real komi, on BOTH engines (TS `moveSelector.ts`/`client.ts` and the Python path). Costs the bot ~2–3 pts/game today.
