@@ -67,8 +67,88 @@ Still occurring in game-breaking situations (Patrick, ~late June — less freque
   - Side finding, unrelated to this repro: the backend's `GameStateManager.undo` dropped handicap stones (server twin of the Sprint 2 frontend bug) — desynced the backend board from the frontend engine in every web-path handicap game with an undo. Fixed + first backend tests in S35 (commit 76c49ac). ~~The web path's empty-`moves` ko hole in `move_selector.py` is still open.~~ **CLOSED S36:** KataGo now gets real history (`_engine_history` → `engine.analyze(moves=…)`) on both `get_ai_move` and `finish_move`; server pass-on-rejection fallbacks replaced with legal-fallback/candidate-walk. **Bonus find while in there: `_select_with_katago` had a swallowed `NameError` (missing `opponent_passed` param) since 2026-06-04 — the Render bot has been playing pure random-legal moves for a month** (on-device unaffected; the broad `except` hid it — now `logger.exception`). Backend tests 6. Disregard any June web-path play-feel observations.
 - **Then:** fix whichever path the log names. If it's the superko path, note root fix A changes KataGo's rules config and can subtly shift bot behavior — if that lands after the §3 recalibration, budget a touch-up pass on the profiles.
 
-### 3. 9×9 bot profiles too strong — full review
-Patrick played 15k even on 9×9 and it played perfectly through the entire game. Full review of all 9×9 profiles in `data/profiles/b28.yaml`.
+### 3. 9×9 bot profiles too strong — full review  🔧 FIX SHIPPED 2026-07-04 (S38) — pending Patrick's ladder pass
+> **Patrick's full report (2026-07-04, he's ~2d IGS):** 6k very hard even + ≈3k-like;
+> 1d about right (even at 1 stone); **9k possibly easier than 15k**; 15k "plays
+> perfectly, then one dumb mistake — the gap is way too large."
+>
+> **Hypothesis CONFIRMED by code-trace, with a twist:** the mid rungs ran the
+> clarity gates on their defaults (prior 0.5 / gap 5.0 — fire constantly on 9×9)
+> and the 5-visit candidate pool contained no real mistakes for mistake mode to
+> pick, so "mistake_freq 0.72" produced near-perfect play. The 9k<15k inversion
+> is the same mechanism inverted: 9 visits surfaces a wider pool = real mistakes.
+>
+> **Fix shipped (S38, mechanism + data, TS+Python parity, tests 210/10, build
+> green):** new `local_bias_from_candidates` knob (myopic mode — strongest
+> KataGo candidate near the anchor instead of random-nearby noise); 15k/9k get
+> visits 16 (pool breadth), explicit clarity gates (0.87/15, 0.80/10), myopic
+> local_bias (0.55, 0.40), fewer pure-random blunders; 6k mistake_freq
+> 0.55→0.65 (knob-only, per Patrick); 30k/3k/1d untouched. Automated ladder-
+> ordering check run locally (see S38). **Closes on Patrick's bottom-up ladder
+> play-through.**
+>
+> **ITER 2 (same day, S39) after Patrick's device pass failed iter 1** (15k
+> bimodal + still way too strong; 9k destroying a 2d): new `score_noise`
+> knob — noisy scoreLead argmax replaces the mistake machinery on 15k
+> (σ=6.0) and 9k (σ=4.5); iter 1's myopic-local was near-perfect on 9×9
+> because local ≈ global there. **Same device round surfaced the JEA338QQ
+> "ko bug again" pass — actually an edge-false-eye misclassification in
+> `isEyeFill` (predates everything); fixed both selectors + wrapper now
+> plays a legal fallback instead of passing (detail: S39).** §2 stays
+> closed — no `[desync]`, the koBan/resync layers held.
+>
+> **ITER 2b–2d (same night): sigma experiment failed informatively → final
+> config drops BOTH new mechanisms from the profiles.** Sigma 6 ≡ sigma 12
+> in ladder results and sigma-9k beat 6k twice (inverted): the candidate
+> pool is a strength floor, uniform-over-pool is STRONGER than the mistake
+> machinery, and going below the floor needs out-of-pool moves (policy
+> sampling — future milestone, needs bridge plumbing). Also: 8-game cells
+> flipped 7/8→3/8 on identical configs — bot-vs-bot is ordering-sanity
+> only; Patrick's play-feel is the calibration instrument. **Final: 15k +
+> 9k on the machinery with random-nearby local, myopic branch off (it was
+> the destroys-a-2d perfect-play mode), knobs strictly ordered 15k<9k;
+> visits 16 + explicit clarity gates kept from iter 1. score_noise +
+> local_bias_from_candidates remain in both selectors as dormant tested
+> knobs. Closes on Patrick's bottom-up ladder pass.** Detail: S39.
+>
+> **ITER 3 (2026-07-05, S40, Patrick-approved): the out-of-pool mechanism
+> shipped.** `wide_root_noise` (KataGo wideRootNoise per-profile — pool
+> becomes a wide scored policy sample, 29 candidates vs 3-5, verified live)
+> + `reading_rate`/`policy_temp` (bot READS only 30%/55% of moves; the rest
+> are prior-sampled shape moves — clarity gates and machinery now live
+> inside the reading path only, so unread fights get genuinely misread).
+> Patrick's mistake model maps directly: small-mistake freq = 1−reading_rate,
+> size = policy_temp, big mistakes = prior tail + random_move_chance.
+> Ladder: 30k ≪ 15k < 9k < 6k monotonic (15k-9k gap thin — dial ready if
+> needed). Touches BOTH Swift bridge copies → **needs Xcode rebuild**; watch
+> `[Bridge] analyze returned N candidates` (~15-30 on 15k) and any GTP error
+> after `kata-set-param wideRootNoise` (older bundled KataGo would reject
+> it). Closes on Patrick's device pass. Detail: S40.
+>
+> **ITER 3b (2026-07-05): anchor-calibrated.** Device pass on iter 3 still
+> read "perfect" — the b28 policy prior is dan-strength on 9×9; temp 1.4 was
+> far too cold. Sweep against the FIXED 6k using Patrick's anchor (2d plays
+> 6k even ⇒ true 15k ≈ +40..50 behind 6k): **15k locked at reading_rate 0.15
+> / policy_temp 2.2 → +46.7/+50.8 vs 6k (n=12, stable)**. Final ladder:
+> 30k ≪ 15k (+89) < 9k (+34) < 6k (+19) < 3k < 1d. Upload payloads now carry
+> `[analyze] wrn=… candidates=N` (device pool-width self-diagnosis). Human
+> reference games for the mistake-texture study: `data/human_games_9x9_ogs/`
+> (Fox dataset is 100% 19×19). **Awaiting Patrick's rebuild + bottom-up
+> ladder pass — §3 closes there.** Detail: S40.
+>
+> **ROOT CAUSE FOUND (2026-07-05, S41, via Patrick's upload E38J2NEN):
+> the iOS bridge has parsed exactly ONE candidate per analysis since
+> Phase D (May).** KataGo returns all ~29 root moves concatenated on one
+> info line; `parseInfoLine` stops at the first `pv`, so the device pool
+> was one move deep — every rank was structurally forced into perfect
+> top-move play, no matter what the profiles said. Fixed in both Swift
+> copies (segment-split before parsing). This also amplified the old
+> superko ko-pass class (1-candidate pools emptied on any illegal pick)
+> and starved on-device settle-pass detection. **Post-fix, the whole
+> device ladder plays weaker than Patrick remembers — his 6k≈2d anchor
+> was measured against the bug. Re-anchor bottom-up on next rebuild;
+> the S40 15k calibration (vs the correctly-parsed local 6k) transfers
+> as-is.** Detail: S41.
 - **Hypothesis to test first:** on 9×9 the plausible-move space is small, so the rank-noise / candidate-filtering that weakens the bot on 19×19 collapses toward top-move play — a "15k" with few surviving candidates just plays KataGo's best line. If confirmed, this needs a 9×9-specific weakening mechanism (wider candidate pools / more temperature at low rungs), not just nudged numbers.
 - Verify with the bot-vs-bot calibration tooling (AI_CALIBRATION.md) that the ladder still orders correctly after — each rung beats the one below, loses to the one above.
 - Both selector paths (TS + Python) read the same profile YAML, so tuning is data-only; a mechanism change must land in both.

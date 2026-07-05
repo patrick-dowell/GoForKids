@@ -1,5 +1,428 @@
 # Development Journal
 
+## Session 42 — July 5, 2026 (distribution calibration: the rank-o-meter works)
+
+**The measurement campaign Patrick commissioned is complete.** Tool:
+`data/analyze_9x9_losses.py` (per-move point loss via KataGo root-lead
+deltas at 200 visits + locality = Chebyshev distance to previous move).
+Human reference games: `data/human_games_9x9_ogs/{18k,15k,12k,9k,6k,3k,1d}`
+(OGS, both-players-in-band, ranks in filenames; 18k/12k/3k/1d fetched
+this session — 3k/1d needed a two-hop crawl from our 6k players' stronger
+opponents; the amybot seeds never meet dans).
+
+**THE HUMAN REFERENCE TABLE (9×9, mover-perspective loss):**
+```
+rank  n-moves mean  median near<.5 small medium blunder≥5 local≤2
+18k   309     6.08  1.78   33%     19%   17%    31%       68%
+15k   337     2.69  1.11   39%     24%   21%    16%       66%
+12k   234     2.36  0.48   51%     14%   15%    20%       67%
+9k    368     2.57  0.51   49%     22%   13%    15%       75%
+6k    269     2.01  0.58   47%     25%   16%    12%       72%
+3k    250     2.08  0.32   54%     17%   13%    16%       71%
+1d    195     1.70  0.36   54%     23%   16%    7%        66%
+```
+Read: 18k is DRAMATICALLY weaker (31% blunders, mean 6); 15k is the last
+"soft" column (median 1.1); 12k→3k cluster tightly on per-move quality
+(9×9 mid-kyu differences also live in which positions they reach, not
+just per-move loss); 1d separates via the thin blunder tail (7%).
+Locality is rank-invariant ~66-75% — humans always play locally.
+
+**Placements (same pipeline):**
+- **bot "15k" (sampling_rr15_t22): matches human 9k almost exactly**
+  (48/21/13/17 vs 49/22/13/15, median 0.62 vs 0.51) — Patrick's feel
+  said "6-9k"; the histogram says 9k. Feel + measurement agree ⇒ THE
+  RANK-O-METER WORKS. → this config becomes the real 9k rung.
+- **bot "9k"/Boulder (sampling_rr55_t115):** vs bot-15k opponents:
+  near-opt 59%, blunder 12%, median 0.16 — lands between human 3k and
+  1d. Patrick's feel: "3k" (three games vs him at komi 6.5, all within
+  1.5 pts). → candidate 3k rung.
+- **Patrick himself (B side of DJ9CCN4A/3Q59V8MY/R55WVN7K): near-opt
+  72%, blunder 3%, mean 0.61, locality 74%** — clearly above the human
+  1d column, consistent with his ~2d. The method rank-orders a known
+  player correctly = best validation we could ask for.
+- **Bot locality is the texture gap: 44-47% vs human 66-75%.** The
+  sampler has no last-move anchor (local_bias 0 + wideRootNoise spreads
+  globally). Fix planned: locality weighting inside the sampling pool —
+  becomes a matching dimension in the auto-calibration loop.
+- Methodology caveat: histograms are opponent-contextual (Boulder
+  measured much sharper vs Patrick than vs bot-15k — quieter positions
+  offer smaller losses; also n=64). Compare like-for-like contexts.
+
+**Emerging rung map:** 9k = sampling_rr15_t22 (measured); 3k = Boulder
+config (feel + rough histogram); 12k seed = sweep variant B (rr.10/t2.6);
+6k seed ≈ iter-3's shelved rr.30/t1.4 (sits between new-9k and new-3k —
+archive reuse); TRUE 15k + 18k = auto-calibration targets (18k's column
+is distinctive and reachable: 31% blunders, median 1.78 ⇒ rr≈0.05,
+temp≈3, rand≈0.15 territory). All configs recorded in
+`data/profiles/9x9_profile_archive.yaml`. Next: the distribution-matching
+auto-calibration loop (task 4).
+
+Also this session: endgame territory net (see below), Patrick's three
+uploaded Boulder games archived in `data/patrick_vs_boulder/`, device
+pool widths confirmed healthy in his uploads (24-37 open, 4-9 fights).
+
+**Candidate-ladder tournament, iter 1 (Patrick's dinner-run spec: 3-game
+sets, even + handicapped at 3.5 pts/rank via komi, pairs ≤6 ranks apart,
+weaker side Black).** Candidates: `data/profiles/b28_candidates_9x9.yaml`
+(18k/15k/12k new, 9k=measured config, 6k interpolated, 3k=Boulder,
+1d new; b28.yaml untouched). Results (66 games + histograms,
+`scratchpad/tournament_results.json`):
+- **The bottom three candidates all measure ~human-12k** (43-45%
+  near-opt, 12-13% blunders) — policy_temp saturates at the hot end
+  exactly like sigma did; the sampling mechanism's floor ≈ 12k. Hence
+  18k v 15k even = coin-flip. **12k is therefore ≈ on target already**;
+  true 15k/18k need `random_move_chance` escalation (random-legal ≈
+  5-15 pt blunders = the human 18k texture, 31% blunder column).
+- **The 15k↔9k stretch is the showcase:** even 3/3 stronger side
+  (+28.8), handicap avg −0.8 ⇒ 3.5 pts/rank VALIDATED there.
+- Top trio (6k/3k/1d) compressed in even sets; histograms say cand-6k
+  ≈ 2k and cand-1d ≈ 2d (near Patrick's own column) — both hot, fixes
+  deferred pending Patrick's device feel + bigger n.
+- **Anomaly:** 9k v 6k even went 3/3 to the 9k (avg −31.5),
+  contradicting the histograms; n=3 → re-testing at n=6 in iter 2.
+- Overall health: even sets stronger-side 58% (compressed ends),
+  handicap 64% (want 50%).
+**Iter 2 results:** 18k rand .15→.30, 15k rand .08→.14, all else frozen.
+- **The 9k-v-6k anomaly is DEAD:** n=6 re-test, 6k won 5/6 avg +32.7 —
+  iter-1's 3/3 sweep was pure 3-game noise. (Retracting the "6k most
+  flawed / machinery-on-reading-path is hurting" hypothesis — the
+  architecture note stands, the damage claim didn't survive n=6.)
+- Bottom stays compressed head-to-head even at rand .30 (18k v 15k 2/4
+  +4.2): below ~12k, bot-vs-bot can't resolve gaps (mutual weakness —
+  neither side punishes). Histograms + human testers are the
+  instruments down there.
+
+**SHIPPED TO b28.yaml (evening, Patrick's direction): the OGS-scale
+iter-3 ladder, 30k + 18k→1d, all sampling profiles.** Patrick's scale
+insight drove the re-rating: he (IGS 2d) measures ABOVE the OGS-1d
+human column ⇒ OGS labels run soft vs IGS ⇒ Boulder (played him dead
+even) belongs at Void/1d, and the rr.80/t1.0 config that briefly held
+the 1d slot measures at Patrick's own column — archived as a future
+beyond-Void boss bot. Final rungs: 18k rr.03/t3.5/rand.30 · 15k
+rr.07/t2.9/rand.14 · 12k rr.10/t2.6 (measured ≈ its column) · 9k
+rr.15/t2.2 (measured = its column, the anchor rung) · 6k rr.21/t1.95
+(THE one unvalidated interpolation) · 3k rr.28/t1.7 (measured ≈ 3k-2k,
+beat 9k 5/6) · 1d = Boulder. NewGameDialog: 18k/12k now selectable on
+9×9 (first time these rungs have real 9×9 profiles — the autoplay
+ladder's komi/handicap bridging for them is unchanged and now
+REDUNDANT; fold real profiles into the matchmaker in a follow-up).
+Candidate history preserved in b28_candidates_9x9.yaml + archive; all
+prior b28 9×9 comment history is in git. Tests 231/29, build green,
+preview-verified (all 8 ranks selectable, values served). **Committed;
+awaiting Patrick's full-ladder device pass — his feedback decides the
+next round.** Locality weighting (bots 35-47% vs humans 66-75%) remains
+the queued texture fix (task 4).
+
+## Session 41 — July 5, 2026 (THE §3 ROOT CAUSE: bridge parsed ONE candidate per analysis since Phase D)
+
+**Patrick's device pass on the anchor-calibrated 15k: "still playing
+perfectly... just like every other iteration. Have you actually changed
+anything?" — the right question, and the answer cracked the case.**
+
+His upload `E38J2NEN` carried the new S40 instrumentation, and it was
+unambiguous: bundle current (`[analyze]` lines present, wrn=0.6
+requested) but **`candidates=1` on every single bot move.** Local
+reproduction of the exact GTP sequence (b28 model + the device's own
+`ios/swift/default_gtp.cfg`): `kata-set-param wideRootNoise 0.6`
+accepted, and the response contains **29 `info move` blocks — all
+concatenated on ONE line** (kata-genmove_analyze without an interval
+prints a single final dump; there is no per-move line streaming).
+
+**The bug: `parseInfoLine` stops at the first `pv` token, and the read
+loop fed it the WHOLE line — so the bridge parsed the first segment and
+discarded the other ~28. The on-device candidate pool has been ONE MOVE
+DEEP since Phase D shipped in May.** Every selection mechanism ever run
+on-device — mistake injection, clarity gates, score_noise, prior
+sampling — received a pool of one and "chose" it. Fix (both Swift
+copies): split each info line on `"info move "` boundaries and parse
+per segment. Ownership parsing still runs on the full line (its floats
+trail the final segment).
+
+**What this retroactively explains:**
+- Every §3 iteration feeling identical on-device while the local JSON
+  path (correctly parsed, 12-29 candidates) transformed — the device
+  was structurally incapable of anything but top-move play.
+- Months of "bots feel stronger on-device than calibration predicted"
+  (9×9 AND 13×13 complaints, the 2026-06-04 15k weakening that "didn't
+  take").
+- The June ko log's `analyze returned 1 candidates (best: J5...)` —
+  not a narrow search, a discarded pool. **The superko ko-pass class
+  was amplified by this bug**: with 1 candidate, an illegal ko
+  recapture left an EMPTY pool (→ Option B fallback / pass); with the
+  real pool there are ~28 legal alternatives.
+- On-device settle-path pass detection rarely saw a pass candidate
+  (pool of 1) — post-fix it does, so endgame passing should improve.
+
+**Calibration consequences — READ BEFORE THE NEXT DEVICE PASS:**
+- Patrick's "6k plays me (2d) roughly even" anchor was measured against
+  the BUGGED device 6k = top-move play at 12 visits. Post-fix, every
+  KataGo-path rank (15k→1d) does real mistake injection on-device for
+  the FIRST TIME and will play weaker than he remembers. 30k (pure
+  heuristic) unaffected.
+- The S40 sweep calibrated 15k against the LOCAL (correctly-parsed) 6k
+  — which is what the device 6k now becomes. So the rr 0.15 / temp 2.2
+  calibration transfers as-is; it's the ANCHOR that moves.
+- Protocol for Patrick's rebuild: re-anchor bottom-up, expect the whole
+  ladder to shift down, and check whether the "6k ≈ 3k ≈ near-dan
+  compression" partially dissolves on its own. Console check:
+  `[Bridge] analyze returned N candidates` should read ~15-30 (and the
+  uploaded `[analyze] wrn=0.6 candidates=N` lines likewise). The
+  `build=` stamp in every game header (added this session) confirms
+  bundle vintage.
+
+## Session 40 — July 5, 2026 (§3 iter 3: the out-of-pool mechanism — reading_rate + wideRootNoise)
+
+**Patrick's morning verdict on iter 1 (device) + go-ahead:** ~25% even
+win rate as a ~2d vs the 15k; "perfect first 5 moves, never messes up
+midgame fighting or L&D, ignores you on a liberty advantage — not a
+15k." His architectural read — profile levers are subtle on 9×9 and the
+whole calibration approach needs rethinking — matches the S39 pool-floor
+finding exactly. Approved options 1+2 (wide pool + policy sampling) with
+a mistake model: *lots of little mistakes often, occasional big ones;
+stronger ranks shrink both frequency and size.*
+
+**Design (shipped, TS + Python + both Swift bridge copies):**
+- **`wide_root_noise` (knob → KataGo `wideRootNoise`):** spreads root
+  visits across most plausible moves — the candidate list becomes a
+  wide, SCORED policy sample instead of 3-5 near-best moves. Python:
+  `overrideSettings` on the JSON query (engine.py `analyze(...,
+  override_settings=)`); on-device: `kata-set-param wideRootNoise` in
+  KataGoBridge.swift — ALWAYS sent (0.0 when absent) because the GTP
+  engine is long-lived and must not leak the value into settle /
+  finishMove / score analyses. Verified live: 15k opening analyses
+  return 29 candidates (was 3-5).
+- **`reading_rate` + `policy_temp` (the human model):** a weak player
+  READS only some moves. With prob (1−reading_rate) the move is sampled
+  by prior^(1/policy_temp) — shape intuition, scores ignored, eye-fills
+  excluded. Clarity gates + opening top-3 + machinery now live INSIDE
+  the reading path only — so unread fights get genuinely misread, and
+  big mistakes emerge organically from the prior tail
+  (random_move_chance drops to 0.05/0.04). Mapping: small-mistake
+  frequency = 1−reading_rate; small-mistake size = policy_temp; big
+  mistakes = prior tail + random_move_chance.
+- Profiles: 15k rr 0.30 / temp 1.4 / wrn 0.6; 9k rr 0.55 / temp 1.15 /
+  wrn 0.45; local_bias 0 on both (the policy already localizes). 6k+
+  untouched. `analyze` callback signature gains `AnalyzeOpts`
+  (client.ts passes `wideRootNoise` to the bridge; older native builds
+  ignore the param).
+
+**Ladder (n=10 adjacent, n=8 floor): ordering correct, monotonic.**
+- 15k v 9k — 9k 7/10, avg +0.6 (one +73 15k blowout skews the mean;
+  gap is real but thin — the dial if Patrick wants more: spread
+  reading_rate/temp further apart, e.g. 0.25/1.5 vs 0.65/1.05).
+- 9k v 6k — 6k 9/10, avg +19.4.
+- 30k v 15k — 15k 8/8, avg +88.9 (floor intact even at 70% no-reading).
+
+Tests: frontend 222 (+5, `moveSelector.readingRate.test.ts` — prior-not-
+score sampling, hot-temp tail, reading_rate=1 regression, eye-fill
+exclusion, wideRootNoise plumbing incl. settle exemption), backend 20
+(+5 parity incl. override_settings assert). Build green.
+
+**Device-validation notes for Patrick's next pass (needs Xcode rebuild —
+Swift changed):** in the Xcode console, `[Bridge] analyze returned N
+candidates` should jump to ~15-30 on 15k moves; if the bundled KataGo
+rejects `kata-set-param wideRootNoise` there'll be a GTP error line near
+it and pools stay narrow — report that back. Absolute rank feel is the
+open question; bot-vs-bot only proves ordering.
+
+**ITER 3b (same day): Patrick's device pass on 3 — "still playing
+perfectly."** Diagnosis: the b28 policy prior is itself ~dan-strength on
+9×9, so sampling near it at temp 1.4 is still dan Go; the mechanism
+worked, the dial was way too cold. **Anchor-calibrated sweep:** Patrick
+(2d) plays the current 6k roughly even ⇒ true 15k ≈ 9 ranks below 6k ≈
+6k wins by +40..50 on 9×9 even. Local sweep vs the FIXED 6k (n=6/cell):
+rr .20/t1.9 → +28.3; **rr .15/t2.2 → +46.7, repeat +50.8 (WINNER — in
+band, stable, n=12)**; rr .10/t2.6 → +56.8. Locked into b28.yaml.
+Final ordering check: 15k v 9k — 9k 7/8 avg +34.1 (the big separation
+Patrick asked to verify); 30k v 15k — 15k 6/6 avg +88.7 (floor intact
+at the weakest-ever 15k). Full ladder: 30k ≪ 15k < 9k < 6k < 3k < 1d.
+9k left at rr .55/t1.15 (−19 vs 6k ≈ its ~3-ranks-below target).
+Also: `[analyze] wrn=… candidates=N` selectorLog line added (client.ts)
+— uploads now self-diagnose device pool width. Tests 222/20, build
+green. Sweep harness gotcha for future scripts: `lsof -ti:PORT` lists
+BOTH TCP ends — kill with `-sTCP:LISTEN` or the sweep kills itself.
+
+**Human reference games for calibration study (Patrick's request):** the
+repo's Fox dataset (~900k SGFs in data/{6k..18k}) is 100% 19×19 — no 9×9
+on Fox. Fetched rank-labeled human-vs-human ranked 9×9 SGFs from OGS
+instead → `data/human_games_9x9_ogs/{15k,9k,6k}/` (5/9/5 games, both
+ranks in each filename; OGS list-API filters are locked down, so the
+fetch script crawls seed-bot opponents — scratchpad/fetch_ogs_9x9.py,
+worth keeping if we want more). Patrick's plan: KataGo-review them for
+per-rank mistake texture; a per-move point-loss distribution per rank
+would give policy_temp a direct distribution-matching target (better
+than margin-anchoring alone).
+
+## Session 39 — July 4, 2026 (§3 iter 2: score_noise + the JEA338QQ edge-false-eye pass)
+
+**Patrick's device pass on S38's iter 1 failed both ways.** 15k: "first
+game felt ~9k, second near-perfect and destroyed me — still way too
+strong." 9k: "destroying me" (he's ~2d — even a real 9k shouldn't).
+And mid-9k-game the bot passed a won fight — "the ko bug AGAIN" — and he
+uploaded it: **share code JEA338QQ**.
+
+**JEA338QQ diagnosis (capture-first paid off in one shot — the embedded
+selector log named the path directly): NOT the ko bug. A false-eye
+misclassification on the board edge.** Log: `PASS
+reason=eye-fill-retries-exhausted` at move 36, no `[desync]` (the §2
+koBan/resync fixes held). Replay: Patrick's move 35 (`ci`) put three
+White stones in atari; the only saving move, the connection at (8,4) on
+the bottom edge, has one Black diagonal — a textbook FALSE eye. But
+`isEyeFill`/`_is_eye_fill` counted off-board diagonals as friendly AND
+allowed one miss (`friendly >= max(total-1, 1)`), a double relaxation
+that flagged the connection as an own-eye fill. The S38 clarity gate then
+made selection deterministic — all 5 retries re-picked the same forced
+save — so the wrapper passed. Black played (8,4) himself and captured.
+The bug predates everything (the old random retries usually masked it).
+
+**Fixes (both selectors, TS + Python):**
+1. **Eye-fill edge rule:** center (4 on-board diagonals) still tolerates
+   one enemy diagonal; EDGE/CORNER points now require ALL on-board
+   diagonals friendly — one enemy diagonal = false eye = playable.
+   Verified against the actual JEA338QQ position: the flagged list at
+   move 36 goes `[(8,4)]` → `[]`.
+2. **Eye-fill wrapper never passes while legal non-eye moves exist** —
+   plays `pickLegalNonEyeMove` fallback + logs the rejected point
+   (`eye-fill rejected 5x at (r,c)`); pass only when nothing legal
+   remains. Same shape as the S36 commit-rejection fix.
+3. **`score_noise` (new knob): noisy score argmax replaces the mistake
+   machinery on the mid rungs.** Iter 1's myopic-local failed on 9×9
+   because Chebyshev-2 of the last move ≈ a third of the board and
+   fights center there anyway — the strongest local candidate usually IS
+   the global best. New model: every candidate's scoreLead gets
+   N(0, sigma) noise, noisy best wins (also inside the myopic local
+   pick). Close calls flip constantly = small mistakes all the time; big
+   gaps survive = super-obvious moves still played; sigma scales
+   strength smoothly and is data-only tunable. 15k sigma=6.0, 9k=4.5
+   (ordering via sigma). mistake_freq/randomness are inert while
+   score_noise > 0 — kept in YAML for rollback.
+
+Tests: frontend 217 (+7, `moveSelector.eyeFillNoise.test.ts` — the exact
+JEA338QQ shape, real-eye-still-flagged, center tolerance, wrapper
+fallback, noise argmax/flip/local), backend 15 (+5 parity). Build green.
+
+**The sigma experiment failed informatively (iters 2→2b→2c, same night).**
+Ladder rechecks: sigma 6 and sigma 12 produced IDENTICAL 15k-v-9k results
+(4/8 both), and 9k-with-sigma beat 6k in two independent runs (1/8, 2/8
+for 6k) — inverted. Two architectural lessons, now load-bearing:
+1. **The candidate pool is a strength floor.** Once sigma exceeds the
+   pool's score spread, noisy argmax = uniform-over-pool, and the pool
+   (KataGo's searched candidates) is all decent moves. Uniform-over-pool
+   is STRONGER than the old mistake machinery, which deliberately targets
+   sweet-spot losses — the machinery is the weakest within-pool picker we
+   have. Going genuinely below the floor needs OUT-OF-POOL moves — policy
+   sampling (`includePolicy`) is the principled future mechanism; needs
+   bridge plumbing (Swift + engine.py). `score_noise` +
+   `local_bias_from_candidates` stay in both selectors as dormant, tested
+   knobs (no profile uses them after 2d).
+2. **8-game cells cannot resolve close pairs.** 6k v 3k flipped 7/8 →
+   3/8 across two runs with IDENTICAL configs on both sides. Only
+   saturated results (8/8 blowouts) and cross-run-consistent patterns
+   count; adjacent-pair checks now run n=10, and Patrick's play-feel is
+   the real calibration instrument (as the original 30-game-cell
+   methodology already knew).
+
+**Final config (iter 2d):** 15k AND 9k both drop the myopic branch —
+iter-1 9k (myopic strongest-local) is the bot that destroyed Patrick;
+local-best ≈ global-best on 9×9 made it a perfect-play mode on both
+rungs. Both back on the mistake machinery with random-nearby local
+noise; 15k: local 0.50, rand 0.15, mistake 0.72, clarity 0.87/15,
+visits 16; 9k: local 0.40, rand 0.07, mistake 0.63, clarity 0.80/10,
+visits 16 — 9k stricter on every knob, so 15k<9k by construction; 6k
+above 9k via its default clarity gates. 2c ladder (before the 9k myopic
+drop): 9k stomped 15k 8/8 +85, 15k stomped 30k 8/8 +85 — the mid rungs
+finally separate.
+
+**Final iter-2d n=10 adjacent-pair check: ordering restored, decisively.**
+- 15k v 9k — 9k 8/10, avg +40.3 (clear separation, not saturated)
+- 9k v 6k — 6k 10/10, avg +83.7 (saturated — 6k sits far above the
+  de-myopic'd 9k, consistent with 6k+ being the compressed near-dan tier
+  only the out-of-pool redesign can bring down)
+Ladder: 30k ≪ 15k < 9k ≪ 6k (< 3k < 1d per earlier runs within noise).
+
+**Where §3 lands tonight:** eye-fill edge bug fixed, ordering repaired,
+mid rungs substantially weakened, root cause of 9×9 over-strength
+diagnosed with converging evidence (Patrick's play-feel — "perfect first
+5, never misses L&D, ignores you on a liberty advantage" + his memory
+that early calibrations barely separated — and the sigma experiment).
+**True rank-alignment on 9×9 needs out-of-pool moves: wideRootNoise/
+rootPolicyTemperature overrides + raw-policy sampling (reading_rate
+knob), with KataGo's human SL model as the eventual principled fix —
+proposed as its own feature plan, pending Patrick's call.** Camp (July
+13) is not blocked: beginner kids live on 30k/18k rungs, least affected.
+
+## Session 38 — July 4, 2026 (§3: 9×9 mid-rung retune — myopic local bias + real mistake pools)
+
+**Milestone §3 opened with Patrick's play-feel report** (he's ~2d IGS on
+19×19, so these are calibrated anchors, not vibes): 6k very hard to beat
+and ≈3k when played even; 1d about right (even at 1 stone); **9k possibly
+EASIER than 15k**; 15k "plays perfectly, then one dumb mistake — the gap
+between perfect play and the mistake is way too large."
+
+**Diagnosis — the milestone hypothesis, made concrete in the selector.**
+A move only reaches mistake injection after four earlier exits, and on
+9×9 the exits dominate:
+1. **Clarity gates ran on their defaults** (`clarity_prior` 0.5 /
+   `clarity_score_gap` 5.0) for every 9×9 rung except 30k (which disables
+   them at 1.1/999). On 9×9, prior ≥ 0.5 and 5-pt gaps are routine — the
+   mid rungs played the literal top move constantly, by accident.
+2. **The mistake pool contained no mistakes.** At 15k's 5 visits KataGo
+   surfaces only 3–5 near-optimal candidates, so "mistake mode"
+   (mistake_freq 0.72!) picked another near-best move. This also explains
+   the 9k<15k inversion: 9k's 9 visits surfaced a *wider* pool with real
+   spread, giving its mistake mode actual mistakes to choose. Fewer
+   visits = sharper move-to-move play in this architecture.
+3. What weakness remained was branch noise (random_move_chance +
+   random-nearby local_bias) — hence "perfect play or a dumb mistake,
+   nothing between."
+
+**Patrick's 15k spec:** perfect only when super obvious; small mistakes
+all the time; localized play over whole-board; occasional large blunders.
+
+**Fix (mechanism + data, both selectors):**
+- **`local_bias_from_candidates` (new bool knob, both loaders):** the
+  local-bias branch plays the *strongest KataGo candidate within
+  Chebyshev 2 of the anchor* — locally-best-globally-wrong, i.e. real
+  myopic human moves instead of random-nearby noise. Falls through to
+  normal selection when KataGo surfaced nothing local. Legacy behavior
+  untouched when the knob is unset (30k anchor unchanged).
+- **9×9 15k:** visits 5→16 (pool breadth, NOT strength — the strength
+  now comes from selection), clarity_prior 0.87 / gap 15 explicit
+  ("super obvious only"), local_bias 0.38→0.55 myopic,
+  random_move_chance 0.16→0.10 (blunders read occasional once real
+  small mistakes exist).
+- **9×9 9k:** same mechanism (visits 16, clarity 0.80/10, local_bias
+  0.40 myopic, rand 0.07) — every selection knob strictly between 15k
+  and 6k, so the ordering comes from selection strictness, not visit
+  cliffs.
+- **9×9 6k:** knob-only per Patrick — mistake_freq 0.55→0.65 to
+  separate it from 3k (its 12-visit pool already has real spread; if
+  still 3k-like, next lever is an explicit clarity_score_gap).
+- 3k / 1d / 30k untouched.
+
+Tests: frontend 210 (+5, `moveSelector.myopicLocal.test.ts` — myopic
+pick, fall-through, legacy-unset regression, explicit-clarity gating);
+backend 10 (+4, `test_myopic_local_bias.py` — Python parity via fake
+engine). `npm run build` green. Note: Render still loads b20.yaml (no
+`CALIBRATION_PROFILE_PATH` in render.yaml), so the web bots get the
+mechanism but not the retuned values — on-device b28 is the target.
+
+**Validation protocol:** bot-vs-bot ladder-ordering check (30k<15k<9k<
+6k<3k must hold; the 15k/9k inversion must be gone), then Patrick plays
+the full ladder bottom-up on device and reports per-rung feel.
+
+**Ladder check run same session** (local backend, b28 model + retuned
+b28.yaml, 8 games/pair, 9×9 even komi 7.5, stronger side White):
+- 15k v 9k — **9k 6/8, avg +13.4** → the reported inversion is GONE.
+- 30k v 15k — 15k 8/8, avg +88.8 (saturated stomp, expected tier gap).
+- 9k v 6k — 6k 7/8, avg +16.5.
+- 6k v 3k — 3k 5/8, avg margin −6.6 (two 40+pt 6k wins). Weakest
+  separation, consistent with Patrick's "6k ≈ 3k" report; n=8 is noisy
+  so not conclusive, but if his play-feel still says 3k-like, the next
+  lever is an explicit clarity_score_gap on 6k (noted in the YAML).
+Ordering holds at every rung. Awaiting Patrick's bottom-up device pass;
+changes uncommitted until then.
+
 ## Session 37 — July 4, 2026 (§2 device-validated + capture-tray overflow fix)
 
 **§2 closed provisionally by Patrick's device pass**: two games on iPad
