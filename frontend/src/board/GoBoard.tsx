@@ -361,6 +361,7 @@ export function GoBoard() {
   const lastCaptures = useGameStore((s) => s.lastCaptures);
   const atariGroups = useGameStore((s) => s.atariGroups);
   const currentColor = useGameStore((s) => s.currentColor);
+  const playerColor = useGameStore((s) => s.playerColor);
   const playMove = useGameStore((s) => s.playMove);
   const moveCount = useGameStore((s) => s.moveCount);
   const aiThinking = useGameStore((s) => s.aiThinking);
@@ -409,7 +410,15 @@ export function GoBoard() {
   // Quiz lessons answer via on-screen buttons, not by clicking the board.
   const canClick = learnActive
     ? learnLessonKind !== 'quiz' && (learnStatus === 'awaiting' || learnStatus === 'retry')
-    : !replayActive && phase === 'playing' && !aiThinking && gameMode !== 'botvsbot';
+    : !replayActive &&
+      phase === 'playing' &&
+      !aiThinking &&
+      gameMode !== 'botvsbot' &&
+      // Only when it's the player's turn vs the bot. Without this, a
+      // White player could tap the empty board during the window before
+      // the bot's opening Black move (aiThinking is still false then) and
+      // place the bot's stone themselves, desyncing the game.
+      currentColor === playerColor;
 
   // Lesson highlights:
   //  - puzzle/game lessons: only when showHint is set
