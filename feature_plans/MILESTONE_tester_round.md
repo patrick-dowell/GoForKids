@@ -67,7 +67,29 @@ Still occurring in game-breaking situations (Patrick, ~late June — less freque
   - Side finding, unrelated to this repro: the backend's `GameStateManager.undo` dropped handicap stones (server twin of the Sprint 2 frontend bug) — desynced the backend board from the frontend engine in every web-path handicap game with an undo. Fixed + first backend tests in S35 (commit 76c49ac). ~~The web path's empty-`moves` ko hole in `move_selector.py` is still open.~~ **CLOSED S36:** KataGo now gets real history (`_engine_history` → `engine.analyze(moves=…)`) on both `get_ai_move` and `finish_move`; server pass-on-rejection fallbacks replaced with legal-fallback/candidate-walk. **Bonus find while in there: `_select_with_katago` had a swallowed `NameError` (missing `opponent_passed` param) since 2026-06-04 — the Render bot has been playing pure random-legal moves for a month** (on-device unaffected; the broad `except` hid it — now `logger.exception`). Backend tests 6. Disregard any June web-path play-feel observations.
 - **Then:** fix whichever path the log names. If it's the superko path, note root fix A changes KataGo's rules config and can subtly shift bot behavior — if that lands after the §3 recalibration, budget a touch-up pass on the profiles.
 
-### 3. 9×9 bot profiles too strong — full review  🔧 FIX SHIPPED 2026-07-04 (S38) — pending Patrick's ladder pass
+### 3. 9×9 bot profiles too strong — full review  ✅ EFFECTIVELY DONE 2026-07-05 (S44) — held open for Patrick's final device pass
+> **RESOLUTION (S44, 2026-07-05):** rebuilt the entire 9×9 ladder (30k→1d) on
+> a data-driven **out-of-pool sampling mechanism** (reading_rate / policy_temp
+> / wide_root_noise + **sampler v2**: sample_lapse + sample_loss_cap), calibrated
+> against a **per-move-loss histogram table of real human games at each rank**
+> (`data/human_games_9x9_ogs/`, analyzer `data/analyze_9x9_losses.py`). Final
+> state meets the "measurably works" bar on BOTH instruments: bot-vs-bot ladder
+> is monotonic with near-even 3.5-pt/rank handicaps, AND each rung's loss
+> histogram sits on its human column (15k median 1.11 vs human 1.14; 9k
+> 0.52 vs 0.58). Anchors 30k/18k/6k/1d validated by Patrick on device; middle
+> retuned to match. Root causes found + fixed along the way: the **iOS bridge
+> parsed 1 candidate per analysis since May** (S41 — the real reason every
+> prior retune felt identical on device), an **edge-false-eye pass** (JEA338QQ),
+> and a **no-pass/junk-fill endgame** (GN5R6K9G). Full arc: DEVJOURNAL S38–S44;
+> profile lineage in `data/profiles/9x9_profile_archive.yaml`; every bot game in
+> `data/calibration_logs_b28/9x9_s38-s42_bot_battles.md`. **Open only for
+> Patrick's device pass on the final build; deferred: opening-fidelity lever
+> (humans blunder openings hardest on 9×9), 3k↔1d closeness (accepted),
+> autoplay-ladder matchmaker cleanup (18k/12k now have real profiles).**
+>
+> ---
+> _Original investigation (S38–S43) below, kept for the record._
+>
 > **Patrick's full report (2026-07-04, he's ~2d IGS):** 6k very hard even + ≈3k-like;
 > 1d about right (even at 1 stone); **9k possibly easier than 15k**; 15k "plays
 > perfectly, then one dumb mistake — the gap is way too large."

@@ -272,7 +272,13 @@ profiles:
     # Rank dial: reading_rate ↑, policy_temp ↓, random_move_chance ↓,
     # wide_root_noise ↓ as rank rises. mistake_freq/max_point_loss only
     # touch the (small) reading fraction below 3k.
-    # PENDING: Patrick's full-ladder device pass (2026-07-05 evening).
+    # ROUND 2 (2026-07-05 late): Patrick's full-ladder pass froze 30k/18k/
+    # 6k/1d as anchors and convicted the middle — the rr dial barely dialed
+    # (tactical free-riding: big prior gaps survive any temperature), so
+    # 15k/12k were erratic-strong and 3k reached 1d-minus. Sampler v2 adds
+    # sample_lapse (miss the vital point) + sample_loss_cap (misses cost
+    # points, not games) on 15k/12k/9k/3k. PENDING: round-2 bot battles +
+    # phase curves, then Patrick's next device pass.
     "30k":
       # Playtest-validated pure-heuristic anchor (2026-05-18) — UNCHANGED.
       # Do not retune without explicit playtest confirmation.
@@ -318,13 +324,15 @@ profiles:
       mistake_freq: 0.75
       policy_weight: 0.12
       randomness: 0.78
-      random_move_chance: 0.14
+      random_move_chance: 0.1
       local_bias: 0.0
       local_bias_in_opening: false
       local_bias_from_candidates: false
-      reading_rate: 0.07
-      policy_temp: 2.9
+      reading_rate: 0.05
+      policy_temp: 2.6
       wide_root_noise: 0.7
+      sample_lapse: 0.45
+      sample_loss_cap: 7.0
       first_line_chance: 0.0
       visits: 16
       min_candidates: 10
@@ -344,9 +352,11 @@ profiles:
       local_bias: 0.0
       local_bias_in_opening: false
       local_bias_from_candidates: false
-      reading_rate: 0.10
-      policy_temp: 2.6
+      reading_rate: 0.08
+      policy_temp: 2.3
       wide_root_noise: 0.7
+      sample_lapse: 0.35
+      sample_loss_cap: 6.0
       first_line_chance: 0.0
       visits: 16
       min_candidates: 10
@@ -366,9 +376,11 @@ profiles:
       local_bias: 0.0
       local_bias_in_opening: false
       local_bias_from_candidates: false
-      reading_rate: 0.15
-      policy_temp: 2.2
+      reading_rate: 0.12
+      policy_temp: 2.1
       wide_root_noise: 0.6
+      sample_lapse: 0.25
+      sample_loss_cap: 5.0
       first_line_chance: 0.0
       visits: 16
       min_candidates: 10
@@ -400,6 +412,9 @@ profiles:
     "3k":
       # Ran as cand-6k in the tournament: histogram 58% near-opt / 9%
       # blunders ≈ human 3k-2k band; beat the 9k 5/6 (+32.7) at n=6.
+      # ROUND 2b (2026-07-05): round-2 left 3k playing 1d/Boulder ~even
+      # (compressed top). λ 0.15 -> 0.28 to weaken (miss the vital point
+      # more often); nothing else touched. Re-tested vs 6k + 1d only.
       max_point_loss: 24.0
       mistake_freq: 0.68
       policy_weight: 0.12
@@ -408,9 +423,11 @@ profiles:
       local_bias: 0.0
       local_bias_in_opening: false
       local_bias_from_candidates: false
-      reading_rate: 0.28
+      reading_rate: 0.24
       policy_temp: 1.7
       wide_root_noise: 0.55
+      sample_lapse: 0.28
+      sample_loss_cap: 4.0
       first_line_chance: 0.0
       visits: 16
       min_candidates: 10

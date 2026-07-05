@@ -194,9 +194,16 @@ function gaussian(): number {
  *  sampling them with temperature plays shape-plausible moves that genuinely
  *  misread fights, and the prior tail supplies occasional big mistakes
  *  organically. Mirrors the Python _sample_by_prior. */
-function sampleByPrior(pool: MoveCandidate[], temp: number): MoveCandidate {
+function sampleByPrior(pool: MoveCandidate[], temp: number, lapse = 0): MoveCandidate {
   const t = Math.max(temp, 0.05);
-  const weights = pool.map((c) => Math.max(c.prior, 1e-4) ** (1 / t));
+  const raw = pool.map((c) => Math.max(c.prior, 1e-4) ** (1 / t));
+  const total = raw.reduce((a, b) => a + b, 0) || 1;
+  // Attention lapse (sampler v2, 2026-07-05 round 2): blend λ of the weight
+  // mass to uniform. Temperature alone can NEVER make the sampler miss a
+  // 0.9-prior vital point (the gap survives any exponent) — that tactical
+  // free ride is why every sampling rung converged toward dan strength on
+  // Patrick's device pass. Lapse is the "didn't even look there" dial.
+  const weights = raw.map((w) => (1 - lapse) * (w / total) + lapse / pool.length);
   return weightedChoice(pool, weights);
 }
 
@@ -626,9 +633,21 @@ function selectWithKataGo(
     !isOpponentEnclosedFill(board, color, { row: c.move.row, col: c.move.col });
 
   if (profile.reading_rate !== undefined && Math.random() >= profile.reading_rate) {
-    const pool = candidates.filter(playable);
+    let pool = candidates.filter(playable);
+    // Sampling loss cap (sampler v2): drop candidates more than
+    // sample_loss_cap points below the pool's best. Un-capped sampling
+    // turned sharp positions into coin flips — perfect play until one
+    // game-ending collapse ("blunders its way into a loss", Patrick's 15k
+    // read). Capped, a miss costs a few points; big blunders stay the
+    // explicit job of random_move_chance.
+    const cap = profile.sample_loss_cap;
+    if (cap !== undefined && pool.length > 1) {
+      const ref = pool[0].scoreLead; // pool keeps KataGo order: [0] = mover-best playable
+      const capped = pool.filter((c) => Math.abs(ref - c.scoreLead) <= cap);
+      if (capped.length > 0) pool = capped;
+    }
     if (pool.length > 0) {
-      const sel = sampleByPrior(pool, profile.policy_temp ?? 1.0);
+      const sel = sampleByPrior(pool, profile.policy_temp ?? 1.0, profile.sample_lapse ?? 0);
       return { row: sel.move.row, col: sel.move.col };
     }
     // Nothing samplable — fall through to the reading path.

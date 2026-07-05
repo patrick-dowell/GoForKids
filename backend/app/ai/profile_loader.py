@@ -65,6 +65,8 @@ OPTIONAL_KEYS: dict[str, type] = {
     "reading_rate": float,
     "policy_temp": float,
     "wide_root_noise": float,
+    "sample_lapse": float,
+    "sample_loss_cap": float,
     "save_atari_chance": float,
     "capture_chance": float,
     "use_katago": bool,

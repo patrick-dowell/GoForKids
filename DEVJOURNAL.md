@@ -1,5 +1,64 @@
 # Development Journal
 
+## Session 44 — July 5, 2026 (sampler v2: lapse + loss cap — the ladder that matches humans on both instruments)
+
+**Patrick's full-ladder device pass (round 1 values) diagnosed the last
+mechanism flaw by feel: "plays well early, then blunders into a loss —
+not 15k-like; 12k beat me twice; 9k feels more like 6k."** Root cause:
+temperature can flatten priors but never ERASE a big prior gap, so in
+sharp positions (forced sequences, tactics, small-board openings) the
+sampler rides KataGo's dan-level policy for free — competent until a
+loose position produces one coin-flip catastrophe. The reading_rate dial
+barely dialed because every rung inherited the same tactical free ride.
+
+**Sampler v2 (both selectors, tests 242/38):**
+- **`sample_lapse` (λ):** blend λ of the sampling weight to uniform over
+  the pool — makes the bot MISS a 0.9-prior vital point, which
+  temperature cannot. The "didn't even look there" dial.
+- **`sample_loss_cap`:** drop candidates > N pts below the pool's best,
+  so a miss costs a few points, not the game. Big blunders stay
+  random_move_chance's explicit job. Kills the perfect-until-collapse
+  arc.
+- **Analyzer phase curves:** per-move loss split opening/middle/endgame
+  (+ per-phase blunder rate). Flat histograms were blind to the mistake
+  TIMING Patrick felt; now `analyze_9x9_losses.py` prints it.
+
+**Round-2 values (anchors 30k/18k/6k/1d FROZEN per Patrick's device
+verdict; only the erratic middle retuned):** 15k rr.05/t2.6/λ.45/cap7 ·
+12k rr.08/t2.3/λ.35/cap6 · 9k rr.12/t2.1/λ.25/cap5 · 3k rr.24/t1.7/λ.28/
+cap4 (λ .15→.28 in round 2b, below).
+
+**Round-2 battles (48 games) + histograms — the strongest validation
+state of the campaign:**
+- **Ladder monotonic, no inversions.** Bottom SEPARATED for the first
+  time ever: 18k v 15k 4/4 +24.2 (was a coin flip every prior iter).
+  Handicap sets near-even through 15k-6k ⇒ 3.5 pts/rank roughly holds.
+- **Histograms sit on their human columns:** bot 15k median 1.11 /
+  near-opt 37% / blunder 16% vs human 1.14 / 39% / 17% — within noise.
+  bot 9k 0.52/49%/14% vs human 0.58/48%/15%. 12k close; 3k blunder-light
+  pre-2b.
+- **Phase curves fixed the v1 arc:** 15k went cliff-shaped →
+  +1.6/+3.7/+3.9. NEW finding for a future round: humans blunder their
+  OPENINGS hardest on 9x9 (human 15k opening 22% bl, endgame 8% — the
+  opposite tilt); our low rungs still play top-3 openings. Roughing up
+  the opening branch at low rungs is the next fidelity lever (deferred —
+  one variable at a time in what Patrick feel-tests).
+
+**Round 2b:** round 2 left 3k playing 1d/Boulder ~even (compressed top).
+3k λ .15→.28, re-ran only 6k-v-3k + 3k-v-1d. Histogram weakened as
+intended (blunder 7%→12%, mean 1.68→2.67, toward human 3k's 16%) — clean
+lapse behavior (median/near-opt unchanged, tail fattened). Head-to-head
+went uninformative: 3k v 1d 2-2 both rounds, swung by one +73 blowout —
+n=4 can't resolve two ranks this close; ordering (6k<3k<1d) safe. Top-end
+spacing is now the histogram's + Patrick's-feel call, not bot-vs-bot's.
+
+**Status: SHIPPED to b28.yaml, committed + pushed. Ladder meets the
+"measurably works" bar on both instruments (battles + histograms).
+Milestone §3 effectively done pending Patrick's device pass — held open
+until he validates. Deferred/known: opening-fidelity lever; 3k↔1d
+closeness (accepted); the autoplay ladder's komi/handicap bridging for
+18k/12k is now redundant (real profiles exist — matchmaker follow-up).**
+
 ## Session 43 — July 5, 2026 (GN5R6K9G: the bot that answered 20 passes with junk)
 
 **Patrick's first device game on the new ladder: 18k strength "feels

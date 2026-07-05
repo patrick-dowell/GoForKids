@@ -125,21 +125,26 @@ class Analyzer:
 
 
 def analyze_game(an: Analyzer, moves, komi: float):
-    """[(mover, loss, local_dist)] for every non-pass move."""
+    """[(mover, loss, local_dist, phase)] for every non-pass move.
+    phase = game tercile 0/1/2 (opening/middle/endgame by move number) —
+    added so the 'plays well early, collapses late' signature is measurable
+    (Patrick's device round, 2026-07-05; flat histograms are blind to it)."""
     leads = an.game_leads(moves, komi)
     rows = []
+    n = len(moves)
     for i, (color, point) in enumerate(moves):
         if point == "pass":
             continue
         delta = leads[i + 1] - leads[i]  # black-perspective lead change
         loss = -delta if color == "B" else delta
         prev = moves[i - 1][1] if i > 0 else None
-        rows.append((color, loss, gtp_dist(point, prev) if prev else None))
+        phase = min(2, (3 * i) // max(n, 1))
+        rows.append((color, loss, gtp_dist(point, prev) if prev else None, phase))
     return rows
 
 
 def summarize(label: str, rows):
-    losses = [max(l, 0.0) for _, l, _ in rows]  # clip search-noise negatives
+    losses = [max(r[1], 0.0) for r in rows]  # clip search-noise negatives
     if not losses:
         print(f"{label}: no moves")
         return
@@ -150,7 +155,7 @@ def summarize(label: str, rows):
         "medium (2-5)": sum(1 for l in losses if 2 <= l < 5),
         "blunder (>=5)": sum(1 for l in losses if l >= 5),
     }
-    dists = [d for _, _, d in rows if d is not None]
+    dists = [r[2] for r in rows if r[2] is not None]
     local_share = sum(1 for d in dists if d <= 2) / len(dists) if dists else 0
     print(f"\n== {label} — {n} moves")
     print(f"   mean loss {statistics.mean(losses):+.2f}  median {statistics.median(losses):+.2f}")
@@ -158,11 +163,23 @@ def summarize(label: str, rows):
         print(f"   {k}: {v / n * 100:.0f}%")
     print(f"   locality: {local_share * 100:.0f}% of moves within 2 of the previous move"
           f" (median dist {statistics.median(dists) if dists else '—'})")
+    # Phase curve: mistake TIMING. A flat curve = human texture (small
+    # mistakes throughout); low-high skew = "plays well early, collapses
+    # late" — the sampler v1 signature Patrick caught on device.
+    names = ["opening", "middle", "endgame"]
+    parts = []
+    for ph in (0, 1, 2):
+        pl = [max(r[1], 0.0) for r in rows if len(r) > 3 and r[3] == ph]
+        if pl:
+            bl = sum(1 for l in pl if l >= 5) / len(pl) * 100
+            parts.append(f"{names[ph]} {statistics.mean(pl):+.2f} ({bl:.0f}% bl)")
+    if parts:
+        print(f"   phase curve: {' | '.join(parts)}")
 
 
 def rows_from_sgf_dir(an: Analyzer, d: str):
     rows = []
-    csv_lines = ["game,mover,loss,local_dist"]
+    csv_lines = ["game,mover,loss,local_dist,phase"]
     for name in sorted(os.listdir(d)):
         if not name.endswith(".sgf"):
             continue
@@ -178,8 +195,8 @@ def rows_from_sgf_dir(an: Analyzer, d: str):
             print(f"  {name}: {e}", flush=True)
             continue
         rows.extend(game_rows)
-        for c, l, dist in game_rows:
-            csv_lines.append(f"{name},{c},{l:.2f},{'' if dist is None else dist}")
+        for c, l, dist, phase in game_rows:
+            csv_lines.append(f"{name},{c},{l:.2f},{'' if dist is None else dist},{phase}")
         print(f"  {name}: {len(game_rows)} moves analyzed", flush=True)
     with open(os.path.join(d, "losses.csv"), "w") as f:
         f.write("\n".join(csv_lines) + "\n")

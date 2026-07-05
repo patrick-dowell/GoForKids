@@ -51,6 +51,14 @@ export interface RankProfile {
   reading_rate?: number;
   /** Sampling temperature for no-reading moves (default 1.0). */
   policy_temp?: number;
+  /** Attention lapse λ: fraction of sampling weight blended to uniform over
+   *  the pool — makes the sampler MISS high-prior vital points, which
+   *  temperature cannot do. Sampler v2, 2026-07-05. */
+  sample_lapse?: number;
+  /** Max points below the pool's best a sampled move may be. Kills the
+   *  sharp-position coin-flip collapses; big blunders stay the job of
+   *  random_move_chance. Sampler v2, 2026-07-05. */
+  sample_loss_cap?: number;
   /** KataGo wideRootNoise override for move-selection analyses — widens the
    *  candidate pool with real (scored) weaker moves. */
   wide_root_noise?: number;

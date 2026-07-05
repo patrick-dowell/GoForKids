@@ -213,19 +213,20 @@ def _count_stones(board: Board) -> int:
     return sum(1 for c in board.grid if c != Color.EMPTY)
 
 
-def _sample_by_prior(pool: list, temp: float):
-    """Sample a candidate by prior^(1/temp) — the no-reading human model
-    (§3 out-of-pool mechanism, 2026-07-05). With wideRootNoise widening the
-    candidate list to most plausible root moves, the priors ARE the policy:
-    sampling them with temperature plays shape-plausible moves that genuinely
-    misread fights, and the prior tail supplies occasional big mistakes
-    organically. Mirrors the TS sampleByPrior."""
+def _sample_by_prior(pool: list, temp: float, lapse: float = 0.0):
+    """Sample a candidate by prior^(1/temp), blended with an attention lapse
+    (sampler v2, 2026-07-05 round 2): λ of the weight mass goes to uniform
+    over the pool. Temperature alone can never make the sampler miss a
+    0.9-prior vital point (the gap survives any exponent) — that tactical
+    free ride is why every sampling rung converged toward dan strength.
+    Lapse is the "didn't even look there" dial. Mirrors the TS
+    sampleByPrior."""
     t = max(temp, 0.05)
-    weights = [max(c.prior, 1e-4) ** (1.0 / t) for c in pool]
-    total = sum(weights)
-    if total <= 0:
-        return random.choice(pool)
-    return random.choices(pool, weights=[w / total for w in weights], k=1)[0]
+    raw = [max(c.prior, 1e-4) ** (1.0 / t) for c in pool]
+    total = sum(raw) or 1.0
+    n = len(pool)
+    weights = [(1.0 - lapse) * (w / total) + lapse / n for w in raw]
+    return random.choices(pool, weights=weights, k=1)[0]
 
 
 def _pick_noisy_best(pool: list, sigma: float):
@@ -649,8 +650,20 @@ async def _select_with_katago(
         reading_rate = profile.get("reading_rate")
         if reading_rate is not None and random.random() >= reading_rate:
             pool = [c for c in analysis.candidates if _playable(c)]
+            # Sampling loss cap (sampler v2): drop candidates more than
+            # sample_loss_cap points below the pool's best — a miss costs a
+            # few points, not the game; big blunders stay the explicit job
+            # of random_move_chance. Mirrors the TS selector.
+            cap = profile.get("sample_loss_cap")
+            if cap is not None and len(pool) > 1:
+                ref = pool[0].score_lead  # pool keeps KataGo order: [0] = mover-best playable
+                capped = [c for c in pool if abs(ref - c.score_lead) <= cap]
+                if capped:
+                    pool = capped
             if pool:
-                sel = _sample_by_prior(pool, profile.get("policy_temp", 1.0))
+                sel = _sample_by_prior(
+                    pool, profile.get("policy_temp", 1.0), profile.get("sample_lapse", 0.0)
+                )
                 return Point(sel.move[0], sel.move[1])
             # Nothing samplable — fall through to the reading path.
 
