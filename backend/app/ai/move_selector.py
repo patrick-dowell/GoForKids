@@ -122,6 +122,22 @@ def _is_own_territory_fill(board: Board, color: Color, point: Point) -> bool:
     return saw_own
 
 
+def _is_opponent_enclosed_fill(board: Board, color: Color, point: Point) -> bool:
+    """True if playing at `point` drops a stone inside a region the OPPONENT
+    has fully enclosed — a junk invasion that only drags the game out. Same
+    region test as _is_own_territory_fill, opposite color; ko-safe for the
+    same reason (a ko point's region has mixed-color borders).
+
+    Degenerate-case guard: when the opponent owns the ONLY stones on the
+    board (handicap openings), every region is "enclosed" by them and this
+    check would veto the whole board — the mover must have at least one
+    stone down before anything counts as sealed."""
+    if not any(c == color for c in board.grid):
+        return False
+    opponent = Color.WHITE if color == Color.BLACK else Color.BLACK
+    return _is_own_territory_fill(board, opponent, point)
+
+
 def _get_nearby_moves(board: Board, color: Color, center: Point, radius: int = 3) -> list[Point]:
     """Get legal moves within `radius` intersections of `center`."""
     size = board.size
@@ -177,13 +193,16 @@ def _pick_legal_non_eye_move(board: Board, color: Color) -> Optional[Point]:
     passing is genuinely correct."""
     for _ in range(16):
         m = _pick_random_legal(board, color)
-        # Also refuse own-territory fills: this picker is the "instead of
-        # passing" fallback on every rescue path; returning None (→ pass)
-        # when only self-fills remain is correct — that position is settled.
+        # Refuse own-territory fills AND junk drops inside opponent-enclosed
+        # territory: this picker is the "instead of passing" fallback on
+        # every rescue path (the 18k "won't pass" report, GN5R6K9G).
+        # Returning None (→ pass) when only junk remains is correct — that
+        # position is settled.
         if (
             m is not None
             and not _is_eye_fill(board, color, m)
             and not _is_own_territory_fill(board, color, m)
+            and not _is_opponent_enclosed_fill(board, color, m)
         ):
             return m
     return None
@@ -267,6 +286,14 @@ async def select_ai_move(
             )
             if alt and not _is_eye_fill(board, color, alt):
                 return alt
+        # On the settle path (opponent just passed), "honest play keeps
+        # picking an eye-fill" MEANS the game is over — pass back instead of
+        # playing random junk (GN5R6K9G).
+        if opponent_passed:
+            logger.warning(
+                f"[{target_rank} {board.size}x{board.size}] PASS: eye-fill exhausted on settle path"
+            )
+            return None
         # Selection can be near-deterministic (clarity gates, forced
         # positions), so 5 identical eye-flagged picks happen in live games —
         # passing here threw a won game away (JEA338QQ). Play any legal
@@ -543,6 +570,12 @@ async def _select_with_katago(
             best = non_pass_best
 
         pass_threshold = profile.get("pass_threshold", 0.3)
+        # Settle path uses a bar of at least 0.75: 100-visit score noise
+        # exceeds a 0.10 threshold, so a dead position kept yielding
+        # fractional-point "improvements" and the bot answered 20 player
+        # passes with junk (GN5R6K9G, 2026-07-05). Mirrors the TS selector.
+        if opponent_passed:
+            pass_threshold = max(pass_threshold, 0.75)
         pass_cand = next((c for c in analysis.candidates if c.move[0] < 0), None)
         # Require pass to have at least ~10% of the top move's visits before
         # trusting its score estimate (and a hard floor of 4 visits — below
@@ -569,8 +602,20 @@ async def _select_with_katago(
         # Opponent passed and a real move still beats passing (handled above):
         # play KataGo's honest top move WITHOUT mistake injection — injecting a
         # mistake here is exactly what fills own territory at game's end.
+        # But if the honest best is itself an eye-fill / territory fill /
+        # enclosed junk drop, the game is over — pass back (GN5R6K9G).
         if opponent_passed:
-            return Point(best.move[0], best.move[1])
+            bp = Point(best.move[0], best.move[1])
+            if (
+                _is_eye_fill(board, color, bp)
+                or _is_own_territory_fill(board, color, bp)
+                or _is_opponent_enclosed_fill(board, color, bp)
+            ):
+                logger.warning(
+                    f"[{target_rank} {board.size}x{board.size}] PASS: settle top unplayable"
+                )
+                return None
+            return bp
 
         # --- Reading-rate roll (§3 out-of-pool mechanism, 2026-07-05) ---
         # Human model: a weak player READS only some of their moves. With
@@ -586,10 +631,20 @@ async def _select_with_katago(
         # own-eye fill, not an own-territory fill (the endgame safety net —
         # the area-scoring policy prior thinks self-fills are free).
         def _playable(c) -> bool:
+            # Not an own-eye fill, own-territory fill, or a junk drop inside
+            # the opponent's sealed territory — the trio that lets the bot
+            # pass once every empty region is enclosed. Cost: bots won't
+            # play enclosed-region kills (nakade) — fine, because scoring's
+            # dead-stone detection marks dead groups dead without the kill
+            # being played out.
             if c.move[0] < 0:
                 return False
             pt = Point(c.move[0], c.move[1])
-            return not _is_eye_fill(board, color, pt) and not _is_own_territory_fill(board, color, pt)
+            return (
+                not _is_eye_fill(board, color, pt)
+                and not _is_own_territory_fill(board, color, pt)
+                and not _is_opponent_enclosed_fill(board, color, pt)
+            )
 
         reading_rate = profile.get("reading_rate")
         if reading_rate is not None and random.random() >= reading_rate:
@@ -631,8 +686,11 @@ async def _select_with_katago(
                 return Point(selected.move[0], selected.move[1])
 
         # --- Random move injection (rare) ---
+        # Through the strict picker, NOT raw _pick_random_legal: at 18k this
+        # branch fires on 30% of moves and unfiltered it fills territory /
+        # dives into sealed areas instead of letting the game end.
         if random.random() < profile["random_move_chance"]:
-            rand_move = _pick_random_legal(board, color)
+            rand_move = _pick_legal_non_eye_move(board, color)
             if rand_move:
                 return rand_move
 

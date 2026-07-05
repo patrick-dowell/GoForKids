@@ -1,5 +1,42 @@
 # Development Journal
 
+## Session 43 — July 5, 2026 (GN5R6K9G: the bot that answered 20 passes with junk)
+
+**Patrick's first device game on the new ladder: 18k strength "feels
+about right" — but he passed 20 times and the bot kept playing junk
+(filling its own territory, dropping stones in his).** His upload
+GN5R6K9G convicted two layers on sight (the `[analyze] wrn` lines
+proved his passes WERE mostly detected and the settle path ran):
+1. **Settle pass bar too tight:** pass_threshold 0.10 < 100-visit score
+   noise, so a dead position kept yielding fractional-point
+   "improvements". `pass-threshold` finally fired at move 124.
+2. **The S39 eye-fill fallback on the settle path:** three `eye-fill
+   rejected 5x at (8,0) — playing legal fallback` lines — honest
+   settle picked an eye-fill, the wrapper vetoed it 5x, then played a
+   RANDOM move into Patrick's territory. On settle, "best real move is
+   an eye-fill" means the game is over.
+
+**Fixes (both selectors, tests 238/35):**
+- Settle pass bar ≥ 0.75 pts (real endgame moves clear it, noise
+  doesn't); normal-play threshold untouched.
+- Settle honest-top that is an eye-fill / own-territory fill /
+  opponent-enclosed junk → PASS (`settle-top-unplayable`); eye-fill
+  exhaustion on settle → PASS (never the random fallback).
+- **`isOpponentEnclosedFill` (new, both selectors):** dropping a stone
+  in a region fully enclosed by the opponent = junk, excluded from
+  sampler + machinery + random branch + rescue pickers — with the
+  own-fill and eye rules this makes the bot PASS VOLUNTARILY once
+  every empty region is sealed. Ko-safe (ko regions have mixed
+  borders, pinned by test). Nakade not needed: scoring's dead-stone
+  detection marks dead groups without the kill being played.
+- Random-move branch now goes through the strict picker (at 18k it's
+  30% of moves; unfiltered it was the junk fountain).
+- **Degenerate-case guard the test suite caught before a device did:**
+  with only opponent stones on the board (handicap openings!) every
+  region reads "enclosed" — the mover must have a stone down before
+  anything counts as sealed, else White passes on move 1 of handicap
+  games.
+
 ## Session 42 — July 5, 2026 (distribution calibration: the rank-o-meter works)
 
 **The measurement campaign Patrick commissioned is complete.** Tool:

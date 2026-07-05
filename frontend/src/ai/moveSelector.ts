@@ -306,6 +306,13 @@ export async function selectAiMove(
     // prefers a bad move (eye-fill) over the bot quitting, so return the
     // last attempted move instead of passing.
     if (options.neverPass) return move;
+    // On the settle path (opponent just passed), "honest play keeps picking
+    // an eye-fill" MEANS the game is over — pass back. The random fallback
+    // here was the junk-into-your-territory generator of GN5R6K9G.
+    if (options.opponentPassed) {
+      logPass('eye-fill-exhausted-settle');
+      return null;
+    }
     // Selection can be near-deterministic (clarity gates, forced positions),
     // so 5 identical eye-flagged picks happen in live games — passing here
     // threw a won game away (JEA338QQ). Play any legal non-eye move instead;
@@ -436,6 +443,27 @@ function logPass(reason: string): void {
  *
  *  `exclude` skips specific points — the commit-rejection retry in client.ts
  *  uses it so a pick the game engine already refused isn't offered again. */
+/** True if playing at `point` means dropping a stone inside a region the
+ *  OPPONENT has fully enclosed — a junk invasion that only drags the game
+ *  out. Same region test as isOwnTerritoryFill, opposite color. Ko-safe
+ *  for the same reason (a ko point's region has mixed-color borders). */
+export function isOpponentEnclosedFill(board: Board, color: Stone, point: Point): boolean {
+  // Guard the degenerate case: when the opponent owns the ONLY stones on
+  // the board (handicap openings, early game), every region is "enclosed"
+  // by them and this check would veto the whole board — the mover must
+  // have at least one stone down before anything counts as sealed.
+  let moverHasStone = false;
+  for (const c of board.grid) {
+    if (c === color) {
+      moverHasStone = true;
+      break;
+    }
+  }
+  if (!moverHasStone) return false;
+  const opponent = color === Color.Black ? Color.White : Color.Black;
+  return isOwnTerritoryFill(board, opponent, point);
+}
+
 export function pickLegalNonEyeMove(
   board: Board,
   color: Stone,
@@ -445,12 +473,19 @@ export function pickLegalNonEyeMove(
     exclude.some((p) => p.row === m.row && p.col === m.col);
   for (let i = 0; i < 16; i++) {
     const m = pickRandomLegal(board, color);
-    // Also refuse own-territory fills: this picker is the "instead of
-    // passing" fallback on every rescue path, and a fallback that fills
-    // our own points just converts one bug into another. Returning null
-    // (→ pass) when only self-fills remain is correct — that position is
-    // settled.
-    if (m && !excluded(m) && !isEyeFill(board, color, m) && !isOwnTerritoryFill(board, color, m)) return m;
+    // Refuse own-territory fills AND junk drops inside opponent-enclosed
+    // territory: this picker is the "instead of passing" fallback on every
+    // rescue path, and a fallback that plays junk just converts one bug
+    // into another (the 18k "won't pass, 20 extra moves" report,
+    // 2026-07-05 evening). Returning null (→ pass) when only junk remains
+    // is correct — that position is settled.
+    if (
+      m &&
+      !excluded(m) &&
+      !isEyeFill(board, color, m) &&
+      !isOwnTerritoryFill(board, color, m) &&
+      !isOpponentEnclosedFill(board, color, m)
+    ) return m;
   }
   return null;
 }
@@ -525,6 +560,13 @@ function selectWithKataGo(
   }
 
   const passThreshold = profile.pass_threshold ?? 0.3;
+  // On the settle path the bar is at least 0.75: 100-visit score noise
+  // exceeds 0.10, so a tight threshold kept "finding" fractional-point
+  // moves in dead positions and the bot answered 20 player passes with
+  // junk (GN5R6K9G, 2026-07-05). Real endgame moves clear 0.75 easily.
+  const effPassThreshold = options.opponentPassed
+    ? Math.max(passThreshold, 0.75)
+    : passThreshold;
   const passCand = candidates.find((c) => c.move.row < 0) ?? null;
   // Match Python: pass needs at least max(4, best.visits/10) visits before
   // we trust its score estimate. Below that, score_lead is just the value-
@@ -535,7 +577,7 @@ function selectWithKataGo(
     !options.neverPass &&
     passCand !== null &&
     passCand.visits >= minPassVisits &&
-    best.scoreLead - passCand.scoreLead < passThreshold
+    best.scoreLead - passCand.scoreLead < effPassThreshold
   ) {
     logPass('pass-threshold');
     return null;
@@ -543,8 +585,20 @@ function selectWithKataGo(
 
   // Opponent passed and a real move still beats passing (handled above): play
   // KataGo's honest top move WITHOUT mistake injection — a mistake here is
-  // exactly what fills own territory at game's end.
+  // exactly what fills own territory at game's end. But if the honest best
+  // is itself an eye-fill / territory fill / enclosed junk drop, the game
+  // is over — pass back instead of playing it (GN5R6K9G: settle's top was
+  // an eye-fill three times and the wrapper turned it into random junk).
   if (options.opponentPassed) {
+    const bp = { row: best.move.row, col: best.move.col };
+    if (
+      isEyeFill(board, color, bp) ||
+      isOwnTerritoryFill(board, color, bp) ||
+      isOpponentEnclosedFill(board, color, bp)
+    ) {
+      logPass('settle-top-unplayable');
+      return null;
+    }
     return best.move;
   }
 
@@ -558,14 +612,18 @@ function selectWithKataGo(
   // never read. Small-mistake frequency = 1 - reading_rate; small-mistake
   // size = policy_temp; big mistakes = the prior tail + random_move_chance.
   // A candidate the bot may actually play: on the board, not an own-eye
-  // fill, not an own-territory fill. The territory exclusion is the endgame
-  // safety net — the policy prior (area-scoring net) thinks self-fills are
-  // free, so a prior-sampler without it fills its own points instead of
-  // letting the game end (Patrick's device pass, 2026-07-05).
+  // fill, not an own-territory fill, not a junk drop inside the opponent's
+  // fully-enclosed territory. Together these make the bot pass voluntarily
+  // once every empty region is someone's sealed territory — the position
+  // where passing is correct (the 18k "won't pass, 20 extra moves" report,
+  // GN5R6K9G). Cost: bots won't play enclosed-region kills (nakade) — fine,
+  // because scoring's ownership-based dead-stone detection marks dead
+  // groups dead without the kill being played out.
   const playable = (c: MoveCandidate): boolean =>
     c.move.row >= 0 &&
     !isEyeFill(board, color, { row: c.move.row, col: c.move.col }) &&
-    !isOwnTerritoryFill(board, color, { row: c.move.row, col: c.move.col });
+    !isOwnTerritoryFill(board, color, { row: c.move.row, col: c.move.col }) &&
+    !isOpponentEnclosedFill(board, color, { row: c.move.row, col: c.move.col });
 
   if (profile.reading_rate !== undefined && Math.random() >= profile.reading_rate) {
     const pool = candidates.filter(playable);
@@ -602,8 +660,12 @@ function selectWithKataGo(
   }
 
   // --- Random move injection ---
+  // Through the strict picker, NOT raw pickRandomLegal: at 18k this branch
+  // fires on 30% of moves, and unfiltered it was the main source of "fills
+  // its own territory / dives into mine for 20 moves instead of passing".
+  // Blunders still happen — they're just real moves now.
   if (Math.random() < profile.random_move_chance) {
-    const rand = pickRandomLegal(board, color);
+    const rand = pickLegalNonEyeMove(board, color);
     if (rand) return rand;
   }
 
