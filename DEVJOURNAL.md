@@ -56,8 +56,18 @@ spacing is now the histogram's + Patrick's-feel call, not bot-vs-bot's.
 "measurably works" bar on both instruments (battles + histograms).
 Milestone §3 effectively done pending Patrick's device pass — held open
 until he validates. Deferred/known: opening-fidelity lever; 3k↔1d
-closeness (accepted); the autoplay ladder's komi/handicap bridging for
-18k/12k is now redundant (real profiles exist — matchmaker follow-up).**
+closeness (accepted).**
+
+**Ranked 9×9 ladder rebuilt (same session, Patrick's ask):** with 8 real
+bots (18k/12k added) the upper ladder now bridges by KOMI alone — each
+bot komi 0 → 3.5 → 6.5-even, so the player fights every new bot directly
+instead of a big-handicap proxy of its neighbor. The old +4/+3-stone
+grind vs the 15k bot and the +2-stone-plus-komi 12k proxy are gone;
+handicap STONES survive only in the 30k→20k desert (25k, 22k), below the
+weakest sampling bot. 25 rungs (was 23), all 8 bots named, ordering
+preserved for the promotion thresholds (12k/5k labels intact). Frontend
+245 tests (matchmaker suite rewritten for the new ladder), preview-walked
+end to end. `matchmaker.ts` SPECS_9 + validatedBots.
 
 ## Session 43 — July 5, 2026 (GN5R6K9G: the bot that answered 20 passes with junk)
 

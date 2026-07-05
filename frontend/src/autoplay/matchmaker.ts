@@ -17,9 +17,10 @@
  *     is Black, the bot's when the player is White),
  *   - komi (added to White's score; the engine forces 0.5 when handicap > 0).
  *
- * 9×9 (feature 24) uses this to ramp smoothly across just two bots near the
- * bottom: e.g. 30k bot Black+no-komi (easiest) → … → 30k bot you-White+2
- * stones → hand off to the 15k bot at its easy end (you-Black+2 stones) → …
+ * 9×9 (feature 24, rebuilt S44) has a real bot every ~3 ranks from 18k up, so
+ * the upper ladder ramps by KOMI alone (bot komi 0 → 3.5 → 6.5 even) and the
+ * player fights each new bot directly. Handicap STONES survive only in the
+ * 30k→20k desert below the weakest sampling bot (18k).
  */
 
 /** A rank label on the auto-play ladder, e.g. "30k", "27k", ..., "1d". */
@@ -105,47 +106,53 @@ const KOMI_EVEN = 6.5;
 const KOMI_HALF = 3.5;
 
 /**
- * 9×9 ladder — feature 24, full 23-rung points-model ramp (Patrick's design,
- * 2026-06-04). Difficulty is one continuous "player advantage in points" axis
- * from bot + color + handicap stones (≥2, ≈7 pts/stone) + komi. Only the six
- * real 9×9 profiles (30k/15k/9k/6k/3k/1d) are ever named as bots.
+ * 9×9 ladder — feature 24 points-model ramp, REBUILT 2026-07-05 (S44) after
+ * the distribution-calibration campaign gave EIGHT real 9×9 profiles
+ * (30k/18k/15k/12k/9k/6k/3k/1d, was six). With a real bot every ~3 ranks
+ * from 18k up, the whole upper ladder is now bridged by KOMI ALONE (each bot:
+ * komi 0 ≈ 2 ranks easy → 3.5 ≈ 1 rank easy → 6.5 even), so the player fights
+ * each new bot directly instead of a big-handicap proxy of its neighbor.
+ * Handicap STONES now survive only in the 30k→20k "desert", where the 30k
+ * heuristic bot is the only profile below 18k. This kills the old +4/+3-stone
+ * grind against the 15k bot and the +2-stone-plus-komi 12k rung.
  *
- * Rung 12k combines a handicap (2 stones) WITH a custom komi (3.5) — marked †
- * below. RESOLVED 2026-06-11 (Session 23): all four komi sites (gameStore,
- * localGameRouter, client.ts request body, backend state.py) now honor an
- * explicit komi even when handicap > 0, so 12k plays at its true strength.
- *
- * Labels and point values are intuited/playtest-seeded, PENDING further
- * validation. "Play black or white" rungs (even, 6.5 komi) default to Black.
- * Top rung is 1d; clearing it = the "2 dan" graduation (no 2d bot to calibrate).
+ * Difficulty is still one continuous "player advantage in points" axis
+ * (bot + color + stones ≥2 ≈7 pts each + komi). Labels/points are
+ * playtest-seeded, PENDING validation. Even (6.5 komi) rungs default Black.
+ * Top rung is 1d; clearing it = the "2 dan" graduation (no 2d bot).
  */
 const SPECS_9: ReadonlyArray<RungSpec> = [
-  // 30k bot
-  { rung: '30k', bot: '30k', playerColor: 'black', handicap: 0, komi: 0 },              // no komi
-  { rung: '28k', bot: '30k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },      // 6.5 komi
+  // 30k→20k desert — only the 30k heuristic bot lives below 18k, so this
+  // stretch still needs stones. 18k's easy end (komi 0 ≈ 20k) picks it up.
+  { rung: '30k', bot: '30k', playerColor: 'black', handicap: 0, komi: 0 },              // no komi (easiest)
+  { rung: '28k', bot: '30k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },      // even vs 30k
   { rung: '25k', bot: '30k', playerColor: 'white', handicap: 2 },                       // White, bot +2 stones
-  // 15k bot
-  { rung: '23k', bot: '15k', playerColor: 'black', handicap: 4 },                       // you +4 stones
-  { rung: '21k', bot: '15k', playerColor: 'black', handicap: 3 },                       // you +3 stones
-  { rung: '19k', bot: '15k', playerColor: 'black', handicap: 2 },                       // you +2 stones
+  { rung: '22k', bot: '18k', playerColor: 'black', handicap: 2 },                       // you +2 stones vs 18k
+  // 18k bot — komi triple (NEW real rung)
+  { rung: '20k', bot: '18k', playerColor: 'black', handicap: 0, komi: 0 },              // no komi
+  { rung: '19k', bot: '18k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },      // 3.5 komi
+  { rung: '18k', bot: '18k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },      // even
+  // 15k bot — komi triple
   { rung: '17k', bot: '15k', playerColor: 'black', handicap: 0, komi: 0 },              // no komi
+  { rung: '16k', bot: '15k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },      // 3.5 komi
   { rung: '15k', bot: '15k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },      // even
-  { rung: '14k', bot: '15k', playerColor: 'white', handicap: 0, komi: KOMI_HALF },      // White, 3.5 komi
-  // 9k bot
-  { rung: '13k', bot: '9k', playerColor: 'black', handicap: 2 },                        // you +2 stones
-  { rung: '12k', bot: '9k', playerColor: 'black', handicap: 2, komi: KOMI_HALF },       // † you +2 + 3.5 komi
+  // 12k bot — komi triple (NEW real rung)
+  { rung: '14k', bot: '12k', playerColor: 'black', handicap: 0, komi: 0 },              // no komi
+  { rung: '13k', bot: '12k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },      // 3.5 komi
+  { rung: '12k', bot: '12k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },      // even
+  // 9k bot — komi triple
   { rung: '11k', bot: '9k', playerColor: 'black', handicap: 0, komi: 0 },               // no komi
   { rung: '10k', bot: '9k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },       // 3.5 komi
   { rung: '9k', bot: '9k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },        // even
-  // 6k bot
+  // 6k bot — komi triple
   { rung: '8k', bot: '6k', playerColor: 'black', handicap: 0, komi: 0 },                // no komi
   { rung: '7k', bot: '6k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },        // 3.5 komi
   { rung: '6k', bot: '6k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },        // even
-  // 3k bot
+  // 3k bot — komi triple
   { rung: '5k', bot: '3k', playerColor: 'black', handicap: 0, komi: 0 },                // no komi
   { rung: '4k', bot: '3k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },        // 3.5 komi
   { rung: '3k', bot: '3k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },        // even
-  // 1d bot
+  // 1d bot — komi triple
   { rung: '2k', bot: '1d', playerColor: 'black', handicap: 0, komi: 0 },                // no komi
   { rung: '1k', bot: '1d', playerColor: 'black', handicap: 0, komi: KOMI_HALF },        // 3.5 komi
   { rung: '1d', bot: '1d', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },        // even — top (clear = 2 dan)
@@ -200,8 +207,9 @@ const LADDERS: Record<BoardSize, Ladder | undefined> = {
     safeguardBonusKomi: 6,
   }),
   9: buildLadder(9, SPECS_9, {
-    // The six bots with real 9×9 profiles in b28.yaml.
-    validatedBots: new Set(['30k', '15k', '9k', '6k', '3k', '1d']),
+    // The eight bots with real 9×9 profiles in b28.yaml (18k + 12k added
+    // S44 after the distribution-calibration campaign).
+    validatedBots: new Set(['30k', '18k', '15k', '12k', '9k', '6k', '3k', '1d']),
     maxHandicap: 5,
     safeguardBonusStones: 2,
     safeguardBonusKomi: 6,

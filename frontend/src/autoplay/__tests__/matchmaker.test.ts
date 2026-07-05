@@ -178,8 +178,8 @@ describe('color variety on symmetric rungs (feature 25 follow-up)', () => {
     expect(isColorSymmetric('1d', 9)).toBe(true);
     expect(isColorSymmetric('30k', 9)).toBe(false); // komi 0 — Black's edge
     expect(isColorSymmetric('10k', 9)).toBe(false); // 3.5 komi — Black's edge
-    expect(isColorSymmetric('14k', 9)).toBe(false); // spec'd White rung
-    expect(isColorSymmetric('19k', 9)).toBe(false); // handicap stones
+    expect(isColorSymmetric('25k', 9)).toBe(false); // spec'd White rung (30k bot +2)
+    expect(isColorSymmetric('22k', 9)).toBe(false); // handicap stones (18k bot +2)
   });
 
   it('identifies color-symmetric rungs on 19×19 — even games (engine-default komi)', () => {
@@ -199,8 +199,8 @@ describe('color variety on symmetric rungs (feature 25 follow-up)', () => {
 
   it('never flips non-symmetric rungs', () => {
     expect(gameMatchup('30k', 0, 1, 9).playerColor).toBe('black'); // komi-0 rung
-    expect(gameMatchup('14k', 0, 0, 9).playerColor).toBe('white'); // spec'd White stays White
-    expect(gameMatchup('14k', 0, 1, 9).playerColor).toBe('white');
+    expect(gameMatchup('25k', 0, 0, 9).playerColor).toBe('white'); // spec'd White stays White
+    expect(gameMatchup('25k', 0, 1, 9).playerColor).toBe('white');
     expect(gameMatchup('17k', 0, 1).playerColor).toBe('black');    // 19×19 stones
   });
 
@@ -272,8 +272,14 @@ describe('freshState (19×19 default)', () => {
  * ========================================================================= */
 
 const RUNGS_9 = [
-  '30k', '28k', '25k', '23k', '21k', '19k', '17k', '15k', '14k', '13k', '12k',
-  '11k', '10k', '9k', '8k', '7k', '6k', '5k', '4k', '3k', '2k', '1k', '1d',
+  '30k', '28k', '25k', '22k', // 30k→20k desert (stones)
+  '20k', '19k', '18k', // 18k bot komi triple (NEW)
+  '17k', '16k', '15k', // 15k bot
+  '14k', '13k', '12k', // 12k bot komi triple (NEW)
+  '11k', '10k', '9k', // 9k bot
+  '8k', '7k', '6k', // 6k bot
+  '5k', '4k', '3k', // 3k bot
+  '2k', '1k', '1d', // 1d bot
 ];
 
 describe('9×9 ladder structure', () => {
@@ -284,40 +290,57 @@ describe('9×9 ladder structure', () => {
     expect(() => ladderRungs(13)).toThrow();
   });
 
-  it('is the full 23-rung ramp from 30k to 1d', () => {
+  it('is the full 25-rung ramp from 30k to 1d', () => {
     expect(ladderRungs(9)).toEqual(RUNGS_9);
     expect(startingRung(9)).toBe('30k');
   });
 
   it('only ever names a bot with a real 9×9 profile, and all rungs validated', () => {
-    const REAL = new Set(['30k', '15k', '9k', '6k', '3k', '1d']);
+    const REAL = new Set(['30k', '18k', '15k', '12k', '9k', '6k', '3k', '1d']);
     for (const rung of RUNGS_9) {
       const m = matchupForRung(rung, 9);
       expect(REAL.has(m.bot), `${rung} → ${m.bot}`).toBe(true);
       expect(m.validated, rung).toBe(true);
     }
   });
+
+  it('handicap STONES survive only in the 30k→20k desert (rebuilt S44)', () => {
+    for (const rung of RUNGS_9) {
+      const m = matchupForRung(rung, 9);
+      if (m.handicap > 0) {
+        expect(['25k', '22k'], `${rung} has stones`).toContain(rung);
+      }
+    }
+  });
 });
 
-describe('9×9 rung definitions (Patrick points model)', () => {
-  it('30k bot: no-komi → 6.5 komi → you-White bot+2 stones', () => {
+describe('9×9 rung definitions (Patrick points model, rebuilt S44)', () => {
+  it('30k→20k desert: 30k no-komi → even → you-White bot+2 → you+2 vs 18k', () => {
     expect(matchupForRung('30k', 9)).toEqual({ bot: '30k', playerColor: 'black', handicap: 0, komi: 0, validated: true });
     expect(matchupForRung('28k', 9)).toEqual({ bot: '30k', playerColor: 'black', handicap: 0, komi: 6.5, validated: true });
     expect(matchupForRung('25k', 9)).toEqual({ bot: '30k', playerColor: 'white', handicap: 2, validated: true });
+    expect(matchupForRung('22k', 9)).toEqual({ bot: '18k', playerColor: 'black', handicap: 2, validated: true });
   });
 
-  it('15k bot: +4 → +3 → +2 stones → no-komi → even → you-White 3.5 komi', () => {
-    expect(matchupForRung('23k', 9)).toEqual({ bot: '15k', playerColor: 'black', handicap: 4, validated: true });
-    expect(matchupForRung('21k', 9)).toEqual({ bot: '15k', playerColor: 'black', handicap: 3, validated: true });
-    expect(matchupForRung('19k', 9)).toEqual({ bot: '15k', playerColor: 'black', handicap: 2, validated: true });
+  it('18k bot (NEW): komi triple no-komi → 3.5 → even', () => {
+    expect(matchupForRung('20k', 9)).toEqual({ bot: '18k', playerColor: 'black', handicap: 0, komi: 0, validated: true });
+    expect(matchupForRung('19k', 9)).toEqual({ bot: '18k', playerColor: 'black', handicap: 0, komi: 3.5, validated: true });
+    expect(matchupForRung('18k', 9)).toEqual({ bot: '18k', playerColor: 'black', handicap: 0, komi: 6.5, validated: true });
+  });
+
+  it('15k bot: komi triple (no more +4/+3 stone grind)', () => {
     expect(matchupForRung('17k', 9)).toEqual({ bot: '15k', playerColor: 'black', handicap: 0, komi: 0, validated: true });
+    expect(matchupForRung('16k', 9)).toEqual({ bot: '15k', playerColor: 'black', handicap: 0, komi: 3.5, validated: true });
     expect(matchupForRung('15k', 9)).toEqual({ bot: '15k', playerColor: 'black', handicap: 0, komi: 6.5, validated: true });
-    expect(matchupForRung('14k', 9)).toEqual({ bot: '15k', playerColor: 'white', handicap: 0, komi: 3.5, validated: true });
   });
 
-  it('9k bot: +2 → +2 with 3.5 komi → no-komi → 3.5 → even', () => {
-    expect(matchupForRung('13k', 9)).toEqual({ bot: '9k', playerColor: 'black', handicap: 2, validated: true });
-    expect(matchupForRung('12k', 9)).toEqual({ bot: '9k', playerColor: 'black', handicap: 2, komi: 3.5, validated: true }); // †
+  it('12k bot (NEW): komi triple no-komi → 3.5 → even (was 9k+2-stones proxy)', () => {
+    expect(matchupForRung('14k', 9)).toEqual({ bot: '12k', playerColor: 'black', handicap: 0, komi: 0, validated: true });
+    expect(matchupForRung('13k', 9)).toEqual({ bot: '12k', playerColor: 'black', handicap: 0, komi: 3.5, validated: true });
+    expect(matchupForRung('12k', 9)).toEqual({ bot: '12k', playerColor: 'black', handicap: 0, komi: 6.5, validated: true });
+  });
+
+  it('9k bot: komi triple no-komi → 3.5 → even', () => {
     expect(matchupForRung('11k', 9)).toEqual({ bot: '9k', playerColor: 'black', handicap: 0, komi: 0, validated: true });
     expect(matchupForRung('10k', 9)).toEqual({ bot: '9k', playerColor: 'black', handicap: 0, komi: 3.5, validated: true });
     expect(matchupForRung('9k', 9)).toEqual({ bot: '9k', playerColor: 'black', handicap: 0, komi: 6.5, validated: true });
@@ -336,8 +359,10 @@ describe('9×9 rung definitions (Patrick points model)', () => {
 describe('9×9 navigation + promotion', () => {
   it('walks the chain; bot handoffs land where expected', () => {
     expect(nextRung('30k', 9)).toBe('28k');
-    expect(nextRung('25k', 9)).toBe('23k'); // 30k bot → 15k bot
-    expect(nextRung('14k', 9)).toBe('13k'); // 15k bot → 9k bot
+    expect(nextRung('22k', 9)).toBe('20k'); // 18k+2 stones → 18k komi triple
+    expect(nextRung('18k', 9)).toBe('17k'); // 18k bot → 15k bot
+    expect(nextRung('15k', 9)).toBe('14k'); // 15k bot → 12k bot
+    expect(nextRung('12k', 9)).toBe('11k'); // 12k bot → 9k bot
     expect(nextRung('1d', 9)).toBeNull();
   });
 
