@@ -24,7 +24,7 @@ Still open from fp 03 but **not gating this milestone**: §C "make territory, do
 
 ## Remaining — rescoped 2026-07-02
 
-**Order of attack: §5 → §3 → §1 → §4a.** §2 is in capture-mode, not queued for a fix attempt. **§5 and §1 closed 2026-07-02 (Sessions 33–34, device-validated) — next up: §3 (9×9 profile review), then §4a.** Open bug from §1's device pass: highlight-note cutoff on phone portrait (see §1).
+**Order of attack: §5 → §3 → §1 → §4a.** §2 is in capture-mode, not queued for a fix attempt. **§5 and §1 closed 2026-07-02 (Sessions 33–34, device-validated); §2 closed provisionally 2026-07-04; §3 effectively done 2026-07-05 (S44); §4a shipped 2026-07-05 (S45). ALL FIVE ITEMS BUILT — the milestone closes on Patrick's device pass (§3 final ladder + §4a quick-replay flow + the S45 attribution/layout fixes).** §1's portrait note-cutoff bug fixed in S45 (see §1).
 
 ### 1. Score graph in replays  ✅ built + device-validated 2026-07-02 (S34) — one known bug below
 Mount the existing `ScoreGraph` in the replay view with a position cursor synced to the timeline. Small and frontend-only: `scoreHistory` is already persisted on every library entry (`libraryStore.ts`), so past on-device games already have the data. Web/stub games without `scoreHistory` simply don't show the graph.
@@ -35,17 +35,19 @@ Mount the existing `ScoreGraph` in the replay view with a position cursor synced
 > slider + marker strip: "Move N / M" header, lead-at-cursor, tap/drag-to-seek,
 > key-move dots on the arc. No-scoreHistory saves keep the old slider.
 >
-> **KNOWN BUG (Patrick's device pass, 2026-07-02): highlight-note cutoff on
-> iPhone Pro Max PORTRAIT** — the key-move explanation card
-> (`.replay-highlight-note`, the "biggest gains and losses" copy) is cut off /
-> renders wrong; fine in landscape. Diagnosis: the note only mounts when the
-> cursor is ON a key move, adding ~70px to a panel that fits portrait with
-> zero slack — the same exact-budget failure the graph itself hit. **The
-> layout suite missed it because the replay sweep runs at move 0, where no
-> note is visible** — fix must add a seek-to-key-move state to
-> `e2e/layout.spec.ts` first, then make the note pay for itself (tighter
-> clamp on portrait phones / overlay instead of in-flow / absorb another
-> row). Next replay-polish session.
+> ~~**KNOWN BUG (Patrick's device pass, 2026-07-02): highlight-note cutoff on
+> iPhone Pro Max PORTRAIT**~~ **FIXED 2026-07-05 (S45), pending device
+> confirm.** The suite-blindness mechanism was deeper than move-0 sweeps:
+> the suite's Chromium reports `env(safe-area-inset-*) = 0`, so every
+> phone-portrait probe ran with ~93px more height than a real phone.
+> `sweep()` now emulates real per-device insets via the `--safe-*` custom
+> properties + a new `replay on a key move` state (seeks to a highlight,
+> panel dressed to real-game height). That reproduced this bug headless —
+> phone-portrait replay panel +35-47px past the fold — and caught THREE
+> more device-truth cutoffs (iPad 10.2 landscape board +4px, game-late
+> iPad mini landscape +24px, big-iPad landscape replay + note +17-25px),
+> all fixed in the same pass. Suite at 11 tests, all green under insets.
+> Detail: DEVJOURNAL S45.
 
 ### 2. Ko-fight passes  ✅ CLOSED (provisionally) 2026-07-04 — fix #4 device-validated
 > **Patrick's device pass (2026-07-04): two games — multi-stone handicap, multiple kos, an early undo — no bad passes, clean logs. Closed for now; the desync-seed question stays instrumented (any future `[desync]` line reopens as its own item). Capture-mode history + fix detail below (S35–S36).**
@@ -176,9 +178,30 @@ Still occurring in game-breaking situations (Patrick, ~late June — less freque
 - Both selector paths (TS + Python) read the same profile YAML, so tuning is data-only; a mechanism change must land in both.
 - _Acceptance:_ low-kyu 9×9 rungs make visibly human mistakes; Patrick's play-feel check at a few rungs + bot-vs-bot ladder ordering both pass.
 
-### 4a. Highlights: click → quick replay
+### 4a. Highlights: click → quick replay  ✅ SHIPPED 2026-07-05 (S45) — pending Patrick's device pass
 Play-of-the-Game highlights become tappable: a highlight opens a quick replay scoped to that moment (reuses the existing replay infra — jump to the move, a few moves of context either side). Explanation copy improvements welcome where cheap, but the deep version is 4b.
 - _Acceptance:_ from the game-end highlights, tapping one lands you in the game at that move with the existing per-move explanation; back returns to highlights.
+> **Status: shipped (Session 45).** Whole card = tap target ("Watch it
+> happen ▶") → replay opens at moveNumber−4, **autoplays into the key move**
+> (Patrick's call: motion is what makes "what happened" readable), stops on
+> it with the note + graph dot showing; **★ Highlights** button returns to
+> the review. `?review=demo` QAs the whole loop.
+>
+> **Root cause found during design (the real §4a payoff): on-device score
+> attribution was one move late** — player moves never get their own
+> analysis, and the bridge's root eval (= the position after the PLAYER's
+> move) was recorded at the bot's move number. Every player blunder read
+> "The bot found a strong move here"; the concept tagger inspected the
+> bot's reply and almost never fired. Fixed: the AI-move DTO carries both
+> evals (`score_lead_before` → player's move, chosen-candidate eval → bot's
+> move), all five gameStore paths merge them, undo trims by move number.
+> Web path was already correct (fresh backend analysis per move) and is
+> untouched. **Device-pass note: highlights will land one move earlier than
+> before, correctly on YOUR move, with you-framed headlines.**
+>
+> **Red-stone alternative-move overlay (show the better move on 'learn'
+> highlights via replay-time bridge analysis) discussed + deferred** —
+> Patrick tests the shipped version first, then decides if it's needed.
 
 ### 5. Replay upload — thin slice  ✅ CLOSED 2026-07-02 (Patrick's call after device validation + share test)
 Upload a finished game to the backend; get a shareable ID. Motivation: a friend wants to review games with Patrick, and it's the diagnostic channel for §2 (embedded selector logs) and §3 (bot-felt-wrong games become calibration evidence).

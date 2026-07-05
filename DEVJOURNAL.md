@@ -1,5 +1,84 @@
 # Development Journal
 
+## Session 45 — July 5, 2026 (§4a quick replay + the score-attribution off-by-one + the layout suite learns about notches)
+
+**Milestone §4a shipped (pending Patrick's device pass), and the design
+conversation around it surfaced a bug that had been quietly wrecking
+Play-of-the-Game on device since Phase D.**
+
+**THE FIND — on-device highlights were attributed to the wrong move.**
+Patrick's complaint ("the highlight shows a moment in time, after the
+play — it's not clear how the move was impactful") turned out to be
+literal: localGameRouter never updates `score_lead` on player moves (v1
+limitation, documented at the top of the file), so on device the ONLY
+eval per turn is the bridge analysis inside `getAIMoveViaBridge` — which
+roots at the position AFTER the player's move — and its root eval was
+recorded at the BOT's move number. Every player blunder read "The bot
+found a strong move here" one move late, every player gem read "The bot
+slipped here," and `tacticAt` inspected the bot's reply so the concept
+tagger almost never fired (why the copy felt so points-only in practice).
+Web/Render games were fine (the backend runs a fresh post-move analysis);
+the testers are on device.
+
+**Fix — two score points per analysis, zero extra KataGo calls:**
+`AIMoveDTO.score_lead_before` (analysis root eval → upserted at the
+player's move) + `score_lead` (the CHOSEN candidate's own scoreLead →
+the bot's move; visits ≥ 2 guard so 1-visit wideRootNoise tail noise
+carries the root eval instead). All five gameStore paths (requestAIMove
+move+pass, bot-vs-bot move+pass, finish loop) now merge through one
+`mergeAiScorePoints`; undo trims scoreHistory by MOVE NUMBER, not array
+index (it was sparse all along). HTTP responses lack the field → old
+behavior, so web is untouched. Bonus: the bot's deliberate mistakes are
+now visible in the graph (it used to plot best-play evals only).
+Heads-up for the device pass: highlights will pick the same fights but
+name the move BEFORE the one they used to, with you-framed headlines.
+
+**§4a — tap a highlight card → quick replay.** The static snapshot can't
+carry "what happened" (for eval-swing highlights nothing visible changed
+on that board); motion can. Cards are now whole-card tap targets
+("Watch it happen ▶"): the replay opens at `moveNumber − 4`, autoplays
+into the key move (stones clack, captures resolve), and stops there —
+note + graph-cliff dot showing. New `replayStore.playSegment(from, to)`
+(`_autoPlayStopAt`, cleared by any manual ▶); `returnToReview:
+'game'|'demo'` renders a **★ Highlights** button in the replay header
+that closes the replay and reopens the review (the finished game is
+still in gameStore). Demo review cards drive the same flow off
+`demoReplay()` — `?review=demo` now QAs the whole loop. Red-stone
+alternative-move idea explicitly deferred (Patrick: ship this, feel it,
+then decide).
+
+**The layout suite learns about notches — S34's blindness mechanism
+finally named.** The suite ran Chromium with `env(safe-area-inset-*)=0`,
+i.e. it audited a device that doesn't exist: every iPhone-portrait probe
+had ~93px more height than Patrick's phone. That's how the §1 note
+cutoff shipped through a green suite. `sweep()` now overrides the
+`--safe-*` custom properties per viewport with real inset values (App.css
+already routed all safe-area handling through them), plus a new
+`replay on a key move` state (seeks to the demo highlight via a new
+`window.__replayStore` dev hook AND dresses the panel to real-game height
+— meta row + share button; the bare demo fixture was 2 rows short and
+false-passed). Four device-truth failures surfaced and fixed:
+- **Phone-portrait replay panel** ran +35-47px past the fold (Patrick's
+  §1 bug, now reproducible headless): new ≤699px-portrait compaction —
+  gap 4, speed label + meta row dropped, note frame slimmed (text +
+  concept link untouched).
+- **iPad 10.2 landscape board** +4px (all screens): the sub-1100
+  landscape height-bind now subtracts `--safe-top/bottom`.
+- **game-late iPad mini landscape** +24px both columns: the game grid
+  has no definite height so the left column's min-content is the floor —
+  control buttons now wrap 2×2 on wide-short (≈−80px), like the medium
+  branch.
+- **Big-iPad landscape replay + note** +17-25px: hint row dropped +
+  note frame slimmed on the ≤1150px-wide branch.
+Suite: 11 tests. Unit tests 257 (attribution suite + playSegment suite),
+`npm run build` green, full flow verified in the preview at 430×932 with
+insets emulated (screenshot in session).
+
+**Gotcha (relearn of S26):** mid-session HMR after store edits left the
+page with duplicated zustand instances — a preview click "worked" against
+one store while `__replayStore` read another. Full page reload before
+trusting preview store reads after editing store files.
+
 ## Session 44 — July 5, 2026 (sampler v2: lapse + loss cap — the ladder that matches humans on both instruments)
 
 **Patrick's full-ladder device pass (round 1 values) diagnosed the last
