@@ -69,6 +69,18 @@ preserved for the promotion thresholds (12k/5k labels intact). Frontend
 245 tests (matchmaker suite rewritten for the new ladder), preview-walked
 end to end. `matchmaker.ts` SPECS_9 + validatedBots.
 
+**Color variety on in-between rungs (Patrick's ask, same session):** the
+12 in-between rungs (17/16/14/13/11/10/8/7/5/4/2/1k — those whose weaker
+neighbor is a real sampling bot) now alternate each game between the base
+Black matchup (stronger bot + your komi advantage) and a `colorAlt`:
+YOU play WHITE against the next-WEAKER bot at a difficulty-matched komi
+(white komi = 3.5 − black komi, so both colors sit at the same rung
+strength). Reuses the existing games-played-parity alternation (feature
+25) rather than true randomness — keeps the matchup layer pure/tested and
+guarantees you see both colors. Desert in-between rungs (20k/19k) have no
+colorAlt (only the 30k heuristic lives below 18k). 247 tests, preview-
+verified all 12 rungs. `RungSpec.colorAlt` + `colorAltMatchup()`.
+
 ## Session 43 — July 5, 2026 (GN5R6K9G: the bot that answered 20 passes with junk)
 
 **Patrick's first device game on the new ladder: 18k strength "feels

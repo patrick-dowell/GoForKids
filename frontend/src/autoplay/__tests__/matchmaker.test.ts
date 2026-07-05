@@ -197,6 +197,31 @@ describe('color variety on symmetric rungs (feature 25 follow-up)', () => {
     expect(gameMatchup('15k', 0, 1, 9).komi).toBe(6.5);
   });
 
+  it('in-between 9×9 rungs alternate to a White game vs the weaker bot (S44)', () => {
+    // 17k even game: Black vs the stronger 15k bot with advantage (komi 0).
+    expect(gameMatchup('17k', 0, 0, 9)).toEqual({ bot: '15k', playerColor: 'black', handicap: 0, komi: 0, validated: true });
+    // 17k odd game: White vs the weaker 18k bot, difficulty-matched (komi 3.5).
+    expect(gameMatchup('17k', 0, 1, 9)).toEqual({ bot: '18k', playerColor: 'white', handicap: 0, komi: 3.5, validated: true });
+    // 16k mirrors: Black komi 3.5 ↔ White vs 18k komi 0.
+    expect(gameMatchup('16k', 0, 1, 9)).toEqual({ bot: '18k', playerColor: 'white', handicap: 0, komi: 0, validated: true });
+    // Back to Black on the next even game.
+    expect(gameMatchup('17k', 0, 2, 9).playerColor).toBe('black');
+    // The white-alt bot is always the next-WEAKER real bot, never named unless validated.
+    for (const [rung, weaker] of [['14k', '15k'], ['11k', '12k'], ['8k', '9k'], ['5k', '6k'], ['2k', '3k']] as const) {
+      const alt = gameMatchup(rung, 0, 1, 9);
+      expect(alt.playerColor, rung).toBe('white');
+      expect(alt.bot, rung).toBe(weaker);
+      expect(alt.validated, rung).toBe(true);
+    }
+  });
+
+  it('desert in-between rungs (20k/19k) have no weaker sampling bot → never flip', () => {
+    // Below 18k only the 30k heuristic lives, so these stay Black-only.
+    expect(gameMatchup('20k', 0, 1, 9).playerColor).toBe('black');
+    expect(gameMatchup('20k', 0, 1, 9).bot).toBe('18k');
+    expect(gameMatchup('19k', 0, 1, 9).playerColor).toBe('black');
+  });
+
   it('never flips non-symmetric rungs', () => {
     expect(gameMatchup('30k', 0, 1, 9).playerColor).toBe('black'); // komi-0 rung
     expect(gameMatchup('25k', 0, 0, 9).playerColor).toBe('white'); // spec'd White stays White

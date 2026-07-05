@@ -62,6 +62,15 @@ interface RungSpec {
   handicap?: number;
   /** Explicit komi for non-handicap rungs; omit to use the engine default. */
   komi?: number;
+  /** Color-variety alternative for an in-between (komi-edge) rung: the SAME
+   *  rung difficulty expressed the other way — you play White against the
+   *  next-WEAKER bot instead of Black-with-advantage against the stronger
+   *  one. `gameMatchup` shows it on alternating games so the rung switches
+   *  color AND bot. Difficulty-matched: white komi = 3.5 − the Black
+   *  variant's komi (S44, Patrick's request). Only in-between rungs whose
+   *  weaker neighbor is a real sampling bot have this (not 20k/19k, below
+   *  which only the 30k heuristic lives). */
+  colorAlt?: { bot: string; komi: number };
 }
 
 /** 19×19 ladder — stones throughout, player always Black (feature 22). */
@@ -132,29 +141,30 @@ const SPECS_9: ReadonlyArray<RungSpec> = [
   { rung: '20k', bot: '18k', playerColor: 'black', handicap: 0, komi: 0 },              // no komi
   { rung: '19k', bot: '18k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },      // 3.5 komi
   { rung: '18k', bot: '18k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },      // even
-  // 15k bot — komi triple
-  { rung: '17k', bot: '15k', playerColor: 'black', handicap: 0, komi: 0 },              // no komi
-  { rung: '16k', bot: '15k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },      // 3.5 komi
+  // 15k bot — komi triple (in-between rungs also playable as White vs the
+  // weaker 18k bot; white komi = 3.5 − black komi, same difficulty).
+  { rung: '17k', bot: '15k', playerColor: 'black', handicap: 0, komi: 0, colorAlt: { bot: '18k', komi: KOMI_HALF } },
+  { rung: '16k', bot: '15k', playerColor: 'black', handicap: 0, komi: KOMI_HALF, colorAlt: { bot: '18k', komi: 0 } },
   { rung: '15k', bot: '15k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },      // even
   // 12k bot — komi triple (NEW real rung)
-  { rung: '14k', bot: '12k', playerColor: 'black', handicap: 0, komi: 0 },              // no komi
-  { rung: '13k', bot: '12k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },      // 3.5 komi
+  { rung: '14k', bot: '12k', playerColor: 'black', handicap: 0, komi: 0, colorAlt: { bot: '15k', komi: KOMI_HALF } },
+  { rung: '13k', bot: '12k', playerColor: 'black', handicap: 0, komi: KOMI_HALF, colorAlt: { bot: '15k', komi: 0 } },
   { rung: '12k', bot: '12k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },      // even
   // 9k bot — komi triple
-  { rung: '11k', bot: '9k', playerColor: 'black', handicap: 0, komi: 0 },               // no komi
-  { rung: '10k', bot: '9k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },       // 3.5 komi
+  { rung: '11k', bot: '9k', playerColor: 'black', handicap: 0, komi: 0, colorAlt: { bot: '12k', komi: KOMI_HALF } },
+  { rung: '10k', bot: '9k', playerColor: 'black', handicap: 0, komi: KOMI_HALF, colorAlt: { bot: '12k', komi: 0 } },
   { rung: '9k', bot: '9k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },        // even
   // 6k bot — komi triple
-  { rung: '8k', bot: '6k', playerColor: 'black', handicap: 0, komi: 0 },                // no komi
-  { rung: '7k', bot: '6k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },        // 3.5 komi
+  { rung: '8k', bot: '6k', playerColor: 'black', handicap: 0, komi: 0, colorAlt: { bot: '9k', komi: KOMI_HALF } },
+  { rung: '7k', bot: '6k', playerColor: 'black', handicap: 0, komi: KOMI_HALF, colorAlt: { bot: '9k', komi: 0 } },
   { rung: '6k', bot: '6k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },        // even
   // 3k bot — komi triple
-  { rung: '5k', bot: '3k', playerColor: 'black', handicap: 0, komi: 0 },                // no komi
-  { rung: '4k', bot: '3k', playerColor: 'black', handicap: 0, komi: KOMI_HALF },        // 3.5 komi
+  { rung: '5k', bot: '3k', playerColor: 'black', handicap: 0, komi: 0, colorAlt: { bot: '6k', komi: KOMI_HALF } },
+  { rung: '4k', bot: '3k', playerColor: 'black', handicap: 0, komi: KOMI_HALF, colorAlt: { bot: '6k', komi: 0 } },
   { rung: '3k', bot: '3k', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },        // even
   // 1d bot — komi triple
-  { rung: '2k', bot: '1d', playerColor: 'black', handicap: 0, komi: 0 },                // no komi
-  { rung: '1k', bot: '1d', playerColor: 'black', handicap: 0, komi: KOMI_HALF },        // 3.5 komi
+  { rung: '2k', bot: '1d', playerColor: 'black', handicap: 0, komi: 0, colorAlt: { bot: '3k', komi: KOMI_HALF } },
+  { rung: '1k', bot: '1d', playerColor: 'black', handicap: 0, komi: KOMI_HALF, colorAlt: { bot: '3k', komi: 0 } },
   { rung: '1d', bot: '1d', playerColor: 'black', handicap: 0, komi: KOMI_EVEN },        // even — top (clear = 2 dan)
 ];
 
@@ -359,9 +369,35 @@ export function gameMatchup(
   const eff = effectiveMatchup(rung, lossStreak, boardSize);
   if (lossStreak >= SAFEGUARD_LOSS_THRESHOLD) return eff;
   if (rung === startingRung(boardSize)) return eff;
-  if (!isColorSymmetric(rung, boardSize)) return eff;
-  if (gamesAtRung % 2 === 0) return eff;
-  return { ...eff, playerColor: eff.playerColor === 'black' ? 'white' : 'black' };
+  if (gamesAtRung % 2 === 0) return eff; // even game → the base (Black) matchup
+
+  // Odd game → the color-variety alternative. Two kinds:
+  //  - symmetric (even) rung: same bot, flip color (komi rides along).
+  //  - in-between rung: play White against the next-weaker bot at a
+  //    difficulty-matched komi (colorAlt) — switches bot AND color.
+  if (isColorSymmetric(rung, boardSize)) {
+    return { ...eff, playerColor: eff.playerColor === 'black' ? 'white' : 'black' };
+  }
+  const alt = colorAltMatchup(rung, boardSize);
+  return alt ?? eff;
+}
+
+/** The White-side color-variety matchup for an in-between rung, or null if
+ *  the rung has none (desert rungs, even rungs, handicap rungs). Built from
+ *  the spec's `colorAlt`: you play White against the next-weaker bot. */
+function colorAltMatchup(rung: Rung, boardSize: BoardSize): Matchup | null {
+  const ladder = ladderFor(boardSize);
+  const i = ladder.rungIndex.get(rung);
+  if (i === undefined) return null;
+  const alt = ladder.specs[i].colorAlt;
+  if (!alt) return null;
+  return {
+    bot: alt.bot,
+    playerColor: 'white',
+    handicap: 0,
+    komi: alt.komi,
+    validated: ladder.validatedBots.has(alt.bot),
+  };
 }
 
 /* ------------------------------------------------------------------------- *
