@@ -12,7 +12,7 @@ export interface SavedGame {
   result: string;          // e.g. "Black wins by 5.5" or "White wins (resignation)"
   moveCount: number;
   isRanked: boolean;
-  gameId: string | null;   // Backend game ID for study mode
+  gameId: string | null;   // Backend game ID (Render scoring / getGame fallback)
   gameType?: GameType;     // Undefined for older saves — treated as human-vs-bot
   blackRank?: string;      // For bot-vs-bot, which bot played black
   whiteRank?: string;      // For bot-vs-bot, which bot played white

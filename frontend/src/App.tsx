@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { GoBoard } from './board/GoBoard';
 import { GameControls } from './components/GameControls';
 import { NewGameDialog } from './components/NewGameDialog';
-import { StudyMode } from './components/StudyMode';
 import { GameLibrary } from './components/GameLibrary';
 import { PlayerCard } from './components/PlayerCard';
 import { CaptureAnimation } from './components/CaptureAnimation';
@@ -58,7 +57,6 @@ function App() {
   const [showAutoPlay, setShowAutoPlay] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
-  const [showStudy, setShowStudy] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   /** Tracks which lesson kicked off the currently-active game (for the
    *  "Next lesson" continuation on the game-end modal). Cleared on Move on. */
@@ -213,7 +211,6 @@ function App() {
     setShowAutoPlay(false);
     setShowProfile(false);
     setShowLibrary(false);
-    setShowStudy(false);
     setShowPrivacy(false);
     setShowHome(true);
   };
@@ -298,7 +295,6 @@ function App() {
 
   const handleSelectGame = (saved: SavedGame) => {
     setShowLibrary(false);
-    setShowStudy(false);
     setShowHome(false);
     loadReplay(saved.sgf, {
       result: saved.result,
@@ -482,11 +478,6 @@ function App() {
           <button onClick={() => setShowLibrary(true)} className="btn btn-secondary">
             Library
           </button>
-          {phase === 'finished' && gameId && (
-            <button onClick={() => setShowStudy(!showStudy)} className="btn btn-secondary">
-              {showStudy ? 'Hide Study' : 'Study'}
-            </button>
-          )}
           <button onClick={handleOpenNewGame} className="btn btn-primary">
             New Game
           </button>
@@ -553,8 +544,6 @@ function App() {
         <aside className="side-panel">
           {replayActive ? (
             <ReplayControls onClose={handleCloseReplay} />
-          ) : showStudy && gameId ? (
-            <StudyMode gameId={gameId} onClose={() => setShowStudy(false)} />
           ) : (
             <>
               <GameControls />
@@ -596,7 +585,7 @@ function App() {
 
       {showNewGame && (
         <NewGameDialog
-          onClose={() => { setShowNewGame(false); setShowStudy(false); }}
+          onClose={() => setShowNewGame(false)}
           onOpenProfile={handleStartProfile}
         />
       )}

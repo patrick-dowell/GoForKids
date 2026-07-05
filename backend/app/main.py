@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import games, study, uploads
+from app.routers import games, uploads
 from app.game.storage import init_db
 from app.uploads.storage import init_uploads_db
 
@@ -64,5 +64,4 @@ async def health():
 
 
 app.include_router(games.router, prefix="/api/games", tags=["games"])
-app.include_router(study.router, prefix="/api/study", tags=["study"])
 app.include_router(uploads.router, prefix="/api/uploads", tags=["uploads"])

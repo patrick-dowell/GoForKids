@@ -7,7 +7,7 @@ const STORAGE_KEY = 'goforkids_settings';
  * Animation/sound density.
  * - "full"  : theme intensity unchanged. Cosmic celebrates, classic stays restrained.
  * - "zen"   : 0.4× intensity multiplier on top of theme — quieter visuals, softer audio.
- *             For adults / focused study; off by default.
+ *             For adults / low-distraction play; off by default.
  */
 export type Density = 'full' | 'zen';
 

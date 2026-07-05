@@ -63,27 +63,3 @@ class AIMoveResponse(BaseModel):
     # post-scoring, so a follow-up GET would 404; piping the state through
     # here is what lets the frontend apply the dead-stone overlay.
     final_state: Optional[GameStateResponse] = None
-
-
-class StudyAnalysisRequest(BaseModel):
-    game_id: str
-
-
-class MoveAnalysis(BaseModel):
-    move_number: int
-    color: StoneColor
-    point: Optional[PointSchema]
-    winrate_before: float
-    winrate_after: float
-    score_delta: float
-    is_critical: bool
-    mistake_type: Optional[str] = None
-    explanation: Optional[str] = None  # LLM-generated narrative
-    alternatives: list[dict] = []
-
-
-class GameAnalysisResponse(BaseModel):
-    game_id: str
-    moves: list[MoveAnalysis]
-    critical_moments: list[int]  # move numbers
-    summary: Optional[str] = None

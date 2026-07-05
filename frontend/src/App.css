@@ -764,166 +764,6 @@ body {
   50% { opacity: 1; }
 }
 
-/* Study Mode */
-.study-mode {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.study-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.study-header h2 {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.study-loading {
-  color: var(--accent);
-  font-size: 14px;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.study-error {
-  color: var(--danger);
-  font-size: 13px;
-}
-
-.study-hint {
-  color: var(--text-muted);
-  font-size: 12px;
-  margin-top: 4px;
-}
-
-.study-summary {
-  padding: 12px;
-  background: var(--bg-tertiary);
-  border-radius: 6px;
-  font-size: 13px;
-  line-height: 1.5;
-  border-left: 3px solid var(--accent);
-}
-
-.study-timeline {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.timeline-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.move-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.timeline-bar {
-  display: flex;
-  gap: 2px;
-  flex-wrap: wrap;
-}
-
-.timeline-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--border);
-  cursor: pointer;
-  transition: all 0.1s;
-}
-
-.timeline-dot.active {
-  background: var(--accent);
-  transform: scale(1.5);
-}
-
-.timeline-dot.critical {
-  background: #ffd700;
-}
-
-.timeline-dot.mistake-blunder {
-  background: var(--danger);
-}
-
-.timeline-dot.mistake-mistake {
-  background: #ff9944;
-}
-
-.timeline-dot.mistake-inaccuracy {
-  background: #ffcc00;
-}
-
-.study-move-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  background: var(--bg-secondary);
-  border-radius: 6px;
-  border: 1px solid var(--border);
-}
-
-.move-eval {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.eval-bar {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.eval-label {
-  font-size: 10px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-}
-
-.eval-value {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.mistake-badge {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.mistake-badge.blunder {
-  background: rgba(255, 107, 107, 0.2);
-  color: var(--danger);
-}
-
-.mistake-badge.mistake {
-  background: rgba(255, 153, 68, 0.2);
-  color: #ff9944;
-}
-
-.mistake-badge.inaccuracy {
-  background: rgba(255, 204, 0, 0.2);
-  color: #ffcc00;
-}
-
-.move-explanation {
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--text-primary);
-}
-
 /* Game Library */
 .library-empty {
   color: var(--text-muted);
@@ -1653,6 +1493,34 @@ body {
   }
 }
 
+/* Replay panel, PHONE PORTRAIT: on real hardware the safe-area insets eat
+   ~93px the desktop-Chromium suite never saw (S34 note-cutoff shipped green;
+   the suite now emulates insets). The stacked panel ran ~35-47px past the
+   fold with a key-move note mounted. Reclaim it from chrome, not content:
+   tighter gaps, drop the speed label (buttons are self-explanatory), slim
+   the note's frame (text + concept link stay — they ARE the feature). */
+@media (max-width: 699px) and (orientation: portrait) {
+  .app-replay .replay-controls {
+    gap: 4px;
+  }
+  .app-replay .replay-header h3 {
+    font-size: 13px;
+  }
+  .app-replay .speed-control label {
+    display: none;
+  }
+  /* Same call as phone landscape: the matchup/result line goes — the score
+     graph header shows the lead and the final position shows the result. */
+  .app-replay .replay-meta {
+    display: none;
+  }
+  .app-replay .replay-highlight-note {
+    margin: 2px 0;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+}
+
 /* Game screen, wide-but-short (big-iPad LANDSCAPE): the 10×5 prisoner grids
    can stack ~10 rows across the two player cards and, with the score graph
    + all four control buttons mounted, push Resign off the bottom once
@@ -1690,6 +1558,19 @@ body {
   .app:not(.app-replay) .side-panel .matchup {
     display: none;
   }
+
+  /* Replay on big-iPad LANDSCAPE (12.9"/13", the one layout that keeps the
+     player cards): a mounted key-move note ran the panel 17-25px past the
+     fold once safe-area insets were emulated. The hint row is the cheapest
+     ~22px (the graph's ★ dots are self-evident); the note keeps its text
+     and concept link, just on a slimmer frame. */
+  .app-replay .replay-hint {
+    display: none;
+  }
+  .app-replay .replay-highlight-note {
+    margin: 2px 0;
+    padding: 6px 10px;
+  }
 }
 
 /* Shorter still (iPad mini / Air landscape): even single-row trays plus the
@@ -1697,6 +1578,21 @@ body {
    entirely (labels + count badges carry the info) and the graph drops to
    chart-only height, matching the replay treatment above. */
 @media (min-width: 1100px) and (max-height: 900px) {
+  /* The game grid has no definite height (unlike .app-replay's 100dvh cap),
+     so the left column's min-content sets the floor — and with all four
+     control buttons stacked (~160px) + graph + avatar cards it exceeded a
+     744px viewport by ~24px once real safe-area insets were emulated
+     (game-late, iPad mini landscape). Wrap the buttons 2×2 like the medium
+     branch does: same info, ~80px shorter column. */
+  .app:not(.app-replay) .control-buttons {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .app:not(.app-replay) .control-buttons .btn {
+    flex: 1 1 auto;
+    min-width: 100px;
+  }
   .app:not(.app-replay) .prisoner-stones {
     display: none;
   }
@@ -1781,8 +1677,11 @@ body {
        portrait rule) — with max-width lifted, the canvas's intrinsic size
        (its internal pixel resolution) feeds the board-container's flex-basis
        and the side panel wraps below the board, pushing Pass/Resign
-       off-screen. max-width bounds the intrinsic contribution too. */
-    max-width: min(700px, calc(100dvh - 280px));
+       off-screen. max-width bounds the intrinsic contribution too.
+       Subtract the safe-area insets — the 280px overhead was measured on
+       inset-less Chromium; on the device the header is --safe-top taller
+       (Roland's iPad ran the board 4px past the fold). */
+    max-width: min(700px, calc(100dvh - 280px - var(--safe-top) - var(--safe-bottom)));
   }
 }
 
