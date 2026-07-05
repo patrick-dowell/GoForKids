@@ -1,0 +1,303 @@
+# CANDIDATE 9x9 ladder — iter 2 (2026-07-05 evening): 18k rand .15->.30,
+# 15k rand .08->.14 (bottom rungs hit the sampling floor ~human-12k in
+# iter 1; random-legal moves are the lever with headroom below it).
+# All other rungs frozen. Human reference + placements: DEVJOURNAL S42.
+profiles:
+  19x19:
+    30k:
+      max_point_loss: 28.0
+      mistake_freq: 0.75
+      policy_weight: 0.15
+      randomness: 0.78
+      random_move_chance: 0.2
+      local_bias: 0.8
+      local_bias_in_opening: true
+      first_line_chance: 0.0
+      visits: 6
+      min_candidates: 15
+      opening_moves: 8
+      pass_threshold: 0.15
+      clarity_prior: 1.1
+      clarity_score_gap: 999.0
+    18k:
+      max_point_loss: 18.0
+      mistake_freq: 0.72
+      policy_weight: 0.18
+      randomness: 0.76
+      random_move_chance: 0.22
+      local_bias: 0.38
+      first_line_chance: 0.0
+      visits: 6
+      min_candidates: 15
+      opening_moves: 12
+    15k:
+      max_point_loss: 14.0
+      mistake_freq: 0.65
+      policy_weight: 0.3
+      randomness: 0.6
+      random_move_chance: 0.18
+      local_bias: 0.25
+      first_line_chance: 0.0
+      visits: 8
+      min_candidates: 12
+      opening_moves: 30
+    12k:
+      max_point_loss: 13.0
+      mistake_freq: 0.55
+      policy_weight: 0.42
+      randomness: 0.45
+      random_move_chance: 0.15
+      local_bias: 0.2
+      first_line_chance: 0.0
+      visits: 8
+      min_candidates: 10
+      opening_moves: 22
+    9k:
+      max_point_loss: 9.0
+      mistake_freq: 0.51
+      policy_weight: 0.47
+      randomness: 0.41
+      random_move_chance: 0.12
+      local_bias: 0.15
+      first_line_chance: 0.0
+      visits: 10
+      min_candidates: 9
+      opening_moves: 21
+    6k:
+      max_point_loss: 6.0
+      mistake_freq: 0.58
+      policy_weight: 0.5
+      randomness: 0.4
+      random_move_chance: 0.12
+      local_bias: 0.12
+      first_line_chance: 0.0
+      visits: 10
+      min_candidates: 8
+      opening_moves: 20
+    3k:
+      max_point_loss: 7.0
+      mistake_freq: 0.45
+      policy_weight: 0.5
+      randomness: 0.38
+      random_move_chance: 0.1
+      local_bias: 0.08
+      first_line_chance: 0.0
+      visits: 12
+      min_candidates: 8
+      opening_moves: 18
+    1d:
+      max_point_loss: 4.5
+      mistake_freq: 0.22
+      policy_weight: 0.85
+      randomness: 0.1
+      random_move_chance: 0.05
+      local_bias: 0.0
+      first_line_chance: 0.0
+      visits: 30
+      min_candidates: 5
+      opening_moves: 5
+  13x13:
+    30k:
+      max_point_loss: 22.0
+      mistake_freq: 0.65
+      policy_weight: 0.1
+      randomness: 0.85
+      random_move_chance: 0.15
+      local_bias: 0.8
+      local_bias_in_opening: true
+      first_line_chance: 0.0
+      visits: 5
+      min_candidates: 12
+      opening_moves: 4
+      pass_threshold: 0.15
+      clarity_prior: 1.1
+      clarity_score_gap: 999.0
+    15k:
+      max_point_loss: 22.0
+      mistake_freq: 0.42
+      policy_weight: 0.28
+      randomness: 0.62
+      random_move_chance: 0.06
+      local_bias: 0.22
+      first_line_chance: 0.0
+      visits: 18
+      min_candidates: 10
+      opening_moves: 8
+      pass_threshold: 0.15
+    6k:
+      max_point_loss: 9.0
+      mistake_freq: 0.45
+      policy_weight: 0.5
+      randomness: 0.38
+      random_move_chance: 0.02
+      local_bias: 0.08
+      first_line_chance: 0.0
+      visits: 70
+      min_candidates: 8
+      opening_moves: 6
+      pass_threshold: 0.15
+  9x9:
+    30k:
+      max_point_loss: 30.0
+      mistake_freq: 0.7
+      policy_weight: 0.08
+      randomness: 0.88
+      random_move_chance: 0.2
+      local_bias: 0.85
+      local_bias_in_opening: true
+      first_line_chance: 0.0
+      visits: 4
+      min_candidates: 10
+      opening_moves: 2
+      pass_threshold: 0.1
+      clarity_prior: 1.1
+      clarity_score_gap: 999.0
+    18k:
+      first_line_chance: 0.0
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.1
+      visits: 16
+      policy_weight: 0.12
+      randomness: 0.78
+      reading_rate: 0.03
+      policy_temp: 3.5
+      wide_root_noise: 0.8
+      random_move_chance: 0.3
+      clarity_prior: 0.95
+      clarity_score_gap: 25.0
+      mistake_freq: 0.8
+      max_point_loss: 30.0
+    15k:
+      first_line_chance: 0.0
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.1
+      visits: 16
+      policy_weight: 0.12
+      randomness: 0.78
+      reading_rate: 0.07
+      policy_temp: 2.9
+      wide_root_noise: 0.7
+      random_move_chance: 0.14
+      clarity_prior: 0.9
+      clarity_score_gap: 18.0
+      mistake_freq: 0.75
+      max_point_loss: 28.0
+    12k:
+      first_line_chance: 0.0
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.1
+      visits: 16
+      policy_weight: 0.12
+      randomness: 0.78
+      reading_rate: 0.1
+      policy_temp: 2.6
+      wide_root_noise: 0.7
+      random_move_chance: 0.06
+      clarity_prior: 0.87
+      clarity_score_gap: 15.0
+      mistake_freq: 0.72
+      max_point_loss: 26.0
+    9k:
+      first_line_chance: 0.0
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.1
+      visits: 16
+      policy_weight: 0.12
+      randomness: 0.78
+      reading_rate: 0.15
+      policy_temp: 2.2
+      wide_root_noise: 0.6
+      random_move_chance: 0.05
+      clarity_prior: 0.87
+      clarity_score_gap: 15.0
+      mistake_freq: 0.72
+      max_point_loss: 28.0
+    6k:
+      first_line_chance: 0.0
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.1
+      visits: 16
+      policy_weight: 0.12
+      randomness: 0.78
+      reading_rate: 0.28
+      policy_temp: 1.7
+      wide_root_noise: 0.55
+      random_move_chance: 0.04
+      clarity_prior: 0.85
+      clarity_score_gap: 12.0
+      mistake_freq: 0.68
+      max_point_loss: 24.0
+    3k:
+      first_line_chance: 0.0
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.1
+      visits: 16
+      policy_weight: 0.12
+      randomness: 0.78
+      reading_rate: 0.55
+      policy_temp: 1.15
+      wide_root_noise: 0.45
+      random_move_chance: 0.04
+      clarity_prior: 0.8
+      clarity_score_gap: 10.0
+      mistake_freq: 0.63
+      max_point_loss: 23.0
+    1d:
+      first_line_chance: 0.0
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.1
+      visits: 16
+      policy_weight: 0.12
+      randomness: 0.78
+      reading_rate: 0.8
+      policy_temp: 1.0
+      wide_root_noise: 0.3
+      random_move_chance: 0.01
+      clarity_prior: 0.7
+      clarity_score_gap: 8.0
+      mistake_freq: 0.5
+      max_point_loss: 12.0
+  5x5:
+    30k:
+      max_point_loss: 38.0
+      mistake_freq: 0.74
+      policy_weight: 0.07
+      randomness: 0.9
+      random_move_chance: 0.22
+      local_bias: 0.87
+      local_bias_in_opening: true
+      first_line_chance: 0.0
+      visits: 8
+      min_candidates: 10
+      opening_moves: 2
+      pass_threshold: 0.05
+      clarity_prior: 1.1
+      clarity_score_gap: 999.0

@@ -19,19 +19,18 @@ type RankOption = {
   sizes: number[];
 };
 
-// Small boards expose only the calibrated tiers (13x13: 30k / 15k / 6k;
-// 9x9: 30k / 15k / 6k / 1d). Other ranks are 19x19-only — they'd technically
-// run via the 19x19 fallback, but the rank labels would be misleading on
-// smaller boards.
+// Small boards expose only the calibrated tiers (13x13: 30k / 15k / 6k).
+// 9x9 now has a FULL data-calibrated ladder 30k→1d (S42 distribution
+// campaign, 2026-07-05), so every rank is selectable there; a rank drops
+// back to 19x19-only if its 9x9 profile is ever removed.
 const ALL_SIZES = [9, 13, 19];
-const NINETEEN_ONLY = [19];
 const NINE_AND_NINETEEN = [9, 19];
 
 const RANK_OPTIONS: RankOption[] = [
   { value: '30k', label: '30 kyu — Seedling', validated: true,  sizes: ALL_SIZES },
-  { value: '18k', label: '18 kyu — Sprout',   validated: true,  sizes: NINETEEN_ONLY },
+  { value: '18k', label: '18 kyu — Sprout',   validated: true,  sizes: NINE_AND_NINETEEN },
   { value: '15k', label: '15 kyu — Pebble',   validated: true,  sizes: ALL_SIZES },
-  { value: '12k', label: '12 kyu — Stream',   validated: true,  sizes: NINETEEN_ONLY },
+  { value: '12k', label: '12 kyu — Stream',   validated: true,  sizes: NINE_AND_NINETEEN },
   { value: '9k',  label: '9 kyu — Boulder',   validated: true,  sizes: NINE_AND_NINETEEN },
   { value: '6k',  label: '6 kyu — Ember',     validated: true,  sizes: ALL_SIZES },
   { value: '3k',  label: '3 kyu — Storm',     validated: true,  sizes: NINE_AND_NINETEEN },

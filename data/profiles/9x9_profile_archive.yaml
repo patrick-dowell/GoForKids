@@ -1,0 +1,113 @@
+# 9×9 profile archive — vibe- and margin-calibrated configs from the §3
+# campaign (2026-07-04/05, DEVJOURNAL S38–S41+), kept so they can be reused
+# as candidate profiles for the ranks they were MEASURED to play at, not
+# the ranks they were labeled with.
+#
+# Evidence vocabulary:
+#   felt:   Patrick's play-feel (he is ~2d IGS; treat as ±1 rank)
+#   margin: bot-vs-bot avg margin vs a reference rung (n given)
+#   hist:   loss-distribution match vs the human reference table
+#           (data/human_games_9x9_ogs/, analyze_9x9_losses.py)
+#
+# ⚠️ Anything measured before 2026-07-05 on-device is suspect — the bridge
+# parsed ONE candidate per analysis until S41, so device play was top-move
+# regardless of profile. Local/JSON-path measurements are trustworthy.
+#
+# The human reference table (OGS, 200 visits, mover-perspective loss):
+#            mean   median  near-opt  small  medium  blunder  local≤2
+#   15k      2.69   1.11    39%       24%    21%     16%      66%
+#   9k       2.57   0.51    49%       22%    13%     15%      75%
+#   6k       2.01   0.58    47%       25%    16%     12%      72%
+
+archive:
+
+  sampling_rr55_t115:
+    description: >
+      Prior-sampling config shipped as "9k" in iter 3 (S40). Patrick played
+      it (as ladder rung Boulder) three times at komi 6.5: every game
+      within 1.5 points, he won 1/3 — "a real toss up... I'd label this bot
+      3 kyu."
+    measured_rank: "~3k (felt, n=3 vs 2d, post-parser-fix device build)"
+    knobs:
+      reading_rate: 0.55
+      policy_temp: 1.15
+      wide_root_noise: 0.45
+      random_move_chance: 0.04
+      local_bias: 0.0
+      visits: 16
+      clarity_prior: 0.80
+      clarity_score_gap: 10.0
+      max_point_loss: 23.0   # inert on sampling moves; applies to reading path
+      mistake_freq: 0.63     # reading-path machinery
+      policy_weight: 0.20
+      randomness: 0.71
+      opening_moves: 4
+      pass_threshold: 0.10
+
+  sampling_rr15_t22:
+    description: >
+      Anchor-calibrated config shipped as "15k" in iter 3b (S40 sweep
+      winner: +46.7/+50.8 behind the local 6k, n=12, stable). Patrick
+      post-parser-fix: beats him (2d) roughly every other game — "somewhere
+      in the 6-9k range"; won by 1.5 once, lots of exploitable mistakes.
+    measured_rank: "~6-9k (felt, n≈5 vs 2d; hist pending)"
+    knobs:
+      reading_rate: 0.15
+      policy_temp: 2.2
+      wide_root_noise: 0.6
+      random_move_chance: 0.05
+      local_bias: 0.0
+      visits: 16
+      clarity_prior: 0.87
+      clarity_score_gap: 15.0
+      max_point_loss: 28.0
+      mistake_freq: 0.72
+      policy_weight: 0.12
+      randomness: 0.78
+      opening_moves: 3
+      pass_threshold: 0.10
+
+  sampling_rr10_t26:
+    description: >
+      Sweep variant B (S40): one notch weaker than the winner —
+      +56.8 behind the local 6k (n=6, all losses). Candidate for a rung
+      below wherever sampling_rr15_t22 lands.
+    measured_rank: "~1-2 ranks below sampling_rr15_t22 (margin)"
+    knobs:
+      reading_rate: 0.10
+      policy_temp: 2.6
+      wide_root_noise: 0.7
+      # other knobs as sampling_rr15_t22
+
+  sampling_rr20_t19:
+    description: >
+      Sweep variant C (S40): one notch stronger — +28.3 behind the local
+      6k (n=6). Candidate for a rung above sampling_rr15_t22.
+    measured_rank: "~1-2 ranks above sampling_rr15_t22 (margin)"
+    knobs:
+      reading_rate: 0.20
+      policy_temp: 1.9
+      wide_root_noise: 0.6
+      # other knobs as sampling_rr15_t22
+
+  machinery_6k:
+    description: >
+      The live 6k profile (b28.yaml, mistake_freq 0.65 post-S38): the old
+      mistake machinery at 12 visits with DEFAULT clarity gates (0.5/5.0).
+      LOCAL measurement only — Patrick's famous "6k plays me even" anchor
+      was device-measured pre-parser-fix and is void. Local-path margins:
+      beat sigma-9k twice (inverted iters), beat sampling-9k 9/10 +19.4,
+      lost to 3k 7/8 +23 (n=8, noisy).
+    measured_rank: "UNKNOWN post-parser-fix — needs fresh device feel + hist"
+    knobs: "see data/profiles/b28.yaml 9x9/6k (unchanged, in production)"
+
+  # Historical dead ends, kept for the record — see DEVJOURNAL for detail:
+  #   - score_noise sigma 4.5/6/7/12 (S39-S40): noisy-argmax saturates to
+  #     uniform-over-pool once sigma exceeds pool spread; uniform is
+  #     STRONGER than the machinery. Knob remains in both selectors, unused.
+  #   - local_bias_from_candidates (myopic strongest-local, S38): on 9×9
+  #     local-best ≈ global-best; became a perfect-play mode. Knob remains,
+  #     unused.
+  #   - pre-S38 machinery 15k/9k (visits 5/9): pool too narrow for the
+  #     mistake machinery to matter even on the JSON path; and on-device
+  #     the parser bug made all of it moot anyway.
