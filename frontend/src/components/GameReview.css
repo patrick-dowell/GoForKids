@@ -68,6 +68,18 @@
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.03);
+  /* §4a: the whole card is a tap target — it opens the quick replay. */
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.review-card:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.review-card:active {
+  transform: scale(0.99);
 }
 /* Good moments get a warm accent; learning moments a cool one. */
 .review-card-good {
@@ -101,6 +113,14 @@
 .review-card-concept {
   font-size: 14px;
   opacity: 0.85;
+}
+
+/* "Watch it happen ▶" — tells a kid the card plays (§4a quick replay). */
+.review-card-watch {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent, #58a6ff);
 }
 
 .review-done {

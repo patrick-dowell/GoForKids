@@ -50,7 +50,18 @@ export interface AIMoveDTO {
   point: PointDTO;
   captures: PointDTO[];
   debug?: Record<string, unknown>;
+  /** Best-known eval AFTER the AI's own move (the chosen candidate's
+   *  scoreLead when it was read with enough visits; otherwise carries
+   *  score_lead_before). Black's perspective, like all leads. */
   score_lead?: number | null;
+  /** Eval of the position the AI analyzed — i.e. right after the PREVIOUS
+   *  move (usually the player's), before the AI replied. Recording this one
+   *  move earlier than score_lead is what lets the score graph and
+   *  Play-of-the-Game attribute a swing to the mover who caused it: without
+   *  it, on-device player blunders were credited to the bot's reply, since
+   *  player moves never get their own analysis (localGameRouter v1
+   *  limitation). §4a attribution fix. */
+  score_lead_before?: number | null;
   /** Set when the AI's pass ended the game. Carries the scored final state
    *  inline so the frontend doesn't need a follow-up GET (which would 404,
    *  since the active game is deleted post-scoring). */

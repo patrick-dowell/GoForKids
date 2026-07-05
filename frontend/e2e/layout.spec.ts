@@ -16,21 +16,34 @@ import { test, expect, type Page } from '@playwright/test';
  * sweeps the whole matrix — fast, and exactly how the manual sweep worked.
  */
 
+/** Real iOS safe-area insets per device (logical pts, viewport-fit=cover).
+ *  Chromium reports env(safe-area-inset-*) as 0, so without emulating these
+ *  the sweep audits a device that doesn't exist — every phone-portrait probe
+ *  ran with ~93px more height than Patrick's actual phone. The app routes
+ *  insets through the --safe-* custom properties (App.css:19), so sweep()
+ *  overrides those per viewport. This is how the S34 highlight-note cutoff
+ *  shipped through a green suite. */
+interface Insets { top: number; bottom: number; left: number; right: number }
+const PHONE_PORTRAIT: Insets = { top: 59, bottom: 34, left: 0, right: 0 };
+const PHONE_LANDSCAPE: Insets = { top: 0, bottom: 21, left: 59, right: 59 };
+const IPAD: Insets = { top: 24, bottom: 20, left: 0, right: 0 };
+const IPAD_HOMEBUTTON: Insets = { top: 20, bottom: 0, left: 0, right: 0 };
+
 const VIEWPORTS = [
-  { name: 'iPhone Pro portrait', width: 393, height: 852 },
-  { name: 'iPhone Pro landscape', width: 852, height: 393 },
-  { name: 'iPhone Pro Max portrait', width: 430, height: 932 },
-  { name: 'iPhone Pro Max landscape', width: 932, height: 430 },
-  { name: 'iPad mini portrait', width: 744, height: 1133 },
-  { name: 'iPad mini landscape', width: 1133, height: 744 },
-  { name: 'iPad 10.2 portrait', width: 810, height: 1080 },
-  { name: 'iPad 10.2 landscape', width: 1080, height: 810 }, // Roland's board bug (S29 #1)
-  { name: 'iPad Air portrait', width: 820, height: 1180 },
-  { name: 'iPad Air landscape', width: 1180, height: 820 }, // replay grid bug (S29 #2)
-  { name: 'iPad Pro 12.9 portrait', width: 1024, height: 1366 },
-  { name: 'iPad Pro 12.9 landscape', width: 1366, height: 1024 },
-  { name: 'iPad Pro 13 portrait', width: 1032, height: 1376 }, // replay-panel bug (S29 addendum)
-  { name: 'iPad Pro 13 landscape', width: 1376, height: 1032 },
+  { name: 'iPhone Pro portrait', width: 393, height: 852, insets: PHONE_PORTRAIT },
+  { name: 'iPhone Pro landscape', width: 852, height: 393, insets: PHONE_LANDSCAPE },
+  { name: 'iPhone Pro Max portrait', width: 430, height: 932, insets: PHONE_PORTRAIT },
+  { name: 'iPhone Pro Max landscape', width: 932, height: 430, insets: PHONE_LANDSCAPE },
+  { name: 'iPad mini portrait', width: 744, height: 1133, insets: IPAD },
+  { name: 'iPad mini landscape', width: 1133, height: 744, insets: IPAD },
+  { name: 'iPad 10.2 portrait', width: 810, height: 1080, insets: IPAD_HOMEBUTTON },
+  { name: 'iPad 10.2 landscape', width: 1080, height: 810, insets: IPAD_HOMEBUTTON }, // Roland's board bug (S29 #1)
+  { name: 'iPad Air portrait', width: 820, height: 1180, insets: IPAD },
+  { name: 'iPad Air landscape', width: 1180, height: 820, insets: IPAD }, // replay grid bug (S29 #2)
+  { name: 'iPad Pro 12.9 portrait', width: 1024, height: 1366, insets: IPAD },
+  { name: 'iPad Pro 12.9 landscape', width: 1366, height: 1024, insets: IPAD },
+  { name: 'iPad Pro 13 portrait', width: 1032, height: 1376, insets: IPAD }, // replay-panel bug (S29 addendum)
+  { name: 'iPad Pro 13 landscape', width: 1376, height: 1032, insets: IPAD },
 ];
 
 /** Selector prefixed with `btn:` matches a button by exact trimmed text. */
@@ -122,6 +135,18 @@ async function sweep(page: Page, screen: string, spec: ProbeSpec) {
   const failures: string[] = [];
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
+    // Emulate the device's safe-area insets (Chromium's env() is always 0).
+    // Injected :root wins the cascade over App.css's declaration — same
+    // specificity, later in document order.
+    await page.evaluate((ins) => {
+      let el = document.getElementById('e2e-safe-area') as HTMLStyleElement | null;
+      if (!el) {
+        el = document.createElement('style');
+        el.id = 'e2e-safe-area';
+        document.head.appendChild(el);
+      }
+      el.textContent = `:root { --safe-top: ${ins.top}px; --safe-bottom: ${ins.bottom}px; --safe-left: ${ins.left}px; --safe-right: ${ins.right}px; }`;
+    }, vp.insets);
     // Let media queries, container queries, and canvas resize settle.
     await page.waitForTimeout(150);
     const issues = await probe(page, spec);
@@ -204,6 +229,41 @@ test('replay: board fits, controls reachable at every viewport', async ({ page }
   // board and the full control panel must fit outright.
   await sweep(page, 'replay', {
     strict: ['.go-board-canvas', '.replay-controls', 'btn:Download SGF'],
+    square: ['.go-board-canvas'],
+  });
+});
+
+test('replay on a key move: highlight note fits at every viewport', async ({ page }) => {
+  // The default replay sweep runs at move 0, where the key-move explanation
+  // card (.replay-highlight-note) never mounts — which is exactly how the
+  // iPhone Pro Max PORTRAIT cutoff shipped (S34 known bug): the note only
+  // appears when the cursor is ON a key move, adding a row to a panel that
+  // fits with zero slack. Same lesson as game-late: put the state in the
+  // suite FIRST, then make it pay for itself. §4a raises the stakes — the
+  // quick-replay entry lands users directly on key moves.
+  await seedPickedProfile(page);
+  await page.goto('/?replay=demo');
+  await page.locator('.go-board-canvas').waitFor();
+  await page.locator('.replay-controls').waitFor();
+  // Seek onto the demo's key move via the dev store hook (the demo review
+  // game's capture at move 9 is its one guaranteed highlight) — and dress
+  // the panel up to a REAL game's height: the demo fixture has no meta row
+  // (vs rank · result) and no share button, so without these the sweep runs
+  // 2 rows short of what a device actually shows and false-passes.
+  await page.evaluate(() => {
+    const store = (window as unknown as {
+      __replayStore: {
+        getState: () => { highlights: Array<{ moveNumber: number }>; goToMove: (n: number) => void };
+        setState: (s: object) => void;
+      };
+    }).__replayStore;
+    store.setState({ gameResult: 'B+8.5', opponentRank: '15k', sharedId: 'DEMO1234' });
+    const st = store.getState();
+    st.goToMove(st.highlights[0].moveNumber);
+  });
+  await page.locator('.replay-highlight-note').waitFor();
+  await sweep(page, 'replay-key-move', {
+    strict: ['.go-board-canvas', '.replay-controls', '.replay-highlight-note', 'btn:Download SGF'],
     square: ['.go-board-canvas'],
   });
 });

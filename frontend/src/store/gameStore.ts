@@ -76,6 +76,55 @@ function appendScorePoint(history: ScorePoint[], game: Game): ScorePoint[] {
   return [...history, { move: game.moveHistory.length, lead: currentLead(game) }];
 }
 
+/** Insert or replace the score point for `move`, keeping the history sorted.
+ *  The history is sparse on-device (player moves get no analysis of their
+ *  own), so entries are matched by move number, never by array index. */
+function upsertScorePoint(history: ScorePoint[], move: number, lead: number): ScorePoint[] {
+  const idx = history.findIndex((p) => p.move === move);
+  if (idx >= 0) {
+    const next = [...history];
+    next[idx] = { move, lead };
+    return next;
+  }
+  const next = [...history, { move, lead }];
+  next.sort((a, b) => a.move - b.move);
+  return next;
+}
+
+/** §4a attribution fix: an AI-move response carries TWO evals. The analysis
+ *  ROOT eval (`score_lead_before`) describes the position the bot analyzed —
+ *  i.e. the board right after the PREVIOUS move, usually the player's — so it
+ *  is recorded one move earlier than the bot's own move. Before this, the
+ *  root eval landed on the bot's move number, so Play-of-the-Game credited
+ *  every player blunder to the bot's reply ("The bot found a strong move
+ *  here") and the concept tagger inspected the wrong move.
+ *  `fallbackLead` preserves each call site's old no-eval behavior (local
+ *  territory count on moves, carry-last-lead on passes). */
+function mergeAiScorePoints(
+  history: ScorePoint[],
+  aiMove: { score_lead?: number | null; score_lead_before?: number | null },
+  aiMoveNum: number,
+  fallbackLead: number,
+): ScorePoint[] {
+  let h = history;
+  const before = aiMove.score_lead_before;
+  if (typeof before === 'number' && aiMoveNum >= 1) {
+    h = upsertScorePoint(h, aiMoveNum - 1, before);
+  }
+  const after =
+    typeof aiMove.score_lead === 'number'
+      ? aiMove.score_lead
+      : typeof before === 'number'
+        ? before
+        : fallbackLead;
+  return upsertScorePoint(h, aiMoveNum, after);
+}
+
+/** Last recorded lead, for pass paths that carry the score forward. */
+function lastLeadOf(history: ScorePoint[]): number {
+  return history.length > 0 ? history[history.length - 1].lead : 0;
+}
+
 /** Replace the final history point with the rules-based result.black - result.white,
  *  so the graph's last point matches what's shown in the final tally (instead of
  *  the pre-scoring KataGo estimate, which differs by dead-stone cleanup). */
@@ -908,7 +957,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       _game.undo(); // undo AI's move
       _game.undo(); // undo player's move
       const lastRecord = _game.moveHistory[_game.moveHistory.length - 1];
-      const trimmed = get().scoreHistory.slice(0, _game.moveHistory.length + 1);
+      // Trim by MOVE NUMBER, not array index — the history is sparse (not
+      // every move has an entry) and can hold two entries per AI turn since
+      // the attribution fix, so index ≠ move number.
+      const trimmed = get().scoreHistory.filter((p) => p.move <= _game.moveHistory.length);
       set({ ...snapshot(_game, { lastMove: lastRecord?.point ?? null }), scoreHistory: trimmed });
       syncServerUndo(2);
       didUndo = true;
@@ -919,7 +971,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       // (the suspected 888P9NXK seed class).
       const success = _game.undo();
       if (success) {
-        const trimmed = get().scoreHistory.slice(0, _game.moveHistory.length + 1);
+        // Trim by MOVE NUMBER, not array index — the history is sparse (not
+      // every move has an entry) and can hold two entries per AI turn since
+      // the attribution fix, so index ≠ move number.
+      const trimmed = get().scoreHistory.filter((p) => p.move <= _game.moveHistory.length);
         set({ ...snapshot(_game, { lastMove: null }), scoreHistory: trimmed });
         syncServerUndo(1);
         didUndo = true;
@@ -929,7 +984,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       const success = _game.undo();
       if (success) {
         const lastRecord = _game.moveHistory[_game.moveHistory.length - 1];
-        const trimmed = get().scoreHistory.slice(0, _game.moveHistory.length + 1);
+        // Trim by MOVE NUMBER, not array index — the history is sparse (not
+      // every move has an entry) and can hold two entries per AI turn since
+      // the attribution fix, so index ≠ move number.
+      const trimmed = get().scoreHistory.filter((p) => p.move <= _game.moveHistory.length);
         set({ ...snapshot(_game, { lastMove: lastRecord?.point ?? null }), scoreHistory: trimmed });
         didUndo = true;
       }
@@ -1040,14 +1098,12 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (captures.length > 0) {
             setTimeout(() => playCaptureSound(captures.length), 100);
           }
-          // Prefer KataGo's estimate from the server; fall back to local
-          // territory-count if the server didn't return one.
-          const nextHistory = typeof aiMove.score_lead === 'number'
-            ? [
-                ...get().scoreHistory,
-                { move: _game.moveHistory.length, lead: aiMove.score_lead as number },
-              ]
-            : appendScorePoint(get().scoreHistory, _game);
+          // Prefer KataGo's estimates from the server (root eval attributed
+          // to the player's move, chosen-move eval to the bot's — see
+          // mergeAiScorePoints); fall back to local territory-count.
+          const nextHistory = mergeAiScorePoints(
+            get().scoreHistory, aiMove, _game.moveHistory.length, currentLead(_game),
+          );
           set({
             aiThinking: false,
             ...snapshot(_game, { lastMove: point, lastCaptures: captures }),
@@ -1076,10 +1132,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       );
       playPassSound();
       const prevAi = get().scoreHistory;
-      const lastAiLead = typeof aiMove.score_lead === 'number'
-        ? aiMove.score_lead
-        : (prevAi.length > 0 ? prevAi[prevAi.length - 1].lead : 0);
-      const aiPassHistory = [...prevAi, { move: _game.moveHistory.length, lead: lastAiLead }];
+      const aiPassHistory = mergeAiScorePoints(
+        prevAi, aiMove, _game.moveHistory.length, lastLeadOf(prevAi),
+      );
       if (_game.phase === 'finished') {
         playGameEndSound();
         // Prefer the inline final_state from the AI-pass response. The active
@@ -1164,12 +1219,9 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (captures.length > 0) {
             setTimeout(() => playCaptureSound(captures.length), 100);
           }
-          const nextHistory = typeof aiMove.score_lead === 'number'
-            ? [
-                ...get().scoreHistory,
-                { move: _game.moveHistory.length, lead: aiMove.score_lead as number },
-              ]
-            : appendScorePoint(get().scoreHistory, _game);
+          const nextHistory = mergeAiScorePoints(
+            get().scoreHistory, aiMove, _game.moveHistory.length, currentLead(_game),
+          );
           set({
             aiThinking: false,
             ...snapshot(_game, { lastMove: point, lastCaptures: captures }),
@@ -1192,10 +1244,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       );
       playPassSound();
       const prevBvb = get().scoreHistory;
-      const lastBvbLead = typeof aiMove.score_lead === 'number'
-        ? aiMove.score_lead
-        : (prevBvb.length > 0 ? prevBvb[prevBvb.length - 1].lead : 0);
-      const bvbPassHistory = [...prevBvb, { move: _game.moveHistory.length, lead: lastBvbLead }];
+      const bvbPassHistory = mergeAiScorePoints(
+        prevBvb, aiMove, _game.moveHistory.length, lastLeadOf(prevBvb),
+      );
       if (_game.phase === 'finished') {
         playGameEndSound();
         // Prefer the inline final_state from the AI-pass response. The active
@@ -1301,12 +1352,9 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (captures.length > 0) {
             setTimeout(() => playCaptureSound(captures.length), 100);
           }
-          const nextHistory = typeof aiMove.score_lead === 'number'
-            ? [
-                ...get().scoreHistory,
-                { move: _game.moveHistory.length, lead: aiMove.score_lead as number },
-              ]
-            : appendScorePoint(get().scoreHistory, _game);
+          const nextHistory = mergeAiScorePoints(
+            get().scoreHistory, aiMove, _game.moveHistory.length, currentLead(_game),
+          );
           set({
             ...snapshot(_game, { lastMove: point, lastCaptures: captures }),
             scoreHistory: nextHistory,
@@ -1323,10 +1371,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       _game.pass();
       playPassSound();
       const prevHistory = get().scoreHistory;
-      const lastLead = typeof aiMove.score_lead === 'number'
-        ? aiMove.score_lead
-        : (prevHistory.length > 0 ? prevHistory[prevHistory.length - 1].lead : 0);
-      const passHistory = [...prevHistory, { move: _game.moveHistory.length, lead: lastLead }];
+      const passHistory = mergeAiScorePoints(
+        prevHistory, aiMove, _game.moveHistory.length, lastLeadOf(prevHistory),
+      );
 
       if (_game.phase === 'finished') {
         // Two passes ended the game — apply final_state from the inline

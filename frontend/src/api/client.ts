@@ -7,7 +7,7 @@
  * resign / undo) route through `localGameRouter.ts` instead of hitting
  * Render. Moves drop from ~1.5 s of network round-trip to a localStorage
  * write. See localGameRouter.ts for what stays on Render (scoring with
- * dead stones, finishMove, study mode).
+ * dead stones, finishMove).
  */
 
 import { boardToMoves, fromGtp, getKataGoBridge, type KataGoBridge } from './nativeKataGo';
@@ -319,6 +319,10 @@ async function getAIMoveViaBridge(
   // miss ko bans and suggest illegal moves we filter out below.
   const moves = options?.movesForBridge ?? boardToMoves(state.board, state.board_size);
   let cachedScoreLead: number | null = null;
+  // Most recent candidate list, kept so we can report the eval of the move
+  // the selector ACTUALLY chose (not just the best move) — see the
+  // score_lead / score_lead_before split in AIMoveDTO.
+  let lastCandidates: MoveCandidate[] | null = null;
 
   const analyze = async (visits: number, opts?: AnalyzeOpts): Promise<PositionAnalysis> => {
     // [perf-js] Measure JS-perceived bridge round-trip. Difference vs the
@@ -370,18 +374,30 @@ async function getAIMoveViaBridge(
       };
     });
 
-    // Best non-pass candidate's scoreLead represents the position after the
-    // AI's likely move — that's what the score graph should show.
+    // Best non-pass candidate's scoreLead ≈ the eval of the analyzed position
+    // itself (assumes best play from here) — this is the score_lead_before
+    // read: it belongs to the move that CREATED this position, i.e. the
+    // player's move, not the bot's upcoming reply.
     if (cachedScoreLead === null) {
       const bestNonPass = candidates.find((c) => c.move.row >= 0);
       if (bestNonPass) cachedScoreLead = bestNonPass.scoreLead;
       else if (candidates.length > 0) cachedScoreLead = candidates[0].scoreLead;
     }
+    lastCandidates = candidates;
 
     return {
       rootVisits: result.rootVisits ?? visits,
       candidates,
     };
+  };
+
+  // Eval AFTER the bot's actual move: the chosen candidate's own scoreLead.
+  // Guard on visits ≥ 2 — wideRootNoise fills the pool tail with 1-visit
+  // candidates whose scoreLead is a single-playout guess; carrying the root
+  // eval is less wrong than plotting that noise on the score graph.
+  const chosenMoveLead = (p: Point): number | null => {
+    const c = lastCandidates?.find((c) => c.move.row === p.row && c.move.col === p.col);
+    return c && (c.visits ?? 0) >= 2 && typeof c.scoreLead === 'number' ? c.scoreLead : null;
   };
 
   // Opponent passed iff their last action left no stone (a pass carries no
@@ -411,6 +427,7 @@ async function getAIMoveViaBridge(
       point: { row: -1, col: -1 },
       captures: [],
       score_lead: cachedScoreLead ?? newState.score_lead,
+      score_lead_before: cachedScoreLead,
       final_state: newState.phase === 'finished' ? newState : null,
       board: newState.board,
     };
@@ -453,6 +470,7 @@ async function getAIMoveViaBridge(
           point: { row: -1, col: -1 },
           captures: [],
           score_lead: cachedScoreLead ?? passState.score_lead,
+          score_lead_before: cachedScoreLead,
           final_state: passState.phase === 'finished' ? passState : null,
           board: passState.board,
         };
@@ -470,7 +488,8 @@ async function getAIMoveViaBridge(
   return {
     point: played,
     captures: [],
-    score_lead: cachedScoreLead ?? newState.score_lead,
+    score_lead: chosenMoveLead(played) ?? cachedScoreLead ?? newState.score_lead,
+    score_lead_before: cachedScoreLead,
     board: newState.board,
   };
 }
@@ -588,6 +607,7 @@ async function finishMoveViaBridge(
         point: { row: -1, col: -1 },
         captures: [],
         score_lead: passCand.scoreLead ?? passState.score_lead,
+        score_lead_before: topScoreLead,
         final_state: passState.phase === 'finished' ? passState : null,
       };
     }
@@ -609,6 +629,7 @@ async function finishMoveViaBridge(
       point: { row: -1, col: -1 },
       captures: [],
       score_lead: topScoreLead ?? passState.score_lead,
+      score_lead_before: topScoreLead,
       final_state: passState.phase === 'finished' ? passState : null,
     };
   }
@@ -618,21 +639,27 @@ async function finishMoveViaBridge(
   // fall to KataGo's NEXT real candidate instead of passing — in a live ko
   // fight a wrong pass hands the game away (S27; 888P9NXK). Pass only when
   // every candidate is refused.
-  const realCandidates: Point[] = [];
+  const realCandidates: Array<{ point: Point; scoreLead: number | null; visits: number }> = [];
   for (const c of result.candidates) {
     const m = fromGtp(c.move, state.board_size);
-    if (m !== 'pass' && m !== 'resign') realCandidates.push(m);
+    if (m !== 'pass' && m !== 'resign') {
+      realCandidates.push({
+        point: m,
+        scoreLead: typeof c.scoreLead === 'number' ? c.scoreLead : null,
+        visits: c.visits ?? 0,
+      });
+    }
   }
   let newState: GameStateDTO | null = null;
-  let played: Point | null = null;
+  let played: (typeof realCandidates)[number] | null = null;
   for (const cand of realCandidates.slice(0, 4)) {
     try {
-      newState = await api.playMove(gameId, cand.row, cand.col);
+      newState = await api.playMove(gameId, cand.point.row, cand.point.col);
       played = cand;
       break;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      const line = `[finishMoveViaBridge] engine rejected candidate (${cand.row},${cand.col}): ${msg} — trying next`;
+      const line = `[finishMoveViaBridge] engine rejected candidate (${cand.point.row},${cand.point.col}): ${msg} — trying next`;
       console.warn(line);
       recordSelectorLog(line);
     }
@@ -644,6 +671,7 @@ async function finishMoveViaBridge(
       point: { row: -1, col: -1 },
       captures: [],
       score_lead: topScoreLead ?? passState.score_lead,
+      score_lead_before: topScoreLead,
       final_state: passState.phase === 'finished' ? passState : null,
       board: passState.board,
     };
@@ -654,10 +682,15 @@ async function finishMoveViaBridge(
     `[perf-js] finishMove get=${Math.round(tAfterGet - tOuterStart)}ms ` +
     `analyze=${analyzeMs}ms total=${Math.round(tEnd - tOuterStart)}ms`,
   );
+  // Same visits ≥ 2 guard as getAIMoveViaBridge's chosenMoveLead: only trust
+  // the played candidate's own eval when KataGo actually read it.
+  const playedLead =
+    played.visits >= 2 && typeof played.scoreLead === 'number' ? played.scoreLead : null;
   return {
-    point: played,
+    point: played.point,
     captures: [],
-    score_lead: topScoreLead ?? newState.score_lead,
+    score_lead: playedLead ?? topScoreLead ?? newState.score_lead,
+    score_lead_before: topScoreLead,
     board: newState.board,
   };
 }

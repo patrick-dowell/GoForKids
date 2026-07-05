@@ -40,6 +40,13 @@ interface ReplayState {
   autoPlaying: boolean;
   autoPlaySpeed: number;  // ms between moves
   _autoPlayTimer: number | null;
+  /** Autoplay stops (and clears itself) when the cursor reaches this move —
+   *  set by playSegment for the highlight quick-replay. Null = play to end. */
+  _autoPlayStopAt: number | null;
+  /** Where "back" leads when this replay was opened from the Play-of-the-Game
+   *  overlay (§4a quick replay): 'game' reopens the live review, 'demo' the
+   *  fixture review. Null = a normal replay, no back affordance. */
+  returnToReview: 'game' | 'demo' | null;
   /** Play-of-the-Game highlights for this game (empty if no score data). */
   highlights: ReviewHighlight[];
   /** Per-move score leads saved with the game — drives the replay score
@@ -66,8 +73,13 @@ interface ReplayState {
       /** Share code when the replay was opened FROM a share link — the
        *  button renders as the link straight away. */
       sharedId?: string;
+      /** See ReplayState.returnToReview. */
+      returnToReview?: 'game' | 'demo';
     },
   ) => void;
+  /** §4a quick replay: jump to `from`, autoplay into `to`, stop there (the
+   *  key-move note + graph dot are showing when the motion ends). */
+  playSegment: (from: number, to: number) => void;
   goToMove: (n: number) => void;
   nextMove: () => void;
   prevMove: () => void;
@@ -199,6 +211,8 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   autoPlaying: false,
   autoPlaySpeed: 600,
   _autoPlayTimer: null,
+  _autoPlayStopAt: null,
+  returnToReview: null,
   highlights: [],
   scoreHistory: [],
   libraryId: null,
@@ -247,11 +261,23 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
       opponentRank: meta?.opponentRank ?? '',
       autoPlaying: false,
       _autoPlayTimer: null,
+      _autoPlayStopAt: null,
+      returnToReview: meta?.returnToReview ?? null,
       highlights,
       scoreHistory: meta?.scoreHistory ?? [],
       libraryId: meta?.libraryId ?? null,
       sharedId: meta?.sharedId ?? null,
     });
+  },
+
+  playSegment: (from: number, to: number) => {
+    // Stop any running autoplay, seek to the segment start, then autoplay
+    // into the target move. toggleAutoPlay's start branch clears the stop
+    // target (a manual ▶ always plays to the end), so set it afterwards.
+    if (get().autoPlaying) get().toggleAutoPlay();
+    get().goToMove(Math.max(0, from));
+    get().toggleAutoPlay();
+    set({ _autoPlayStopAt: to });
   },
 
   nextHighlight: () => {
@@ -351,17 +377,19 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
 
     if (autoPlaying) {
       if (_autoPlayTimer) clearTimeout(_autoPlayTimer);
-      set({ autoPlaying: false, _autoPlayTimer: null });
+      set({ autoPlaying: false, _autoPlayTimer: null, _autoPlayStopAt: null });
     } else {
       if (currentMove >= totalMoves) {
         get().goToMove(0);
       }
-      set({ autoPlaying: true });
+      // Manual ▶ plays to the end — playSegment sets its stop target AFTER
+      // this call, so clearing here is what scopes the target to segments.
+      set({ autoPlaying: true, _autoPlayStopAt: null });
 
       const tick = () => {
         const { currentMove: cm, totalMoves: tm, autoPlaying: ap, grid: prevGrid } = get();
-        if (!ap || cm >= tm) {
-          set({ autoPlaying: false, _autoPlayTimer: null });
+        if (!ap || cm >= tm || cm >= (get()._autoPlayStopAt ?? Infinity)) {
+          set({ autoPlaying: false, _autoPlayTimer: null, _autoPlayStopAt: null });
           return;
         }
         get().goToMove(cm + 1);
@@ -418,9 +446,16 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   close: () => {
     const timer = get()._autoPlayTimer;
     if (timer) clearTimeout(timer);
-    set({ active: false, autoPlaying: false, _autoPlayTimer: null });
+    set({ active: false, autoPlaying: false, _autoPlayTimer: null, _autoPlayStopAt: null, returnToReview: null });
   },
 }));
 
 // Keep sizeFromSGF accessible if any downstream caller needs it without a full Game parse.
 export { sizeFromSGF };
+
+// Dev convenience: expose replayStore on `window.__replayStore` to mirror
+// the gameStore/autoPlayStore shims. The layout suite uses it to seek the
+// replay onto a key move (mounting the highlight note) before sweeping.
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  (window as unknown as { __replayStore: typeof useReplayStore }).__replayStore = useReplayStore;
+}

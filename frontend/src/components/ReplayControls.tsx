@@ -4,6 +4,7 @@ import { getKataGoBridge } from '../api/nativeKataGo';
 import { api } from '../api/client';
 import { useLibraryStore } from '../store/libraryStore';
 import { useProfileStore } from '../store/profileStore';
+import { useGameReviewStore } from '../store/gameReviewStore';
 import { ConceptLink } from './ConceptLink';
 import { getConcept } from '../learn/concepts';
 import { ReplayScoreGraph } from './ScoreGraph';
@@ -133,6 +134,18 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
   const highlights = useReplayStore((s) => s.highlights);
   const nextHighlight = useReplayStore((s) => s.nextHighlight);
   const prevHighlight = useReplayStore((s) => s.prevHighlight);
+  const returnToReview = useReplayStore((s) => s.returnToReview);
+
+  // §4a quick replay: this replay was opened from a tapped highlight card —
+  // "back" reopens the Play-of-the-Game overlay instead of tearing down to
+  // home. The finished game is still in gameStore (dismissGameEnd doesn't
+  // clear it), so the review rebuilds from the same data.
+  const backToHighlights = () => {
+    const target = returnToReview;
+    useReplayStore.getState().close();
+    if (target === 'demo') useGameReviewStore.getState().openDemo();
+    else useGameReviewStore.getState().open();
+  };
 
   const hasHighlights = highlights.length > 0;
   const currentHighlight = highlights.find((h) => h.moveNumber === currentMove);
@@ -151,9 +164,16 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
     <div className="replay-controls">
       <div className="replay-header">
         <h3>Game Replay</h3>
-        <button onClick={onClose} className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }}>
-          Close
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {returnToReview && (
+            <button onClick={backToHighlights} className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }}>
+              ★ Highlights
+            </button>
+          )}
+          <button onClick={onClose} className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }}>
+            Close
+          </button>
+        </div>
       </div>
 
       {/* One line, not two — the replay panel fits the viewport with zero

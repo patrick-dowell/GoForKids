@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { useGameReviewStore } from '../store/gameReviewStore';
-import { buildReview, DEMO_REVIEW_GAME, type ReviewHighlight } from '../learn/gameReview';
+import { buildReview, demoReplay, DEMO_REVIEW_GAME, type ReviewHighlight } from '../learn/gameReview';
 import { DiagramBoard } from './DiagramBoard';
 import { ConceptLink } from './ConceptLink';
 import { getConcept } from '../learn/concepts';
@@ -46,16 +46,37 @@ export function GameReview() {
 
   // "Step through the game" → close the review and open this game in the
   // replay, where the same highlights appear as markers on the timeline.
-  const openReplay = () => {
-    const gs = useGameStore.getState();
-    const sgf = gs._game.toSGF();
-    close();
-    gs.dismissGameEnd();
-    useReplayStore.getState().loadGame(sgf, {
-      playerColor: gs.playerColor === Color.Black ? 'black' : 'white',
-      scoreHistory: gs.scoreHistory,
-      opponentRank: gs.targetRank,
-    });
+  // With a target move (§4a: a tapped highlight card), the replay instead
+  // opens a few moves BEFORE the moment and autoplays into it — the motion
+  // is what makes "what happened here" readable (a static post-move snapshot
+  // shows nothing for most swings) — and gets a "★ Highlights" back button.
+  const QUICK_REPLAY_CONTEXT = 4;
+  const openReplay = (atMove?: number) => {
+    const rs = useReplayStore.getState();
+    if (demo) {
+      // QA fixture (?review=demo): same game the ?replay=demo hook uses.
+      const d = demoReplay();
+      close();
+      rs.loadGame(d.sgf, {
+        playerColor: d.playerColor,
+        scoreHistory: d.scoreHistory,
+        returnToReview: atMove !== undefined ? 'demo' : undefined,
+      });
+    } else {
+      const gs = useGameStore.getState();
+      const sgf = gs._game.toSGF();
+      close();
+      gs.dismissGameEnd();
+      rs.loadGame(sgf, {
+        playerColor: gs.playerColor === Color.Black ? 'black' : 'white',
+        scoreHistory: gs.scoreHistory,
+        opponentRank: gs.targetRank,
+        returnToReview: atMove !== undefined ? 'game' : undefined,
+      });
+    }
+    if (atMove !== undefined) {
+      rs.playSegment(atMove - QUICK_REPLAY_CONTEXT, atMove);
+    }
   };
 
   if (!isOpen) return null;
@@ -75,13 +96,13 @@ export function GameReview() {
         ) : (
           <div className="review-list">
             {highlights.map((h, i) => (
-              <HighlightCard key={`${h.moveNumber}-${i}`} h={h} />
+              <HighlightCard key={`${h.moveNumber}-${i}`} h={h} onWatch={() => openReplay(h.moveNumber)} />
             ))}
           </div>
         )}
 
         {!demo && (
-          <button className="review-replay-btn" onClick={openReplay}>
+          <button className="review-replay-btn" onClick={() => openReplay()}>
             Step through the game →
           </button>
         )}
@@ -93,10 +114,19 @@ export function GameReview() {
   );
 }
 
-function HighlightCard({ h }: { h: ReviewHighlight }) {
+function HighlightCard({ h, onWatch }: { h: ReviewHighlight; onWatch: () => void }) {
   const concept = h.conceptId ? getConcept(h.conceptId) : undefined;
   return (
-    <div className={'review-card review-card-' + h.kind}>
+    // The whole card is the tap target (§4a) — kids won't hunt for a small
+    // button. The concept link inside stops propagation via its own handler.
+    <div
+      className={'review-card review-card-' + h.kind}
+      role="button"
+      tabIndex={0}
+      aria-label={`Watch move ${h.moveNumber}`}
+      onClick={onWatch}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onWatch(); } }}
+    >
       <div className="review-card-board">
         <DiagramBoard size={h.position.size} stones={h.position.stones} highlight={h.position.highlight} px={150} />
       </div>
@@ -104,10 +134,11 @@ function HighlightCard({ h }: { h: ReviewHighlight }) {
         <div className="review-card-move">Move {h.moveNumber}</div>
         <div className="review-card-headline">{h.headline}</div>
         {concept && (
-          <div className="review-card-concept">
+          <div className="review-card-concept" onClick={(e) => e.stopPropagation()}>
             Learn: <ConceptLink id={concept.id} />
           </div>
         )}
+        <div className="review-card-watch">Watch it happen ▶</div>
       </div>
     </div>
   );
