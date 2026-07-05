@@ -66,8 +66,13 @@ export function isEyeFill(board: Board, color: Stone, point: Point): boolean {
     if (board.get(nb) !== color) return false;
   }
 
-  // Diagonals: at least 3 of 4 (or all on-board diagonals) must be friendly.
-  // Edge counts as friendly.
+  // Diagonals decide real vs false eye. Standard doctrine: a center point
+  // (4 on-board diagonals) is a real eye with >= 3 friendly; an EDGE or
+  // CORNER point needs ALL of its on-board diagonals friendly — one enemy
+  // diagonal there makes it a false eye (= a connection point, playable).
+  // The old rule counted off-board diagonals as friendly AND allowed one
+  // miss, so an edge connection out of atari got flagged as an eye-fill and
+  // the bot passed a live game away (JEA338QQ move 36, 2026-07-04).
   const diagonals = [
     { row: point.row - 1, col: point.col - 1 },
     { row: point.row - 1, col: point.col + 1 },
@@ -80,12 +85,44 @@ export function isEyeFill(board: Board, color: Stone, point: Point): boolean {
     if (isValidPoint(d, size)) {
       total += 1;
       if (board.get(d) === color) friendly += 1;
-    } else {
-      friendly += 1;
     }
   }
   if (total === 0) return true;
-  return friendly >= Math.max(total - 1, 1);
+  const required = total === 4 ? 3 : total;
+  return friendly >= required;
+}
+
+/** True if `point` sits in an empty region whose stone borders are ALL
+ *  friendly — playing there fills our own settled territory. Region-based,
+ *  so it is ko-safe by construction: a ko recapture point's region always
+ *  borders the opponent's ko stone and can never be flagged. Empty regions
+ *  touching no stones at all (early board) are not territory. Added as the
+ *  endgame safety net after the S39-S41 "never pass" changes let the
+ *  sampler fill its own territory instead of passing (Patrick, 2026-07-05).
+ */
+export function isOwnTerritoryFill(board: Board, color: Stone, point: Point): boolean {
+  if (board.get(point) !== Color.Empty) return false;
+  const size = board.size;
+  const seen = new Set<number>();
+  const stack: Point[] = [point];
+  let sawOwn = false;
+  while (stack.length > 0) {
+    const p = stack.pop()!;
+    const idx = p.row * size + p.col;
+    if (seen.has(idx)) continue;
+    seen.add(idx);
+    for (const nb of neighbors(p, size)) {
+      const c = board.get(nb);
+      if (c === Color.Empty) {
+        stack.push(nb);
+      } else if (c === color) {
+        sawOwn = true;
+      } else {
+        return false; // region borders the opponent — not our territory
+      }
+    }
+  }
+  return sawOwn;
 }
 
 /** Find legal moves within `radius` of `center`. */
@@ -141,6 +178,44 @@ function weightedChoice<T>(items: T[], weights: number[]): T {
     if (r <= 0) return items[i];
   }
   return items[items.length - 1];
+}
+
+/** Standard-normal sample (Box-Muller). */
+function gaussian(): number {
+  let u = 0;
+  while (u === 0) u = Math.random();
+  const v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+/** Sample a candidate by prior^(1/temp) — the no-reading human model
+ *  (§3 out-of-pool mechanism, 2026-07-05). With wideRootNoise widening the
+ *  candidate list to most plausible root moves, the priors ARE the policy:
+ *  sampling them with temperature plays shape-plausible moves that genuinely
+ *  misread fights, and the prior tail supplies occasional big mistakes
+ *  organically. Mirrors the Python _sample_by_prior. */
+function sampleByPrior(pool: MoveCandidate[], temp: number): MoveCandidate {
+  const t = Math.max(temp, 0.05);
+  const weights = pool.map((c) => Math.max(c.prior, 1e-4) ** (1 / t));
+  return weightedChoice(pool, weights);
+}
+
+/** Noisy-argmax over candidates: each scoreLead gets N(0, sigma) noise and
+ *  the noisy best wins. The human model behind `score_noise` (§3 iter 2,
+ *  2026-07-04): close calls flip constantly (small mistakes all the time),
+ *  big gaps survive the noise (obvious moves still get played), and one
+ *  sigma knob scales strength smoothly. */
+function pickNoisyBest(pool: MoveCandidate[], sigma: number): MoveCandidate {
+  let best = pool[0];
+  let bestScore = -Infinity;
+  for (const c of pool) {
+    const noisy = c.scoreLead + gaussian() * sigma;
+    if (noisy > bestScore) {
+      bestScore = noisy;
+      best = c;
+    }
+  }
+  return best;
 }
 
 /** Total stones on the board — proxy for move number. */
@@ -202,12 +277,21 @@ export interface SelectAiMoveOptions {
  *  Python `SETTLE_VISITS`. */
 const SETTLE_VISITS = 100;
 
+/** Extra analysis knobs the selector can request per call. */
+export interface AnalyzeOpts {
+  /** KataGo search override: spread root visits across most plausible moves
+   *  so the candidate list becomes a wide policy sample (§3 out-of-pool
+   *  mechanism). Bridge: `kata-set-param wideRootNoise`; JSON path:
+   *  `overrideSettings`. Never set on settle/honest analyses. */
+  wideRootNoise?: number;
+}
+
 export async function selectAiMove(
   board: Board,
   color: Stone,
   targetRank: string,
   lastOpponentMove: Point | null,
-  analyze: (visits: number) => Promise<PositionAnalysis>,
+  analyze: (visits: number, opts?: AnalyzeOpts) => Promise<PositionAnalysis>,
   options: SelectAiMoveOptions = {},
 ): Promise<SelectionResult> {
   const move = await selectAiMoveInner(board, color, targetRank, lastOpponentMove, analyze, options);
@@ -220,11 +304,17 @@ export async function selectAiMove(
     }
     // 5 attempts all filled eyes. In neverPass mode the user explicitly
     // prefers a bad move (eye-fill) over the bot quitting, so return the
-    // last attempted move instead of passing. Outside neverPass, passing
-    // is the right call — filling your own eye kills the group.
+    // last attempted move instead of passing.
     if (options.neverPass) return move;
-    // This return used to be the one pass path with no log line — a field
-    // repro couldn't distinguish it from the commit-rejection passes.
+    // Selection can be near-deterministic (clarity gates, forced positions),
+    // so 5 identical eye-flagged picks happen in live games — passing here
+    // threw a won game away (JEA338QQ). Play any legal non-eye move instead;
+    // pass only when nothing legal remains (then it's genuinely correct).
+    const line = `[selector] eye-fill rejected 5x at (${move.row},${move.col}) — playing legal fallback`;
+    console.log(line);
+    recordSelectorLog(line);
+    const fallback = pickLegalNonEyeMove(board, color);
+    if (fallback) return fallback;
     logPass('eye-fill-retries-exhausted');
     return null;
   }
@@ -237,7 +327,7 @@ async function selectAiMoveInner(
   color: Stone,
   targetRank: string,
   lastOpponentMove: Point | null,
-  analyze: (visits: number) => Promise<PositionAnalysis>,
+  analyze: (visits: number, opts?: AnalyzeOpts) => Promise<PositionAnalysis>,
   options: SelectAiMoveOptions = {},
 ): Promise<SelectionResult> {
   const profile = getProfile(targetRank, board.size);
@@ -251,7 +341,12 @@ async function selectAiMoveInner(
     // Opponent passed → settle cleanly: deeper search so pass surfaces, and
     // selectWithKataGo skips mistake injection (see options.opponentPassed there).
     const visits = options.opponentPassed ? Math.max(profile.visits, SETTLE_VISITS) : profile.visits;
-    const analysis = await analyze(visits);
+    // wideRootNoise widens the pool for move selection only — never for the
+    // honest settle analysis.
+    const wrn = profile.wide_root_noise ?? 0;
+    const analysisOpts: AnalyzeOpts | undefined =
+      wrn > 0 && !options.opponentPassed ? { wideRootNoise: wrn } : undefined;
+    const analysis = await analyze(visits, analysisOpts);
     return selectWithKataGo(board, color, profile, analysis, lastOpponentMove, options);
   } catch {
     // KataGo unreachable — fall back to a random legal move so the game
@@ -350,7 +445,12 @@ export function pickLegalNonEyeMove(
     exclude.some((p) => p.row === m.row && p.col === m.col);
   for (let i = 0; i < 16; i++) {
     const m = pickRandomLegal(board, color);
-    if (m && !excluded(m) && !isEyeFill(board, color, m)) return m;
+    // Also refuse own-territory fills: this picker is the "instead of
+    // passing" fallback on every rescue path, and a fallback that fills
+    // our own points just converts one bug into another. Returning null
+    // (→ pass) when only self-fills remain is correct — that position is
+    // settled.
+    if (m && !excluded(m) && !isEyeFill(board, color, m) && !isOwnTerritoryFill(board, color, m)) return m;
   }
   return null;
 }
@@ -448,6 +548,34 @@ function selectWithKataGo(
     return best.move;
   }
 
+  // --- Reading-rate roll (§3 out-of-pool mechanism, 2026-07-05) ---
+  // Human model: a weak player READS only some of their moves. With
+  // probability (1 - reading_rate) this move is played on shape intuition
+  // alone — sampled by prior with temperature over the (wideRootNoise-
+  // widened) candidate list, scores ignored. Everything below (clarity
+  // gates, opening top-3, machinery) is the READING path and only runs for
+  // read moves — which is what lets a 15k occasionally blunder a fight it
+  // never read. Small-mistake frequency = 1 - reading_rate; small-mistake
+  // size = policy_temp; big mistakes = the prior tail + random_move_chance.
+  // A candidate the bot may actually play: on the board, not an own-eye
+  // fill, not an own-territory fill. The territory exclusion is the endgame
+  // safety net — the policy prior (area-scoring net) thinks self-fills are
+  // free, so a prior-sampler without it fills its own points instead of
+  // letting the game end (Patrick's device pass, 2026-07-05).
+  const playable = (c: MoveCandidate): boolean =>
+    c.move.row >= 0 &&
+    !isEyeFill(board, color, { row: c.move.row, col: c.move.col }) &&
+    !isOwnTerritoryFill(board, color, { row: c.move.row, col: c.move.col });
+
+  if (profile.reading_rate !== undefined && Math.random() >= profile.reading_rate) {
+    const pool = candidates.filter(playable);
+    if (pool.length > 0) {
+      const sel = sampleByPrior(pool, profile.policy_temp ?? 1.0);
+      return { row: sel.move.row, col: sel.move.col };
+    }
+    // Nothing samplable — fall through to the reading path.
+  }
+
   // --- Tactical clarity gate ---
   // If KataGo is overwhelmingly confident, skip mistake injection.
   const clarityPrior = profile.clarity_prior ?? 0.5;
@@ -502,8 +630,33 @@ function selectWithKataGo(
       }
     }
     if (anchor) {
-      const nearby = getNearbyMoves(board, color, anchor, 2);
-      if (nearby.length > 0) return nearby[Math.floor(Math.random() * nearby.length)];
+      if (profile.local_bias_from_candidates === true) {
+        // Myopic mode (§3, 2026-07-04): play a KataGo candidate near the
+        // anchor — locally plausible, globally maybe wrong. This is how weak
+        // humans actually play: a real move, not board noise. Candidates are
+        // already legality-filtered and ordered by KataGo preference. If
+        // KataGo surfaced nothing local, fall through to normal selection
+        // instead of inventing a move.
+        //
+        // §3 iter 2: on 9×9, "near the last move" barely constrains — the
+        // strongest local candidate usually IS the global best, which made
+        // this branch near-perfect play (Patrick's 2nd device round). With
+        // `score_noise` set, pick the noisy best among locals instead.
+        const a = anchor;
+        const locals = candidates.filter(
+          (c) =>
+            c.move.row >= 0 &&
+            Math.max(Math.abs(c.move.row - a.row), Math.abs(c.move.col - a.col)) <= 2,
+        );
+        if (locals.length > 0) {
+          const noise = profile.score_noise ?? 0;
+          const local = noise > 0 ? pickNoisyBest(locals, noise) : locals[0];
+          return { row: local.move.row, col: local.move.col };
+        }
+      } else {
+        const nearby = getNearbyMoves(board, color, anchor, 2);
+        if (nearby.length > 0) return nearby[Math.floor(Math.random() * nearby.length)];
+      }
     }
   }
 
@@ -514,7 +667,7 @@ function selectWithKataGo(
   type Filtered = { c: MoveCandidate; pointLoss: number };
   let filtered: Filtered[] = [];
   for (const c of candidates.slice(0, profile.min_candidates + 5)) {
-    if (c.move.row < 0) continue;
+    if (!playable(c)) continue;
     const pointLoss = Math.abs(bestScore - c.scoreLead);
     if (pointLoss <= profile.max_point_loss) filtered.push({ c, pointLoss });
   }
@@ -536,10 +689,27 @@ function selectWithKataGo(
   }
 
   if (filtered.length === 0) {
-    // No non-pass candidate survived the max-point-loss filter, or KataGo
-    // only returned pass.
-    const c = candidates[0];
-    if (c.move.row >= 0) return { row: c.move.row, col: c.move.col };
+    // No PLAYABLE candidate survived the max-point-loss filter. Prefer the
+    // best playable candidate over the raw top — the raw top can be an
+    // own-territory fill in the endgame, which is exactly the move class
+    // this net exists to refuse.
+    const c = candidates.find(playable) ?? candidates[0];
+    if (c.move.row >= 0) {
+      if (playable(c)) return { row: c.move.row, col: c.move.col };
+      // Every CANDIDATE is a self-fill/eye-fill — but the position may
+      // still be live (degenerate candidate list). Play any legal non-fill
+      // move if one exists anywhere; pass only when the whole BOARD offers
+      // nothing but our own fills — that position really is settled.
+      // Ko-safe: a ko recapture's region borders the opponent's stone and
+      // is never classified as a fill.
+      const rescue = pickLegalNonEyeMove(board, color);
+      if (rescue) return rescue;
+      if (!options.neverPass) {
+        logPass('only-self-fill-moves-left');
+        return null;
+      }
+      return { row: c.move.row, col: c.move.col };
+    }
     // Top is pass. In neverPass mode try harder before giving up:
     // search the WHOLE candidate list for any non-pass, then fall back
     // to a random legal move on the board. Only return null (pass) if
@@ -552,6 +722,15 @@ function selectWithKataGo(
     }
     logPass('katago-top-pass');
     return null;
+  }
+
+  // --- score_noise path (§3 iter 2): noisy-argmax replaces the mistake-
+  // weighting machinery entirely when set. One knob, smooth strength curve;
+  // the clarity gates above still short-circuit genuinely forced moves.
+  const scoreNoise = profile.score_noise ?? 0;
+  if (scoreNoise > 0) {
+    const sel = pickNoisyBest(filtered.map((f) => f.c), scoreNoise);
+    return { row: sel.move.row, col: sel.move.col };
   }
 
   // Build selection weights.

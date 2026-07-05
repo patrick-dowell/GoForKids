@@ -15,6 +15,7 @@ import {
   selectAiMove,
   boardFromGrid,
   pickLegalNonEyeMove,
+  type AnalyzeOpts,
   type PositionAnalysis,
   type MoveCandidate,
 } from '../ai/moveSelector';
@@ -319,7 +320,7 @@ async function getAIMoveViaBridge(
   const moves = options?.movesForBridge ?? boardToMoves(state.board, state.board_size);
   let cachedScoreLead: number | null = null;
 
-  const analyze = async (visits: number): Promise<PositionAnalysis> => {
+  const analyze = async (visits: number, opts?: AnalyzeOpts): Promise<PositionAnalysis> => {
     // [perf-js] Measure JS-perceived bridge round-trip. Difference vs the
     // Swift-side [perf] total = pure bridge marshaling cost. Should be <20ms.
     const tAnalyzeStart = performance.now();
@@ -336,9 +337,22 @@ async function getAIMoveViaBridge(
       moves,
       color: colorChar,
       maxVisits: visits,
+      // §3 out-of-pool: widens the root search for weak-rung profiles. The
+      // bridge ALWAYS applies this via kata-set-param (0 when absent) so the
+      // long-lived GTP engine never carries a stale value between calls.
+      wideRootNoise: opts?.wideRootNoise ?? 0,
     });
     const analyzeMs = Math.round(performance.now() - tAnalyzeStart);
     console.log(`[perf-js] bridge.analyze visits=${visits} jsRT=${analyzeMs}ms`);
+
+    // Diagnostic for the §3 wide-pool mechanism: pool width proves whether
+    // kata-set-param wideRootNoise took effect on this device build. Rides
+    // the upload payload, so a shared game self-diagnoses (JEA338QQ lesson).
+    if (opts?.wideRootNoise) {
+      recordSelectorLog(
+        `[analyze] wrn=${opts.wideRootNoise} candidates=${result.candidates.length}`,
+      );
+    }
 
     const candidates: MoveCandidate[] = result.candidates.map((c, idx) => {
       const decoded = fromGtp(c.move, state.board_size);

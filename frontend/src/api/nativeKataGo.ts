@@ -49,6 +49,13 @@ export interface KataGoBridge {
     /** When true, KataGo emits per-intersection ownership values; bridge
      *  parses them and returns them on `BridgeAnalysis.ownership`. */
     ownership?: boolean;
+    /** KataGo search override for weak-rung move selection: spreads root
+     *  visits across most plausible moves so the candidate list becomes a
+     *  wide policy sample (§3 out-of-pool mechanism). The bridge applies it
+     *  via `kata-set-param wideRootNoise` on EVERY call (0 when omitted) so
+     *  the long-lived GTP engine never carries a stale value. Older native
+     *  builds ignore the field (param simply not sent). */
+    wideRootNoise?: number;
   }): Promise<BridgeAnalysis>;
   /** Present the iOS share sheet for an SGF (AirDrop / Files / other Go
    *  apps). Absent on older native builds — callers must catch and fall

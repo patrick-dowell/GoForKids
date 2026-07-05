@@ -9,6 +9,14 @@ export default defineConfig({
   // file:// (iPad app, Phase 3 bundled-frontend). Hash routing means the
   // URL path stays at "/" for SPA routes, so this is safe for web too.
   base: './',
+  // Build stamp, logged in every game's selector-log start header. Exists
+  // because the Xcode "Bundle React frontend" phase can be silently skipped
+  // (dependency-analysis checkbox), shipping a STALE web bundle while Swift
+  // recompiles — which burned a whole §3 calibration round (S40). A game
+  // upload now proves exactly which bundle produced it.
+  define: {
+    __BUILD_TS__: JSON.stringify(new Date().toISOString().slice(0, 16) + 'Z'),
+  },
   // YAML plugin compiles `import x from './foo.yaml'` into a module that
   // exports the parsed object — used by frontend/src/ai/profileLoader.ts
   // to load data/profiles/*.yaml at build time. Listed first so .yaml

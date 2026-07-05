@@ -140,6 +140,7 @@ class KataGoEngine:
         size: int = BOARD_SIZE,
         moves: Optional[list[list[str]]] = None,
         initial_stones: Optional[list[list[str]]] = None,
+        override_settings: Optional[dict] = None,
     ) -> PositionAnalysis:
         """Analyze a board position. Returns candidate moves with evaluations.
 
@@ -190,6 +191,13 @@ class KataGoEngine:
             "analyzeTurns": [len(move_list)],
             "includeOwnership": include_ownership,
         }
+        if override_settings:
+            # Per-query search overrides, e.g. {"wideRootNoise": 0.6} — spreads
+            # root visits across many more moves so the candidate list becomes
+            # a wide policy sample (§3 out-of-pool mechanism, 2026-07-05).
+            # Only move-selection callers set this; settle/score analyses stay
+            # honest.
+            query["overrideSettings"] = override_settings
 
         async with self._lock:
             future = asyncio.get_event_loop().create_future()

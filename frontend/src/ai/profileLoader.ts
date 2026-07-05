@@ -37,6 +37,23 @@ export interface RankProfile {
   clarity_prior?: number;
   clarity_score_gap?: number;
   local_bias_in_opening?: boolean;
+  /** When true, the local-bias branch plays a KataGo candidate near the
+   *  anchor (myopic-but-real move) instead of a random legal point nearby.
+   *  §3 9×9 retune, 2026-07-04. */
+  local_bias_from_candidates?: boolean;
+  /** Sigma (in points) of gaussian noise added to each candidate's scoreLead
+   *  before an argmax pick. When > 0 this REPLACES the mistake_freq weighting
+   *  and also noises the myopic local pick. §3 iter 2, 2026-07-04. */
+  score_noise?: number;
+  /** Fraction of moves the bot actually READS (full machinery). The rest are
+   *  played on shape intuition: prior-sampled with `policy_temp` over the
+   *  wideRootNoise-widened pool. §3 out-of-pool mechanism, 2026-07-05. */
+  reading_rate?: number;
+  /** Sampling temperature for no-reading moves (default 1.0). */
+  policy_temp?: number;
+  /** KataGo wideRootNoise override for move-selection analyses — widens the
+   *  candidate pool with real (scored) weaker moves. */
+  wide_root_noise?: number;
   save_atari_chance?: number;
   capture_chance?: number;
   use_katago?: boolean;

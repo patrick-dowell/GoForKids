@@ -566,7 +566,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     // bot ran server-side; its selector diagnostics are in Render logs).
     clearSelectorLog();
     recordSelectorLog(
-      `[game] start capture=v2 size=${options?.boardSize ?? BOARD_SIZE} ` +
+      `[game] start capture=v2 build=${__BUILD_TS__} size=${options?.boardSize ?? BOARD_SIZE} ` +
         `rank=${options?.targetRank ?? '15k'} mode=${options?.gameMode ?? 'ai'} ` +
         `bridge=${getKataGoBridge() ? 'yes' : 'no'}`,
     );

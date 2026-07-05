@@ -53,7 +53,13 @@ def _is_eye_fill(board: Board, color: Color, point: Point) -> bool:
         if c != color:
             return False
 
-    # Check diagonals — at least 3 of 4 must be our color (or off-board)
+    # Diagonals decide real vs false eye. Standard doctrine: a center point
+    # (4 on-board diagonals) is a real eye with >= 3 friendly; an EDGE or
+    # CORNER point needs ALL of its on-board diagonals friendly — one enemy
+    # diagonal there makes it a false eye (= a connection point, playable).
+    # The old rule counted off-board diagonals as friendly AND allowed one
+    # miss, so an edge connection out of atari got flagged as an eye-fill
+    # (JEA338QQ move 36, 2026-07-04 — bot passed a live game away).
     diagonals = [
         Point(point.row - 1, point.col - 1),
         Point(point.row - 1, point.col + 1),
@@ -67,11 +73,11 @@ def _is_eye_fill(board: Board, color: Color, point: Point) -> bool:
             total_diags += 1
             if board.get(d) == color:
                 friendly_diags += 1
-        else:
-            friendly_diags += 1  # Board edge counts as friendly
 
-    # For corner eyes (2 diags), need both. For edge (3), need 2+. For center (4), need 3+.
-    return friendly_diags >= max(total_diags - 1, 1) if total_diags > 0 else True
+    if total_diags == 0:
+        return True
+    required = 3 if total_diags == 4 else total_diags
+    return friendly_diags >= required
 
 
 from app.katago.engine import get_engine, PositionAnalysis
@@ -82,6 +88,38 @@ logger = logging.getLogger(__name__)
 # Bot tuning parameters used to live as RANK_PROFILES_* dicts here. They now
 # live in data/profiles/*.yaml and are loaded via profile_loader.get_profile().
 # Tuning rationale per profile lives in AI_CALIBRATION.md.
+
+
+def _is_own_territory_fill(board: Board, color: Color, point: Point) -> bool:
+    """True if `point` sits in an empty region whose stone borders are ALL
+    friendly — playing there fills our own settled territory. Region-based,
+    so it is ko-safe by construction: a ko recapture point's region always
+    borders the opponent's ko stone and can never be flagged. Empty regions
+    touching no stones at all (early board) are not territory. Endgame
+    safety net after the "never pass" changes let the sampler fill its own
+    territory instead of letting the game end (2026-07-05). Mirrors the TS
+    isOwnTerritoryFill."""
+    if board.get(point) != Color.EMPTY:
+        return False
+    size = board.size
+    seen: set[int] = set()
+    stack = [point]
+    saw_own = False
+    while stack:
+        p = stack.pop()
+        idx = p.index(size)
+        if idx in seen:
+            continue
+        seen.add(idx)
+        for nb in p.neighbors(size):
+            c = board.get(nb)
+            if c == Color.EMPTY:
+                stack.append(nb)
+            elif c == color:
+                saw_own = True
+            else:
+                return False  # region borders the opponent — not our territory
+    return saw_own
 
 
 def _get_nearby_moves(board: Board, color: Color, center: Point, radius: int = 3) -> list[Point]:
@@ -139,7 +177,14 @@ def _pick_legal_non_eye_move(board: Board, color: Color) -> Optional[Point]:
     passing is genuinely correct."""
     for _ in range(16):
         m = _pick_random_legal(board, color)
-        if m is not None and not _is_eye_fill(board, color, m):
+        # Also refuse own-territory fills: this picker is the "instead of
+        # passing" fallback on every rescue path; returning None (→ pass)
+        # when only self-fills remain is correct — that position is settled.
+        if (
+            m is not None
+            and not _is_eye_fill(board, color, m)
+            and not _is_own_territory_fill(board, color, m)
+        ):
             return m
     return None
 
@@ -147,6 +192,37 @@ def _pick_legal_non_eye_move(board: Board, color: Color) -> Optional[Point]:
 def _count_stones(board: Board) -> int:
     """Count total stones on the board (proxy for move number)."""
     return sum(1 for c in board.grid if c != Color.EMPTY)
+
+
+def _sample_by_prior(pool: list, temp: float):
+    """Sample a candidate by prior^(1/temp) — the no-reading human model
+    (§3 out-of-pool mechanism, 2026-07-05). With wideRootNoise widening the
+    candidate list to most plausible root moves, the priors ARE the policy:
+    sampling them with temperature plays shape-plausible moves that genuinely
+    misread fights, and the prior tail supplies occasional big mistakes
+    organically. Mirrors the TS sampleByPrior."""
+    t = max(temp, 0.05)
+    weights = [max(c.prior, 1e-4) ** (1.0 / t) for c in pool]
+    total = sum(weights)
+    if total <= 0:
+        return random.choice(pool)
+    return random.choices(pool, weights=[w / total for w in weights], k=1)[0]
+
+
+def _pick_noisy_best(pool: list, sigma: float):
+    """Noisy-argmax: each candidate's score_lead gets N(0, sigma) noise and
+    the noisy best wins. The human model behind `score_noise` (§3 iter 2,
+    2026-07-04): close calls flip constantly (small mistakes all the time),
+    big gaps survive the noise (obvious moves still get played), one sigma
+    knob scales strength smoothly. Mirrors the TS pickNoisyBest."""
+    best = pool[0]
+    best_score = float("-inf")
+    for c in pool:
+        noisy = c.score_lead + random.gauss(0.0, sigma)
+        if noisy > best_score:
+            best_score = noisy
+            best = c
+    return best
 
 
 # Visit count for "settle the game cleanly" moves (after the opponent passes).
@@ -191,7 +267,17 @@ async def select_ai_move(
             )
             if alt and not _is_eye_fill(board, color, alt):
                 return alt
-        # All attempts fill eyes — just pass
+        # Selection can be near-deterministic (clarity gates, forced
+        # positions), so 5 identical eye-flagged picks happen in live games —
+        # passing here threw a won game away (JEA338QQ). Play any legal
+        # non-eye move instead; pass only when nothing legal remains.
+        fallback = _pick_legal_non_eye_move(board, color)
+        if fallback is not None:
+            logger.warning(
+                f"[{target_rank} {board.size}x{board.size}] eye-fill rejected 5x at "
+                f"({move.row},{move.col}) — playing legal fallback"
+            )
+            return fallback
         logger.warning(f"[{target_rank} {board.size}x{board.size}] PASS: 5 alternatives all filled eyes")
         return None
 
@@ -345,9 +431,19 @@ async def _select_with_katago(
         analysis_visits = (
             max(profile["visits"], SETTLE_VISITS) if opponent_passed else profile["visits"]
         )
+        # wideRootNoise (§3 out-of-pool, 2026-07-05): spread root visits across
+        # most plausible moves so the pool contains real mistakes. Never on the
+        # settle path — that analysis must stay honest.
+        wide_root_noise = profile.get("wide_root_noise", 0.0)
+        overrides = (
+            {"wideRootNoise": wide_root_noise}
+            if wide_root_noise > 0 and not opponent_passed
+            else None
+        )
         analysis = await engine.analyze(
             board_2d, player, max_visits=analysis_visits, size=board.size,
             moves=engine_moves, initial_stones=engine_setup,
+            override_settings=overrides,
         )
 
         # Diagnostic logging: dump KataGo's full candidate list during the
@@ -476,6 +572,33 @@ async def _select_with_katago(
         if opponent_passed:
             return Point(best.move[0], best.move[1])
 
+        # --- Reading-rate roll (§3 out-of-pool mechanism, 2026-07-05) ---
+        # Human model: a weak player READS only some of their moves. With
+        # probability (1 - reading_rate) this move is played on shape
+        # intuition alone — sampled by prior with temperature over the
+        # (wideRootNoise-widened) candidate list, scores ignored. Everything
+        # below (clarity gates, opening top-3, machinery) is the READING
+        # path and only runs for read moves — which is what lets a 15k
+        # occasionally blunder a fight it never read. Small-mistake
+        # frequency = 1 - reading_rate; small-mistake size = policy_temp;
+        # big mistakes = the prior tail + random_move_chance.
+        # A candidate the bot may actually play: on the board, not an
+        # own-eye fill, not an own-territory fill (the endgame safety net —
+        # the area-scoring policy prior thinks self-fills are free).
+        def _playable(c) -> bool:
+            if c.move[0] < 0:
+                return False
+            pt = Point(c.move[0], c.move[1])
+            return not _is_eye_fill(board, color, pt) and not _is_own_territory_fill(board, color, pt)
+
+        reading_rate = profile.get("reading_rate")
+        if reading_rate is not None and random.random() >= reading_rate:
+            pool = [c for c in analysis.candidates if _playable(c)]
+            if pool:
+                sel = _sample_by_prior(pool, profile.get("policy_temp", 1.0))
+                return Point(sel.move[0], sel.move[1])
+            # Nothing samplable — fall through to the reading path.
+
         # --- Tactical clarity gate ---
         # If KataGo is clearly confident about one move, skip mistake
         # injection and play it. This catches straightforward life/death
@@ -534,9 +657,31 @@ async def _select_with_katago(
                 if occupied:
                     anchor = random.choice(occupied[-10:])
             if anchor is not None:
-                nearby = _get_nearby_moves(board, color, anchor, radius=2)
-                if nearby:
-                    return random.choice(nearby)
+                if profile.get("local_bias_from_candidates", False):
+                    # Myopic mode (§3, 2026-07-04): play a KataGo candidate
+                    # near the anchor — locally plausible, globally maybe
+                    # wrong, which is how weak humans actually play. No local
+                    # candidate → fall through to normal selection instead of
+                    # inventing a move.
+                    # §3 iter 2: on 9×9 the strongest local candidate usually
+                    # IS the global best, so with `score_noise` set we pick
+                    # the noisy best among locals instead (see below).
+                    locals_ = [
+                        c for c in analysis.candidates
+                        if c.move[0] >= 0
+                        and max(
+                            abs(c.move[0] - anchor.row),
+                            abs(c.move[1] - anchor.col),
+                        ) <= 2
+                    ]
+                    if locals_:
+                        noise = profile.get("score_noise", 0.0)
+                        local_cand = _pick_noisy_best(locals_, noise) if noise > 0 else locals_[0]
+                        return Point(local_cand.move[0], local_cand.move[1])
+                else:
+                    nearby = _get_nearby_moves(board, color, anchor, radius=2)
+                    if nearby:
+                        return random.choice(nearby)
 
         # --- KataGo candidate selection with rank-based mistakes ---
         size = board.size
@@ -545,7 +690,7 @@ async def _select_with_katago(
         # Filter candidates within acceptable point loss
         filtered = []
         for c in analysis.candidates[:profile["min_candidates"] + 5]:
-            if c.move[0] < 0:
+            if not _playable(c):
                 continue
             point_loss = abs(best_score - c.score_lead)
             if point_loss <= profile["max_point_loss"]:
@@ -564,10 +709,33 @@ async def _select_with_katago(
             ]
 
         if not filtered:
-            c = analysis.candidates[0]
-            if c.move[0] < 0:
-                return None
-            return Point(c.move[0], c.move[1])
+            # No PLAYABLE candidate survived. Prefer the best playable one
+            # over the raw top — the raw top can be an own-territory fill in
+            # the endgame, exactly the move class this net refuses.
+            c = next((x for x in analysis.candidates if _playable(x)), None)
+            if c is not None:
+                return Point(c.move[0], c.move[1])
+            top = analysis.candidates[0]
+            if top.move[0] >= 0:
+                # Every CANDIDATE is a self-fill/eye-fill — but the position
+                # may still be live (degenerate candidate list). Play any
+                # legal non-fill move if one exists anywhere; pass only when
+                # the whole BOARD offers nothing but our own fills (settled).
+                rescue = _pick_legal_non_eye_move(board, color)
+                if rescue is not None:
+                    return rescue
+                logger.warning(
+                    f"[{target_rank} {board.size}x{board.size}] PASS: only self-fill moves left"
+                )
+            return None
+
+        # --- score_noise path (§3 iter 2): noisy-argmax replaces the
+        # mistake-weighting machinery entirely when set. The clarity gates
+        # above still short-circuit genuinely forced moves.
+        score_noise = profile.get("score_noise", 0.0)
+        if score_noise > 0:
+            sel = _pick_noisy_best([c for c, _ in filtered], score_noise)
+            return Point(sel.move[0], sel.move[1])
 
         # Build selection weights
         weights = []
