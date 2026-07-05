@@ -1,5 +1,39 @@
 # Development Journal
 
+## Session 46 — July 5, 2026 (DX4QAWTT: the territory net was passing mid-game)
+
+**Patrick's upload DX4QAWTT: the bot passed at moves 26/32/36/38 of an
+unfinished 9×9 game (log: `PASS reason=only-self-fill-moves-left`,
+KataGo still offering 8-11 candidates).** The endgame territory net from
+S43 (GN5R6K9G) over-fired: replaying move 26 (a fighting midgame with the
+top 3 rows wide open), the fill-detectors flagged **55 of 56 legal moves**
+as own-territory (24) or opponent-enclosed (31) "junk" — because a large
+OPEN region borders only one color and the flood-fill misreads it as that
+color's sealed territory. All of KataGo's candidates fell in the flagged
+zones → the bot passed mid-fight.
+
+**Root insight: the territory-fill judgment is only reliable at true
+settle (board full, small pockets), NOT during active play — and the
+settle path already owns it.** The `opponent_passed` block returns BEFORE
+the active-play `_playable`/machinery is reached, so GN5R6K9G is handled
+entirely by the settle path; the always-on territory filtering in
+`_playable` + `_pick_legal_non_eye_move` wasn't needed for it and is what
+broke DX4QAWTT.
+
+**Fix (both selectors): remove own-territory + opponent-enclosed filtering
+from the ACTIVE-play paths (`_playable`, `_pick_legal_non_eye_move`);
+keep only own-EYE filtering there. The settle path (opponent_passed) keeps
+its territory check on the honest top — where the board is full and the
+read is reliable.** Detectors themselves unchanged.
+- Verified: DX4QAWTT move 26 goes 1/56 → 56/56 playable. Two full local
+  9×9 games ran to natural completion (80 / 76 moves, correct dead-stone
+  scoring, terminated — settle still ends games); the only passes were
+  legitimate `KataGo top move is pass` at high visits. No premature
+  fill-passes.
+- Tests reframed to the corrected contract (territory passing is
+  settle-only; active play must NOT pass on open regions — the DX4QAWTT
+  regression guard). Frontend 258, backend 40, build green.
+
 ## Session 45 — July 5, 2026 (§4a quick replay + the score-attribution off-by-one + the layout suite learns about notches)
 
 **Milestone §4a shipped (pending Patrick's device pass), and the design

@@ -92,9 +92,9 @@ PROFILE = {
 }
 
 
-async def _select(engine, board, monkeypatch):
+async def _select(engine, board, monkeypatch, **kwargs):
     monkeypatch.setattr(ms, "get_profile", lambda rank, size=19: PROFILE)
-    return await ms._select_with_katago(engine, board, Color.WHITE, "15k")
+    return await ms._select_with_katago(engine, board, Color.WHITE, "15k", **kwargs)
 
 
 async def test_sampler_never_picks_territory_fill(monkeypatch):
@@ -113,7 +113,7 @@ async def test_rescues_when_candidates_degenerate_but_board_live(monkeypatch):
         assert move != Point(0, 0)
 
 
-async def test_passes_when_whole_board_is_own_fills(monkeypatch):
+def _sealed_board():
     # White wall on column 4, Black solid on columns 5-8, columns 0-3 all
     # White territory: every legal White move is a self-fill.
     stones = []
@@ -121,10 +121,23 @@ async def test_passes_when_whole_board_is_own_fills(monkeypatch):
         stones.append((Color.WHITE, r, 4))
         for c in range(5, 9):
             stones.append((Color.BLACK, r, c))
-    board = _board_with(stones)
+    return _board_with(stones)
+
+
+async def test_settle_passes_when_whole_board_is_own_fills(monkeypatch):
+    # Territory passing is SETTLE-ONLY: opponent passed, honest top is a
+    # self-fill → pass back.
     engine = FakeEngine([FakeCand(4, 2, 0.9, 5.0)])
     for _ in range(10):
-        assert await _select(engine, board, monkeypatch) is None
+        assert await _select(engine, _sealed_board(), monkeypatch, opponent_passed=True) is None
+
+
+async def test_active_play_does_NOT_pass_on_own_territory(monkeypatch):
+    # DX4QAWTT regression: during active play the bot plays into its own
+    # (large, open) area rather than passing — mid-game it's not sealed yet.
+    engine = FakeEngine([FakeCand(4, 2, 0.9, 5.0)])
+    for _ in range(10):
+        assert await _select(engine, _sealed_board(), monkeypatch) is not None
 
 
 async def test_still_plays_ko_recapture_as_only_candidate(monkeypatch):

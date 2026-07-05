@@ -84,23 +84,36 @@ describe('isOpponentEnclosedFill', () => {
   });
 });
 
-describe('voluntary pass on a settled board', () => {
-  it('passes when candidates offer only own fills and enclosed junk', async () => {
+describe('territory passing is SETTLE-only (DX4QAWTT)', () => {
+  it('SETTLE: passes when the honest top is a self-fill / enclosed junk', async () => {
     holder.profile = { ...BASE, reading_rate: 0, policy_temp: 1 };
     const board = settledBoard();
     const analyze = analyzeWith([
-      cand(4, 2, 0, 1.0, 0.6), // own-territory fill
+      cand(4, 2, 0, 1.0, 0.6), // own-territory fill (KataGo's top)
       cand(4, 7, 1, 0.5, 0.3), // junk inside Black's territory
     ]);
     for (let run = 0; run < 10; run++) {
-      expect(await selectAiMove(board, Color.White, '18k', null, analyze)).toBeNull();
+      expect(
+        await selectAiMove(board, Color.White, '18k', null, analyze, { opponentPassed: true }),
+      ).toBeNull();
     }
   });
 
-  it('the random branch cannot produce junk on a settled board', async () => {
+  it('ACTIVE play: does NOT pass, plays a move even on territory candidates', async () => {
+    holder.profile = { ...BASE, reading_rate: 0, policy_temp: 1 };
+    const board = settledBoard();
+    const analyze = analyzeWith([
+      cand(4, 2, 0, 1.0, 0.6),
+      cand(4, 7, 1, 0.5, 0.3),
+    ]);
+    for (let run = 0; run < 10; run++) {
+      // Mid-game the bot must play (the DX4QAWTT bug was passing here).
+      expect(await selectAiMove(board, Color.White, '18k', null, analyze)).not.toBeNull();
+    }
+  });
+
+  it('ACTIVE play: the random branch still plays a legal move (may be slack)', async () => {
     holder.profile = { ...BASE, random_move_chance: 1.0 };
-    // Give the board one open area by breaking the black wall at (0,5) —
-    // the random branch must confine itself to the non-junk region.
     const grid = emptyGrid(9);
     for (let r = 0; r < 9; r++) {
       grid[r][4] = Color.White;
@@ -109,12 +122,9 @@ describe('voluntary pass on a settled board', () => {
     const open = boardFromGrid(grid, 9);
     const analyze = analyzeWith([cand(0, 5, 0, 1.0, 0.6)]);
     for (let run = 0; run < 15; run++) {
-      const move = await selectAiMove(open, Color.White, '18k', null, analyze);
-      // Only non-junk points are acceptable: the region right of the broken
-      // wall now touches White via (0,5)'s neighborhood, so specific junk
-      // assertions: never inside White's own cols 0-3 territory.
-      expect(move).not.toBeNull();
-      expect(move!.col).toBeGreaterThanOrEqual(4);
+      // No longer confined to col ≥ 4 — a weak bot may play a slack move in
+      // its own area during active play. It just must not pass.
+      expect(await selectAiMove(open, Color.White, '18k', null, analyze)).not.toBeNull();
     }
   });
 });

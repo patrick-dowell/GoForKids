@@ -193,17 +193,13 @@ def _pick_legal_non_eye_move(board: Board, color: Color) -> Optional[Point]:
     passing is genuinely correct."""
     for _ in range(16):
         m = _pick_random_legal(board, color)
-        # Refuse own-territory fills AND junk drops inside opponent-enclosed
-        # territory: this picker is the "instead of passing" fallback on
-        # every rescue path (the 18k "won't pass" report, GN5R6K9G).
-        # Returning None (→ pass) when only junk remains is correct — that
-        # position is settled.
-        if (
-            m is not None
-            and not _is_eye_fill(board, color, m)
-            and not _is_own_territory_fill(board, color, m)
-            and not _is_opponent_enclosed_fill(board, color, m)
-        ):
+        # Only refuse own-EYE fills here. Territory/enclosure filtering was
+        # removed (DX4QAWTT, 2026-07-05): a large OPEN midgame region borders
+        # only one color and the flood-fill wrongly reads it as sealed
+        # territory, so this rescue returned None → premature pass mid-game.
+        # Endgame passing is handled by the settle path (opponent_passed),
+        # where the board is full and the territory read is reliable.
+        if m is not None and not _is_eye_fill(board, color, m):
             return m
     return None
 
@@ -632,20 +628,17 @@ async def _select_with_katago(
         # own-eye fill, not an own-territory fill (the endgame safety net —
         # the area-scoring policy prior thinks self-fills are free).
         def _playable(c) -> bool:
-            # Not an own-eye fill, own-territory fill, or a junk drop inside
-            # the opponent's sealed territory — the trio that lets the bot
-            # pass once every empty region is enclosed. Cost: bots won't
-            # play enclosed-region kills (nakade) — fine, because scoring's
-            # dead-stone detection marks dead groups dead without the kill
-            # being played out.
+            # Just "not an own-eye fill". This runs during ACTIVE play only —
+            # the settle path (opponent_passed) returns before we reach here,
+            # so it owns the endgame territory/pass decision. Territory and
+            # opponent-enclosed filtering was REMOVED from this active-play
+            # path (DX4QAWTT, 2026-07-05): mid-game, a large OPEN region
+            # borders a single color and the flood-fill misreads it as sealed
+            # territory, so the bot filtered ~all candidates and passed
+            # mid-fight. Don't judge territory while the board is still open.
             if c.move[0] < 0:
                 return False
-            pt = Point(c.move[0], c.move[1])
-            return (
-                not _is_eye_fill(board, color, pt)
-                and not _is_own_territory_fill(board, color, pt)
-                and not _is_opponent_enclosed_fill(board, color, pt)
-            )
+            return not _is_eye_fill(board, color, Point(c.move[0], c.move[1]))
 
         reading_rate = profile.get("reading_rate")
         if reading_rate is not None and random.random() >= reading_rate:
@@ -780,23 +773,21 @@ async def _select_with_katago(
             ]
 
         if not filtered:
-            # No PLAYABLE candidate survived. Prefer the best playable one
-            # over the raw top — the raw top can be an own-territory fill in
-            # the endgame, exactly the move class this net refuses.
+            # No playable candidate survived the max-point-loss filter.
+            # Prefer the best non-eye-fill candidate over the raw top.
             c = next((x for x in analysis.candidates if _playable(x)), None)
             if c is not None:
                 return Point(c.move[0], c.move[1])
             top = analysis.candidates[0]
             if top.move[0] >= 0:
-                # Every CANDIDATE is a self-fill/eye-fill — but the position
-                # may still be live (degenerate candidate list). Play any
-                # legal non-fill move if one exists anywhere; pass only when
-                # the whole BOARD offers nothing but our own fills (settled).
+                # Every candidate is an own-eye fill — but the board may still
+                # be live. Play any legal non-eye move if one exists; pass only
+                # when the whole board is own-eye fills (genuinely dead).
                 rescue = _pick_legal_non_eye_move(board, color)
                 if rescue is not None:
                     return rescue
                 logger.warning(
-                    f"[{target_rank} {board.size}x{board.size}] PASS: only self-fill moves left"
+                    f"[{target_rank} {board.size}x{board.size}] PASS: only eye-fill moves left"
                 )
             return None
 

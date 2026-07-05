@@ -84,13 +84,28 @@ def test_never_flags_ko_recapture():
     assert _is_opponent_enclosed_fill(board, Color.BLACK, Point(4, 4)) is False
 
 
-async def test_voluntary_pass_on_settled_board(monkeypatch):
+async def test_settle_passes_when_top_is_a_fill(monkeypatch):
+    # Territory/enclosure passing is SETTLE-ONLY (opponent_passed). The honest
+    # top is an own-territory fill → the bot passes back.
     engine = FakeEngine([
         FakeCand(4, 2, 0.6, 1.0),  # own-territory fill
         FakeCand(4, 7, 0.3, 0.5),  # junk inside Black territory
     ])
     for _ in range(10):
-        assert await _select(engine, _settled_board(), monkeypatch) is None
+        assert await _select(engine, _settled_board(), monkeypatch, opponent_passed=True) is None
+
+
+async def test_active_play_does_NOT_pass_on_territory_fills(monkeypatch):
+    # DX4QAWTT regression guard: during active play (no opponent_passed) the
+    # bot must PLAY, never pass just because candidates sit in a region that
+    # borders one color — mid-game those are open areas, not sealed territory.
+    engine = FakeEngine([
+        FakeCand(4, 2, 0.6, 1.0),
+        FakeCand(4, 7, 0.3, 0.5),
+    ])
+    for _ in range(10):
+        move = await _select(engine, _settled_board(), monkeypatch)
+        assert move is not None, "bot passed mid-game on a territory-fill candidate"
 
 
 async def test_settle_passes_under_075_margin(monkeypatch):

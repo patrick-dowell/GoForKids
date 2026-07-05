@@ -116,20 +116,27 @@ describe('selector endgame behavior', () => {
     }
   });
 
-  it('passes when the whole board offers nothing but own fills (settled)', async () => {
-    holder.profile = { ...BASE, reading_rate: 0, policy_temp: 1 };
-    // White wall on column 4, Black solid on columns 5-8, columns 0-3 all
-    // White territory: every legal White move is a self-fill.
+  // White wall on column 4, Black solid on columns 5-8, columns 0-3 all
+  // White territory: every legal White move is a self-fill.
+  function sealedBoard() {
     const grid = emptyGrid(9);
     for (let r = 0; r < 9; r++) {
       grid[r][4] = Color.White;
       for (let c = 5; c < 9; c++) grid[r][c] = Color.Black;
     }
-    const board = boardFromGrid(grid, 9);
-    const analyze = analyzeWith([cand(4, 2, 0, 5.0, 0.9)]); // a fill is all KataGo offers
+    return boardFromGrid(grid, 9);
+  }
+
+  // SETTLE-context passing (opponent passed → honest top is a fill → pass)
+  // is exercised in moveSelector.settlePass.test.ts. Here we guard the
+  // ACTIVE-play direction, which is where DX4QAWTT went wrong.
+  it('ACTIVE play: does NOT pass on its own territory mid-game (DX4QAWTT)', async () => {
+    holder.profile = { ...BASE, reading_rate: 0, policy_temp: 1 };
+    const board = sealedBoard();
+    const analyze = analyzeWith([cand(4, 2, 0, 5.0, 0.9)]);
     for (let run = 0; run < 10; run++) {
       const move = await selectAiMove(board, Color.White, '15k', null, analyze);
-      expect(move).toBeNull();
+      expect(move).not.toBeNull(); // plays into its own area, never passes mid-game
     }
   });
 

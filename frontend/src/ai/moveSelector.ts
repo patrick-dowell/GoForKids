@@ -480,19 +480,13 @@ export function pickLegalNonEyeMove(
     exclude.some((p) => p.row === m.row && p.col === m.col);
   for (let i = 0; i < 16; i++) {
     const m = pickRandomLegal(board, color);
-    // Refuse own-territory fills AND junk drops inside opponent-enclosed
-    // territory: this picker is the "instead of passing" fallback on every
-    // rescue path, and a fallback that plays junk just converts one bug
-    // into another (the 18k "won't pass, 20 extra moves" report,
-    // 2026-07-05 evening). Returning null (→ pass) when only junk remains
-    // is correct — that position is settled.
-    if (
-      m &&
-      !excluded(m) &&
-      !isEyeFill(board, color, m) &&
-      !isOwnTerritoryFill(board, color, m) &&
-      !isOpponentEnclosedFill(board, color, m)
-    ) return m;
+    // Only refuse own-EYE fills. Territory/enclosure filtering was removed
+    // (DX4QAWTT, 2026-07-05): a large OPEN midgame region borders only one
+    // color and the flood-fill misreads it as sealed territory, so this
+    // rescue returned null → premature mid-game pass. Endgame passing is the
+    // settle path's job (opponent_passed), where the board is full and the
+    // territory read is reliable.
+    if (m && !excluded(m) && !isEyeFill(board, color, m)) return m;
   }
   return null;
 }
@@ -618,19 +612,16 @@ function selectWithKataGo(
   // read moves — which is what lets a 15k occasionally blunder a fight it
   // never read. Small-mistake frequency = 1 - reading_rate; small-mistake
   // size = policy_temp; big mistakes = the prior tail + random_move_chance.
-  // A candidate the bot may actually play: on the board, not an own-eye
-  // fill, not an own-territory fill, not a junk drop inside the opponent's
-  // fully-enclosed territory. Together these make the bot pass voluntarily
-  // once every empty region is someone's sealed territory — the position
-  // where passing is correct (the 18k "won't pass, 20 extra moves" report,
-  // GN5R6K9G). Cost: bots won't play enclosed-region kills (nakade) — fine,
-  // because scoring's ownership-based dead-stone detection marks dead
-  // groups dead without the kill being played out.
+  // A candidate the bot may actually play: on the board and not an own-eye
+  // fill. This runs during ACTIVE play only — the settle path
+  // (opponentPassed) returns before here and owns the endgame territory/pass
+  // decision. Territory + opponent-enclosed filtering was REMOVED from this
+  // active-play path (DX4QAWTT, 2026-07-05): mid-game, a large OPEN region
+  // borders a single color and the flood-fill misreads it as sealed
+  // territory, so the bot filtered ~every candidate and passed mid-fight.
   const playable = (c: MoveCandidate): boolean =>
     c.move.row >= 0 &&
-    !isEyeFill(board, color, { row: c.move.row, col: c.move.col }) &&
-    !isOwnTerritoryFill(board, color, { row: c.move.row, col: c.move.col }) &&
-    !isOpponentEnclosedFill(board, color, { row: c.move.row, col: c.move.col });
+    !isEyeFill(board, color, { row: c.move.row, col: c.move.col });
 
   if (profile.reading_rate !== undefined && Math.random() >= profile.reading_rate) {
     let pool = candidates.filter(playable);
@@ -777,16 +768,13 @@ function selectWithKataGo(
     const c = candidates.find(playable) ?? candidates[0];
     if (c.move.row >= 0) {
       if (playable(c)) return { row: c.move.row, col: c.move.col };
-      // Every CANDIDATE is a self-fill/eye-fill — but the position may
-      // still be live (degenerate candidate list). Play any legal non-fill
-      // move if one exists anywhere; pass only when the whole BOARD offers
-      // nothing but our own fills — that position really is settled.
-      // Ko-safe: a ko recapture's region borders the opponent's stone and
-      // is never classified as a fill.
+      // Every CANDIDATE is an own-eye fill — but the board may still be
+      // live. Play any legal non-eye move if one exists anywhere; pass only
+      // when the whole board is own-eye fills (genuinely dead).
       const rescue = pickLegalNonEyeMove(board, color);
       if (rescue) return rescue;
       if (!options.neverPass) {
-        logPass('only-self-fill-moves-left');
+        logPass('only-eye-fill-moves-left');
         return null;
       }
       return { row: c.move.row, col: c.move.col };
