@@ -721,13 +721,17 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   playMove: (point: Point) => {
     resumeAudio();
-    const { _game, gameId, aiThinking, playerColor, currentColor } = get();
+    const { _game, gameId, gameMode, aiThinking, playerColor, currentColor } = get();
 
     // Block input while AI is thinking
     if (aiThinking) return MoveResult.GameOver;
 
-    // Block if it's not the player's turn (in AI games)
-    if (gameId && currentColor !== playerColor) return MoveResult.GameOver;
+    // Block if it's not the player's turn. `gameMode === 'ai'` (not just
+    // `gameId`) so this holds even before the backend game id is set — else
+    // a White player can place the bot's opening Black stone in the pre-first-
+    // move window and desync the game. The bot's own moves don't come through
+    // here (they use _game.playMove / forceApplyServerMove), so this is safe.
+    if ((gameId || gameMode === 'ai') && currentColor !== playerColor) return MoveResult.GameOver;
 
     const merged = _game.board.detectMergedGroups(currentColor, point);
     const { result, captures } = _game.playMove(point);
@@ -807,13 +811,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   pass: () => {
-    const { _game, gameId, aiThinking, playerColor, currentColor } = get();
+    const { _game, gameId, gameMode, aiThinking, playerColor, currentColor } = get();
     if (aiThinking) return;
     // In AI games, only the player should pass via this action — guard
     // against off-turn calls (e.g. the player rapidly taps Pass right after
-    // playing a stone, before aiThinking has been set). Mirrors the same
-    // check in playMove().
-    if (gameId && currentColor !== playerColor) return;
+    // playing a stone, before aiThinking has been set, or before the bot's
+    // opening move). Mirrors the same check in playMove() (gameMode, not just
+    // gameId, so it holds before the backend game id lands).
+    if ((gameId || gameMode === 'ai') && currentColor !== playerColor) return;
 
     _game.pass();
     recordSelectorLog(`[game] player pass move=${_game.moveHistory.length}`);
