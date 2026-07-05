@@ -117,6 +117,13 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
         gtp("kata-set-param maxVisits \(maxVisits)")
         // Override the cfg's maxTime cap so we actually use all the visits
         gtp("kata-set-param maxTime 60")
+        // §3 out-of-pool (2026-07-05): weak-rung profiles spread root visits
+        // across most plausible moves so the candidate list becomes a wide
+        // policy sample. ALWAYS set (0.0 = KataGo default off) — the engine
+        // is long-lived and must not carry a stale value into settle /
+        // finishMove / score analyses, which omit the param.
+        let wideRootNoise = (params["wideRootNoise"] as? Double) ?? 0.0
+        gtp("kata-set-param wideRootNoise \(wideRootNoise)")
         let tAfterSetParam = Date()
 
         // kata-genmove_analyze streams `info` lines (one per candidate) then
@@ -146,11 +153,21 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
                 playedMove = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
             } else if line.hasPrefix("info ") {
                 if tFirstInfo == nil { tFirstInfo = Date() }
-                if let parsed = parseInfoLine(line) {
-                    if candidatesByMove[parsed["move"] as! String] == nil {
-                        moveOrder.append(parsed["move"] as! String)
+                // KataGo emits ONE line carrying ALL root moves as
+                // concatenated "info move …" segments (kata-genmove_analyze
+                // without an interval prints a single final dump). The old
+                // code fed the whole line to parseInfoLine, which stops at
+                // the first `pv` — so the bridge returned a ONE-candidate
+                // pool from Phase D (May) until 2026-07-05, silently forcing
+                // every rank profile toward perfect top-move play on-device
+                // (§3, DEVJOURNAL S41). Split into per-move segments first.
+                for seg in line.components(separatedBy: "info move ").dropFirst() {
+                    if let parsed = parseInfoLine("info move " + seg) {
+                        if candidatesByMove[parsed["move"] as! String] == nil {
+                            moveOrder.append(parsed["move"] as! String)
+                        }
+                        candidatesByMove[parsed["move"] as! String] = parsed
                     }
-                    candidatesByMove[parsed["move"] as! String] = parsed
                 }
                 if includeOwnership, let extracted = parseOwnership(line, expectedCount: boardSize * boardSize) {
                     ownershipFlat = extracted
