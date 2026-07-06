@@ -52,6 +52,20 @@ one GPU serves many concurrent games.
 a kyu ladder wants anyway. But: new net = full recalibration campaign +
 a second ladder to maintain. Keep as fallback if GPU cost is a blocker.
 
+## Billing-shape note (Patrick's Q, 2026-07-06)
+- **b28 profiles transfer verbatim**: the GPU runs the same b28c512nbt
+  net file as iOS; profiles are per-net; the Python selector already
+  reads b28.yaml (Render currently points at b20 only because of CPU
+  speed). Web would finally play the SAME calibrated ladder as devices.
+- **Zero-usage cost ≈ $0 with scale-to-zero providers** (Modal, RunPod
+  serverless, Fly auto-stop machines): cents/month model storage +
+  per-second GPU only while ≥1 game is active (~$0.30-0.60/hr T4-class,
+  shared across all concurrent games via engine batching). Trade-off:
+  ~15-45s cold start on the first move after idle (TensorRT plan cache
+  keeps it low) → "waking up the Go master…" loading moment, then fast
+  all session. Always-on boxes ($220-450/mo) are the wrong shape for
+  this traffic.
+
 ## Decision inputs when revisiting
 - How many non-iOS users actually materialize (camp families, GO BASE)?
 - Monthly GPU cost vs. that demand; scale-to-zero acceptability.
