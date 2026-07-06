@@ -626,3 +626,22 @@ Retuned:
   12k v 9k game 8: white+19.5 (33s)
 == 12k v 9k: stronger side (W) 5/8 avg W-margin +18.1 (ordering holds)
 ```
+
+## Run — S49b: 5QDYHMFG post-mortem → visits 12 + λ .45 (2026-07-06)
+Patrick's upload 5QDYHMFG (retuned rr.10/λ.30 9k, confirmed by build ts):
+B+75 slaughter; measured 61% near-opt / median 0.21 (human 9k: 49%/0.51).
+Diagnosis: b28 9×9 priors ~0.95-0.98 make policy_temp a dead dial (~75%
+argmax at temp 2.2); pool probe on the game's positions showed bad moves
+ARE in the pool (median worst 17.5pts) — the bot just never sampled them.
+Patrick's read: "feels like the 6k bot with random mistakes thrown in" —
+λ only raises mistake frequency; visits is the baseline-level dial.
+Final: 9k visits 16→12, λ .30→.45 (temp/rr/cap/rmc unchanged).
+```
+  9k v 6k game 1: white+10.5 (24s)
+  9k v 6k game 2: white+15.5 (32s)
+  9k v 6k game 3: black+54.5 (24s)
+  9k v 6k game 4: white+3.5 (21s)
+== 9k v 6k: stronger side (W) 3/4 avg W-margin -6.2
+```
+Distribution (the instrument that tracks Patrick's play): near-opt 61%→48%,
+median 0.21→0.59 — ON the human 9k column (49%/0.51). Acceptance = Patrick.
