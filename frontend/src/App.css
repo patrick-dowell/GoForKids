@@ -1487,7 +1487,11 @@ body {
   .app-replay .replay-highlight-note {
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
+    /* 4, not 3: headline wraps to 2 lines + the star-hint/glossary row
+       wraps to 2 on phones — at 3 the last row got eaten (Patrick's
+       device pass, S48). The phone-portrait block below reclaims the
+       extra line's ~18px from control chrome. */
+    -webkit-line-clamp: 4;
     overflow: hidden;
   }
   .app-replay .replay-header h3 {
@@ -1519,6 +1523,7 @@ body {
 @media (max-width: 699px) and (orientation: portrait) {
   .app-replay .replay-controls {
     gap: 4px;
+    padding: 8px;
   }
   .app-replay .replay-header h3 {
     font-size: 13px;
@@ -1535,6 +1540,26 @@ body {
     margin: 2px 0;
     padding: 6px 10px;
     font-size: 13px;
+  }
+  /* Pay for the note's 4th line (~18px, see the clamp above): shave the
+     control chrome a few px each instead of shrinking the board or losing
+     a row. 28px buttons match the phone-landscape treatment. */
+  .app-replay .replay-btn {
+    height: 28px;
+  }
+  .app-replay .replay-score-graph .score-graph svg,
+  .app-replay .replay-score-graph .score-graph-empty svg {
+    height: 34px;
+  }
+  .app-replay .replay-actions .btn {
+    padding: 6px 12px;
+  }
+  .app-replay .replay-back-highlights {
+    padding: 4px 10px;
+  }
+  .app-replay .replay-highlight-note {
+    margin: 1px 0;
+    padding: 5px 10px;
   }
 }
 
@@ -1587,6 +1612,21 @@ body {
   .app-replay .replay-highlight-note {
     margin: 2px 0;
     padding: 6px 10px;
+    font-size: 13px;
+    /* Guard rail for pathological wraps — normally the wider column below
+       keeps the note at ≤4 lines with everything visible. */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    overflow: hidden;
+  }
+  /* The board is HEIGHT-bound on these iPads (~900px board vs ~1040px of
+     usable width), so the left column can take ~80px of the horizontal
+     slack for free. At 260px the star-hint row wrapped to 3 lines and blew
+     the column ~30px past the fold (S48); at 340px it's 2 lines and the
+     whole panel fits. Zero board cost — verified by the square probe. */
+  .app-replay .game-layout {
+    grid-template-columns: 340px 1fr;
   }
 }
 
@@ -1673,7 +1713,10 @@ body {
     gap: 4px;
   }
   .app-replay .replay-highlight-note {
-    -webkit-line-clamp: 2;
+    /* 3, not 2: leave room for the star-hint/glossary row below a
+       2-line headline (S48). The landscape side column scrolls
+       internally as the safety net. */
+    -webkit-line-clamp: 3;
   }
   .app-replay .side-panel {
     padding-top: 24px;

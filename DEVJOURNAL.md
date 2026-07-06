@@ -1,5 +1,31 @@
 # Development Journal
 
+## Session 48 — July 5, 2026 (the note earns its 4th line)
+
+**Patrick's device verdict on S47: "the new feature is really good" —
+one bug: with 4 lines of note text the 4th (the glossary link) got cut.**
+Exactly the S47 trade-off surfacing: the phone clamp was 3 lines, and the
+star row made 4-line content the common case, so `-webkit-line-clamp`
+silently ate `Learn: <concept>`.
+
+Both of Patrick's suggested directions, together:
+- **Glossary link moved up:** the star hint + `Learn:` link now share ONE
+  wrapping row (` · ` separated) instead of stacking two rows.
+- **Space made for 4 lines:** clamp 3→4 on the compact branch; phone
+  portrait pays the ~18px from control chrome (28px transport/key
+  buttons matching phone landscape, 34px graph, tighter paddings) — not
+  from the board, per the design rule. Phone landscape clamp 2→3.
+- **Big-iPad landscape structural fix:** the replay grid's left column was
+  260px, so the star row wrapped to 3 lines and blew the column ~30px
+  past the fold. The board is HEIGHT-bound there (~900px board vs ~1040px
+  of usable width), so the column now takes 340px of the horizontal slack
+  — star row wraps once, zero board cost. Clamp-4 guard added as the
+  rail.
+- Layout suite's key-move state now injects `betterMove` post-seek (the
+  worst-case 4-line note: headline + star + glossary) — 11 tests green,
+  263 unit, build green. Preview-verified at 393×852 with insets:
+  `noteClipped: false`, panel bottom 847/852.
+
 ## Session 47 — July 5, 2026 (§4a device feedback: an unmissable way back + "the good line")
 
 **Patrick's first §4a device pass validated the attribution fix (his

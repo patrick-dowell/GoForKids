@@ -262,6 +262,10 @@ test('replay on a key move: highlight note fits at every viewport', async ({ pag
     store.setState({ gameResult: 'B+8.5', opponentRank: '15k', sharedId: 'DEMO1234', returnToReview: 'demo' });
     const st = store.getState();
     st.goToMove(st.highlights[0].moveNumber);
+    // Worst-case note: the better-move star row on top of the headline +
+    // glossary link (4 wrapped lines on phones — the S48 cutoff). Must be
+    // set AFTER goToMove, which clears it (no bridge in Chromium).
+    store.setState({ betterMove: { row: 2, col: 2 } });
   });
   await page.locator('.replay-highlight-note').waitFor();
   await sweep(page, 'replay-key-move', {

@@ -217,7 +217,14 @@ Play-of-the-Game highlights become tappable: a highlight opens a quick replay sc
 >    cached per move; retroactive on old games; web shows nothing (bridge-
 >    only — Render-analyze web fallback is cut-line). Detail: DEVJOURNAL S47.
 >
-> Closes on device pass round 2.
+> **DEVICE PASS ROUND 2 (2026-07-05): "the new feature is really good."**
+> One bug — 4-line notes lost the 4th line (the glossary link) to the
+> phone's 3-line clamp. Fixed (S48): star hint + glossary link share one
+> wrapping row, clamp 3→4 paid from control chrome (not the board), and
+> the big-iPad-landscape replay column widened 260→340px out of the
+> board's horizontal slack (board is height-bound there — zero cost).
+>
+> Closes on device pass round 3 (the note fix is the only delta).
 
 ### 5. Replay upload — thin slice  ✅ CLOSED 2026-07-02 (Patrick's call after device validation + share test)
 Upload a finished game to the backend; get a shareable ID. Motivation: a friend wants to review games with Patrick, and it's the diagnostic channel for §2 (embedded selector logs) and §3 (bot-felt-wrong games become calibration evidence).

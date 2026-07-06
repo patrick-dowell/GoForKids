@@ -259,15 +259,23 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
           }}
         >
           <div style={{ fontWeight: 600 }}>{currentHighlight.headline}</div>
-          {betterMove && (
-            <div className="replay-better-move" style={{ marginTop: 4, fontSize: 13 }}>
-              ⭐ A better spot is glowing on the board
-              {betterPts !== null ? ` — worth about ${betterPts} more point${betterPts === 1 ? '' : 's'}` : ''}.
-            </div>
-          )}
-          {concept && (
-            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.9 }}>
-              Learn: <ConceptLink id={concept.id} />
+          {/* Star hint + glossary link share ONE row (Patrick's device pass,
+              S48: as separate rows the glossary line became a 4th line and
+              the phone clamp ate it). The row wraps naturally when long. */}
+          {(betterMove || concept) && (
+            <div style={{ marginTop: 4, fontSize: 13 }}>
+              {betterMove && (
+                <span className="replay-better-move">
+                  ⭐ A better spot is glowing on the board
+                  {betterPts !== null ? ` — about ${betterPts} more point${betterPts === 1 ? '' : 's'}` : ''}
+                </span>
+              )}
+              {betterMove && concept && <span style={{ opacity: 0.6 }}> · </span>}
+              {concept && (
+                <span style={{ opacity: 0.9 }}>
+                  Learn: <ConceptLink id={concept.id} />
+                </span>
+              )}
             </div>
           )}
         </div>
