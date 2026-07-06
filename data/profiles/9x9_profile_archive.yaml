@@ -162,3 +162,37 @@ archive:
       acceptance = his playtest; automated sweep AFTER it feels right.
     measured_rank: "12k + epsilon by construction; Patrick playtest pending"
     knobs: "= b28.yaml 9x9/12k except reading_rate 0.10"
+
+  s50_9k_samplerv3:
+    description: >
+      S50 (2026-07-06): visits 8 + lapse .10 first (still stomped Patrick
+      — b28's policy head alone is dan-level on 9x9; visits can't cut
+      below it), then sampler v3: sample_min_loss 0.5 (never accidentally
+      perfect) + read_cooldown 2 (no engine-quality streaks, Patrick's
+      observation) at rr .10 / v16. Patrick won 2/2 ("reminds me of the
+      12k profile") — the first bot of the week he could beat — but 12k
+      swept it 3-0/+42 on an IDENTICAL per-move histogram: the floor
+      anti-correlates goodness with importance, the old machinery
+      correlates it. Forced-position escape (clarity_score_gap on the
+      sampled path) shipped, didn't change the match. Mechanism kept in
+      both selectors, dormant.
+    measured_rank: "below the old 12k in bot-vs-bot; beatable-by-2d in feel"
+    knobs:
+      reading_rate: 0.10
+      sample_min_loss: 0.5
+      read_cooldown: 2
+      sample_lapse: 0.10
+      visits: 16
+
+  s50c_reseat:
+    description: >
+      S50c (2026-07-06, Patrick's design): ladder re-seat after his gap
+      probes showed 12k↔6k near zero (12k beat 6k 3/5 EVEN at komi 0.5;
+      12k+H3 swept 6k 5/5 +57). 9k := the old 12k profile verbatim (the
+      only felt-validated rung: "very beatable, a touch of 9k strength");
+      12k := knob-midpoint(15k, new 9k) — rr .065 / temp 2.45 / lapse .40
+      / cap 6.5 / rmc .08 / mf .74; 6k unchanged. Deliberately untested
+      at birth — Patrick device-builds first; automated runs only after
+      it feels right.
+    measured_rank: "9k = felt-validated; 12k = untested interpolation"
+    knobs: "see b28.yaml 9x9 12k/9k (S50c comments)"

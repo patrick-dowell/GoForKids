@@ -645,3 +645,30 @@ Final: 9k visits 16→12, λ .30→.45 (temp/rr/cap/rmc unchanged).
 ```
 Distribution (the instrument that tracks Patrick's play): near-opt 61%→48%,
 median 0.21→0.59 — ON the human 9k column (49%/0.51). Acceptance = Patrick.
+
+## Run — S50: sampler v3 vs the ladder + the gap probes (2026-07-06 night)
+v3 9k (rr .10, min_loss 0.5, cooldown 2, v16) — Patrick won 2/2 on device,
+"reminds me a little of the 12k profile". His requested check:
+```
+  12k v 9k(v3) game 1: black+75.5   game 2: black+27.5   game 3: black+22.5
+== 12k sweeps 3-0, avg +42
+```
+Histograms of those games: 12k and v3-9k per-move distributions are
+IDENTICAL (mean 2.39/2.35, median 1.15/1.21, near-opt 36/38%, blunder 14%
+both) — the sweep is pure correlation: 12k's accidental-best sampling
+clusters in important positions (prior mass tracks importance); the v3
+floor anti-correlates by construction. Forced-position escape (S50b)
+shipped — correct, but didn't move the match:
+```
+  12k v 9k(v3+escape): black+33.5, black+74.5, black+35.5 — 0/3 avg +48
+```
+Patrick's gap probes (his design):
+```
+  12k v 6k EVEN komi 0.5: B+6.5, W+29.5, B+79.5, W+9.5, B+16.5 — 12k 3/5
+  12k+H3 v 6k komi 0.5:  B+77.5, B+9.5, B+41.5, B+78.5, B+78.5 — 12k 5/5 avg +57
+```
+⇒ the 12k↔6k gap was NEAR ZERO: the whole old midsection sat on the b28
+policy ceiling, differing mainly in dice. → S50c re-seat (Patrick's
+design): 9k := old 12k verbatim (the one felt-validated profile), 12k :=
+knob-midpoint(15k, new 9k), 6k unchanged, v3 knobs dormant in code.
+Untested at birth BY DESIGN — Patrick device-tests before any runs.

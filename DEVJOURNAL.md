@@ -1,5 +1,62 @@
 # Development Journal
 
+## Session 50 — July 6, 2026 (the policy ceiling, sampler v3, and Patrick re-seats the ladder)
+
+**The night the 9k saga resolved — by discovering the problem was never
+the 9k.** Continuous Patrick-playtest loop (his call: no slow bot-vs-bot
+cells; adjust → rebuild → play), five acts:
+
+**1. visits can't weaken b28 on 9×9.** visits 8 + λ .10 still stomped
+him (2 losses). b28's policy head ALONE is dan-level on 9×9 — every
+candidate is policy-blessed, so degrading search/sampling among the
+engine's own suggestions bottoms out ranks above 9k. This is the
+**policy ceiling**, the floor every weakening attempt all week had hit.
+
+**2. Sampler v3** (from Patrick's streak observation — "a 10% rolling
+chance might lead to multiple great moves in a row"): two mechanism
+knobs, both selectors — `sample_min_loss` (unread moves must lose ≥N pts
+vs pool-best; mildly imperfect BY CONSTRUCTION, kills the ~50%
+accidental-perfection mass) + `read_cooldown` (after a read move, the
+next N are forced-sampled; no engine-quality streaks). 9k at rr .10 /
+min_loss .5 / cooldown 2 / v16. **Patrick won 2/2 — the first bot of the
+week he could beat** — "reminds me a little of the 12k profile."
+
+**3. The correlation finding (tonight's real discovery).** His requested
+12k-vs-v3-9k check: 12k swept 3-0/+42 — with per-move histograms that
+are IDENTICAL (mean 2.39/2.35, median 1.15/1.21, near-opt 36/38%). Same
+marginal distribution, 45 points apart: the old machinery's accidental-
+best moves cluster in IMPORTANT positions (prior mass tracks
+importance); the v3 floor anti-correlates by construction (near-optimal
+only where all moves are near-equal). **Marginal histograms cannot see
+this — game results can.** A forced-position escape (clarity_score_gap
+on the sampled path — the floor may not forbid the only correct move;
+S50b, tests pin it incl. the Black-perspective sign trap) was correct
+but didn't move the match: the driver is the broad 3-8pt "this fight
+matters" class, not the life-and-death tail.
+
+**4. Patrick's gap probes killed the old midsection.** His design: 12k
+vs 6k, H3 and even. 12k+H3 swept 6k 5/5 (+57); worse, **12k beat 6k 3/5
+EVEN at komi 0.5** — the 12k↔6k gap was ~zero. The whole old mid-ladder
+(old-9k, 12k, 6k) sat pressed against the policy ceiling, differing
+mainly in how often the dice donate.
+
+**5. The re-seat (Patrick's design, S50c):** 9k := the old 12k profile
+VERBATIM — the one rung he validated by feel ("very beatable, a touch of
+9k strength") becomes the new Boulder. 12k := knob-midpoint(15k, new 9k)
+(rr .065 / temp 2.45 / λ .40 / cap 6.5 / rmc .08 / mf .74). 6k stays.
+Sampler v3 stays in both selectors, dormant — its consistency texture
+(same bot every game) may come back once the ladder's shape settles.
+**Deliberately untested at birth: Patrick device-builds and plays BEFORE
+any automated runs.** Open after his pass: the 9k↔6k gap size (he
+believes 6k > new-9k, "questionable by how much"), and whether 15k/12k
+need the same treatment.
+
+Process notes: knob-stamp now covers visits (v=); the scratch match
+driver gained --handicap (and taught the night's dumbest lesson — its
+silent fallback ran an even set when asked for H3; the "even" control it
+accidentally produced turned out to be the most damning data point of
+the week). Tests 268 front / 40 back.
+
 ## Session 49 — July 6, 2026 (the 9k-6k inversion: Patrick's even games catch what the histogram couldn't)
 
 **Patrick (2d) played the 9k even, 6 games: won 2, lost 4.** A 2d should
