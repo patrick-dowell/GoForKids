@@ -41,6 +41,20 @@ one GPU serves many concurrent games.
 - Real advantages over A: offline play, Play Store presence. Best done
   AFTER A, as a thin WebView wrapper on the same fast backend (cheap),
   going full-native-engine only if offline demand shows up.
+- **Snapdragon detail (Patrick's Q, 2026-07-06):** three chips, three
+  answers. CPU (Kryo/Eigen): ~1 visit/s, non-starter. GPU (Adreno via
+  KataGo's stock OpenCL backend): the feasible path — NDK build + Kotlin
+  bridge, ~1-2 weeks — but b28 runs ~5-20 v/s on flagships and ~1-5 v/s
+  on mid-range kid tablets = works on expensive phones, not the target
+  devices. NPU (Hexagon via QNN) is the true ANE-equivalent BUT KataGo
+  has no NPU backend for Android — the iOS CoreML path exists only
+  because a community member built that whole fork (we got it free).
+  Building the QNN equivalent = ONNX conversion + custom inference
+  backend, ~1-3 months specialized work, Qualcomm-only (Exynos/Tensor
+  need yet another path); same project class as the llama.cpp Hexagon
+  ports. This INVERTS Android-native's appeal (cheap tier misses the
+  audience, right tier is very expensive) and strengthens the
+  cloud-GPU-web-first sequencing.
 
 ### C. Windows native
 - Smallest missing user set (desktop users can use the web version once
