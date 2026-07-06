@@ -26,15 +26,16 @@ interface PersistedSettings {
 function loadSettings(): PersistedSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { themeId: 'cosmic', density: 'full', showScoreGraph: false };
+    if (!raw) return { themeId: 'cosmic', density: 'full', showScoreGraph: true };
     const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
     return {
       themeId: parsed.themeId === 'classic' ? 'classic' : 'cosmic',
       density: parsed.density === 'zen' ? 'zen' : 'full',
-      showScoreGraph: parsed.showScoreGraph === true,
+      // Default ON: only an explicit false (user toggled it off) disables it.
+      showScoreGraph: parsed.showScoreGraph !== false,
     };
   } catch {
-    return { themeId: 'cosmic', density: 'full', showScoreGraph: false };
+    return { themeId: 'cosmic', density: 'full', showScoreGraph: true };
   }
 }
 
