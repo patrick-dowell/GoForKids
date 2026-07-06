@@ -388,7 +388,7 @@ profiles:
       local_bias: 0.0
       local_bias_in_opening: false
       local_bias_from_candidates: false
-      reading_rate: 0.10
+      reading_rate: 0.08
       policy_temp: 2.3
       wide_root_noise: 0.7
       sample_lapse: 0.35
