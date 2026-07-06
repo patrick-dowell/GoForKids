@@ -22,7 +22,7 @@ Verify: `git --version`, `node --version`, and `python --version` should each pr
 
 ## 2. Install KataGo
 
-1. From https://github.com/lightvector/KataGo/releases, download the newest zip ending in **`opencl-windows-x64.zip`** (works with almost any graphics card). No graphics card? Use `eigenavx2-windows-x64.zip` instead.
+1. From https://github.com/lightvector/KataGo/releases, under the newest release's "Assets", download **`katago-v1.16.5-opencl-windows-x64.zip`** (the version number may be higher by the time you read this — grab the one ending in `opencl-windows-x64.zip`). It works with almost any graphics card. No graphics card? Use the `eigenavx2-windows-x64.zip` one instead.
 2. Unzip so the program ends up at **`C:\katago\katago.exe`**.
 3. Test it: `C:\katago\katago.exe version` should print a version. (Missing `VCRUNTIME140.dll`? See troubleshooting.)
 
