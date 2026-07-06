@@ -1,6 +1,6 @@
 # Running GoForKids on Windows
 
-You'll run two programs — the **backend** (Go engine + AI) and the **frontend** (the game) — and play at **http://localhost:5173** in your browser. First-time setup takes about 30 minutes, mostly downloads.
+You'll run two programs — the **backend** (Go engine + AI) and the **frontend** (the game) — and play at **http://localhost:5173** in your browser. First-time setup takes about 20 minutes, mostly downloads.
 
 **You need:** Windows 10 or 11 (64-bit), ~3 GB of free disk, and internet for the downloads. A graphics card (even built-in Intel) makes the AI faster but isn't required.
 
