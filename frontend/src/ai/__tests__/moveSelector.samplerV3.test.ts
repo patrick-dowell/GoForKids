@@ -81,6 +81,35 @@ describe('sample_min_loss (never accidentally perfect)', () => {
     }
   });
 
+  it('FORCED positions escape the floor (the only correct move gets played)', () => {
+    // Atari shape: the saving move towers +23 over the alternatives. The
+    // floor would forbid it (it's pool-best with losers available) — the
+    // S50b escape must play it anyway. Gap 23 >= clarity_score_gap 15.
+    const forced: PositionAnalysis = {
+      rootVisits: 16,
+      candidates: [
+        { move: BEST, visits: 10, winrate: 0.7, scoreLead: 12.0, prior: 0.6, order: 0 },
+        { move: { row: 2, col: 2 }, visits: 3, winrate: 0.3, scoreLead: -11.0, prior: 0.2, order: 1 },
+        { move: { row: 3, col: 5 }, visits: 2, winrate: 0.25, scoreLead: -13.0, prior: 0.1, order: 2 },
+      ],
+    };
+    const p = profile({ reading_rate: 0 });
+    for (let i = 0; i < 20; i++) {
+      expect(selectWithKataGo(board(), Color.Black, p, forced, null)).toEqual(BEST);
+    }
+    // White-perspective sign flip: same gap magnitude must still trip it.
+    const forcedW: PositionAnalysis = {
+      rootVisits: 16,
+      candidates: [
+        { move: BEST, visits: 10, winrate: 0.7, scoreLead: -12.0, prior: 0.6, order: 0 },
+        { move: { row: 2, col: 2 }, visits: 3, winrate: 0.3, scoreLead: 11.0, prior: 0.2, order: 1 },
+      ],
+    };
+    for (let i = 0; i < 20; i++) {
+      expect(selectWithKataGo(board(), Color.White, p, forcedW, null)).toEqual(BEST);
+    }
+  });
+
   it('floor yields when it would empty the pool (near-equal candidates)', () => {
     const tight: PositionAnalysis = {
       rootVisits: 16,

@@ -661,6 +661,19 @@ async def _select_with_katago(
                 # Fall through to the reading path below.
             else:
                 pool = [c for c in analysis.candidates if _playable(c)]
+                # FORCED-position escape (S50b): when one move towers over
+                # every alternative by >= clarity_score_gap (a group lives
+                # or dies on it), even an unread player finds it — the
+                # min-loss floor would otherwise FORBID the only correct
+                # move and the bot flunks forced sequences wholesale (12k
+                # swept the first v3 9k 3-0/+42 on an IDENTICAL per-move
+                # histogram). score_lead is Black-perspective; pool keeps
+                # mover-preference order, so |Δ| is the mover's gap.
+                # Mirrors the TS selector.
+                if len(pool) >= 2:
+                    gap = abs(pool[0].score_lead - pool[1].score_lead)
+                    if gap >= profile.get("clarity_score_gap", 5.0):
+                        return Point(pool[0].move[0], pool[0].move[1])
                 # Sampling loss band (sampler v2 cap + v3 floor): a sampled
                 # move loses at most sample_loss_cap points AND at least
                 # sample_min_loss — never accidentally perfect (the b28

@@ -645,6 +645,21 @@ export function selectWithKataGo(
       // Fall through to the reading path below.
     } else {
       let pool = candidates.filter(playable);
+      // FORCED-position escape (S50b): when one move towers over every
+      // alternative by >= clarity_score_gap (a group lives or dies on it),
+      // even an unread player finds it — the min-loss floor would otherwise
+      // FORBID the only correct move and the bot flunks 90% of forced
+      // sequences (12k swept the first v3 9k 3-0/+42 with an IDENTICAL
+      // per-move histogram — the losses all landed in must-answer spots).
+      // Ordinary positions never trip this: 15+pt gaps are life-and-death.
+      if (pool.length >= 2) {
+        // scoreLead is Black-perspective on both engines; pool keeps
+        // KataGo's mover-preference order, so |Δ| is the mover's gap.
+        const gap = Math.abs(pool[0].scoreLead - pool[1].scoreLead);
+        if (gap >= (profile.clarity_score_gap ?? 5.0)) {
+          return { row: pool[0].move.row, col: pool[0].move.col };
+        }
+      }
       // Sampling loss band (sampler v2 cap + v3 floor): a sampled move may
       // lose at most sample_loss_cap points (no game-ending collapses) and
       // must lose at least sample_min_loss (never accidentally perfect —
