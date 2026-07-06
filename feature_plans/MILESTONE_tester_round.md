@@ -5,10 +5,12 @@
 **Theme:** harden and polish the learning engine, then ship. **Validation > new features.**
 **Exit criteria:** the five remaining items below closed. Device validation is ongoing (Patrick + Roland validate items as they land, not as a separate end-gate — the original §7 checklist model worked and continues).
 
-> **SHIP STATE (2026-07-06 late night): ALL FIVE ITEMS BUILT, device-feedback
-> rounds absorbed (S45–S51), ladder swept + adjusted, everything pushed
-> (fa742c8). Patrick device-tests iPad+iPhone in the morning — if good, the
-> tester build goes out and this milestone CLOSES.**
+> **✅ SHIPPED 2026-07-06: Patrick's morning device pass was good; the
+> TestFlight build went out and testers are receiving it. MILESTONE CLOSED.**
+> All five items + device-feedback rounds (S45–S51), ladder swept + adjusted.
+> Post-ship watch: tester reports on bot-rank feel (share codes self-diagnose
+> via knob stamps); queued-if-needed: 3k λ .31 half-step, 3k↔1d flatness.
+> Cross-platform reach parked as fp 31 (cloud-GPU web recommended first).
 
 ---
 
