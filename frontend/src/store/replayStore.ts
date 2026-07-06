@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getKataGoBridge } from '../api/nativeKataGo';
+import { getKataGoBridge, toGtp, fromGtp } from '../api/nativeKataGo';
 import { Game } from '../engine/Game';
 import { Board } from '../engine/Board';
 import { Color, BOARD_SIZE, type Point, type Stone } from '../engine/types';
@@ -47,6 +47,15 @@ interface ReplayState {
    *  overlay (§4a quick replay): 'game' reopens the live review, 'demo' the
    *  fixture review. Null = a normal replay, no back affordance. */
   returnToReview: 'game' | 'demo' | null;
+  /** "The good line" (S47, Patrick's device feedback): when the cursor sits
+   *  on a 'learn' highlight that was the PLAYER's move, on-device KataGo
+   *  analyzes the position BEFORE that move and this holds its top pick —
+   *  the board pulses it like a lesson hint. Null while analyzing / no
+   *  bridge (web) / KataGo agrees with the played move. */
+  betterMove: Point | null;
+  /** Analysis results per key move number (null = analyzed, nothing to
+   *  show). Cleared on loadGame; keeps scrubbing back to a key move free. */
+  _betterMoveCache: Record<number, Point | null>;
   /** Play-of-the-Game highlights for this game (empty if no score data). */
   highlights: ReviewHighlight[];
   /** Per-move score leads saved with the game — drives the replay score
@@ -80,6 +89,9 @@ interface ReplayState {
   /** §4a quick replay: jump to `from`, autoplay into `to`, stop there (the
    *  key-move note + graph dot are showing when the motion ends). */
   playSegment: (from: number, to: number) => void;
+  /** Kick off (or serve from cache) the better-move analysis for the move
+   *  the cursor just landed on. Internal — goToMove calls it. */
+  _maybeAnalyzeBetterMove: (moveNum: number) => void;
   goToMove: (n: number) => void;
   nextMove: () => void;
   prevMove: () => void;
@@ -213,6 +225,8 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   _autoPlayTimer: null,
   _autoPlayStopAt: null,
   returnToReview: null,
+  betterMove: null,
+  _betterMoveCache: {},
   highlights: [],
   scoreHistory: [],
   libraryId: null,
@@ -263,6 +277,8 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
       _autoPlayTimer: null,
       _autoPlayStopAt: null,
       returnToReview: meta?.returnToReview ?? null,
+      betterMove: null,
+      _betterMoveCache: {},
       highlights,
       scoreHistory: meta?.scoreHistory ?? [],
       libraryId: meta?.libraryId ?? null,
@@ -278,6 +294,86 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
     get().goToMove(Math.max(0, from));
     get().toggleAutoPlay();
     set({ _autoPlayStopAt: to });
+  },
+
+  _maybeAnalyzeBetterMove: (moveNum: number) => {
+    const { highlights, playerColor, sgf, boardSize, _betterMoveCache } = get();
+    const clear = () => { if (get().betterMove) set({ betterMove: null }); };
+
+    // Only player mistakes get the hint — 'learn' swings on the BOT's move
+    // ("the bot captured...") have no "you should have played" to show.
+    const h = highlights.find((x) => x.moveNumber === moveNum && x.kind === 'learn');
+    if (!h) return clear();
+    if (moveNum in _betterMoveCache) {
+      const cached = _betterMoveCache[moveNum];
+      if (get().betterMove !== cached) set({ betterMove: cached });
+      return;
+    }
+    const bridge = getKataGoBridge();
+    if (!bridge) return clear(); // web: no on-device engine, no hint
+
+    let game: Game;
+    try {
+      game = Game.fromSGF(sgf);
+    } catch {
+      return clear();
+    }
+    const mv = game.moveHistory[moveNum - 1];
+    const pc = playerColor === 'white' ? Color.White : Color.Black;
+    if (!mv?.point || mv.color !== pc) {
+      set({ _betterMoveCache: { ...get()._betterMoveCache, [moveNum]: null } });
+      return clear();
+    }
+
+    // Position BEFORE the mistake: handicap setup + moves 1..moveNum-1,
+    // real history so KataGo tracks ko (same lesson as the live path).
+    const moves: Array<{ color: 'B' | 'W'; point: string }> = [];
+    for (const p of game.handicapStones) {
+      moves.push({ color: 'B', point: toGtp(p, boardSize) });
+    }
+    for (let i = 0; i < moveNum - 1; i++) {
+      const m = game.moveHistory[i];
+      moves.push({
+        color: m.color === Color.Black ? 'B' : 'W',
+        point: m.point ? toGtp(m.point, boardSize) : 'pass',
+      });
+    }
+
+    clear(); // nothing shown while the analysis runs
+    bridge
+      .analyze({
+        boardSize,
+        komi: game.komi,
+        rules: 'japanese',
+        moves,
+        color: pc === Color.Black ? 'B' : 'W',
+        // Hint quality beats latency here a bit less than in finish mode —
+        // 100 visits reads clean lines without a multi-second stall.
+        maxVisits: 100,
+      })
+      .then((result) => {
+        let best: Point | null = null;
+        for (const c of result.candidates ?? []) {
+          const decoded = fromGtp(c.move, boardSize);
+          if (decoded === 'pass' || decoded === 'resign') continue;
+          best = decoded;
+          break;
+        }
+        // KataGo agreeing with the played move means there's no better
+        // spot to point at — don't star the mistake itself.
+        if (best && mv.point && best.row === mv.point.row && best.col === mv.point.col) {
+          best = null;
+        }
+        set({ _betterMoveCache: { ...get()._betterMoveCache, [moveNum]: best } });
+        // Only surface it if the cursor is still parked on this move.
+        if (get().active && get().currentMove === moveNum) {
+          set({ betterMove: best });
+        }
+      })
+      .catch(() => {
+        // Analysis failed (engine busy / bridge error) — leave uncached so
+        // revisiting the move retries.
+      });
   },
 
   nextHighlight: () => {
@@ -303,6 +399,10 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
     const clamped = Math.max(0, Math.min(n, totalMoves));
     const { grid, size, lastMove, territory, deadStones } = replayToMove(sgf, clamped, totalMoves);
     set({ currentMove: clamped, grid, lastMove, territory, deadStones, boardSize: size });
+
+    // Landed on a player-mistake key move → surface "the good line" (cached
+    // or via on-device analysis); anywhere else clears the star.
+    get()._maybeAnalyzeBetterMove(clamped);
 
     // At the final move, settle the score. Prefer the dead stones the LIVE game
     // already computed (saved with the game) — accurate and synchronous. Only
@@ -446,7 +546,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   close: () => {
     const timer = get()._autoPlayTimer;
     if (timer) clearTimeout(timer);
-    set({ active: false, autoPlaying: false, _autoPlayTimer: null, _autoPlayStopAt: null, returnToReview: null });
+    set({ active: false, autoPlaying: false, _autoPlayTimer: null, _autoPlayStopAt: null, returnToReview: null, betterMove: null });
   },
 }));
 

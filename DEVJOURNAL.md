@@ -1,5 +1,51 @@
 # Development Journal
 
+## Session 47 — July 5, 2026 (§4a device feedback: an unmissable way back + "the good line")
+
+**Patrick's first §4a device pass validated the attribution fix (his
+screenshot: a you-framed "This move backfired" on his own move 27) and
+returned two UX findings — both fixed same evening.**
+
+**1. The way back was invisible.** The "★ Highlights" button sat next to
+Close, styled identically to Close — Patrick missed it and got stuck.
+Now: when the replay is a highlights drill-down, the panel header's
+title slot becomes an iOS-style top-left back button — accent-filled,
+bold, **"← ★ Back to Highlights"** (`btn-primary` + `.replay-back-
+highlights`). "Game Replay" as a title carried nothing a kid needs; it
+only renders on plain replays. The layout suite's key-move state now
+mounts it (`returnToReview: 'demo'` in the dressing) and probes it
+strict — it fits every viewport including 393px phones.
+
+**2. "Clear what the bad play was, not what the good line was."** The
+deferred red-stone idea, now demanded by device reality — shipped as
+**the better-move star**: when the replay cursor lands on a 'learn'
+highlight that was the PLAYER's move, `replayStore._maybeAnalyzeBetterMove`
+asks the on-device bridge for the position BEFORE the mistake (real
+history from the replayed SGF — handicap stones + moves 1..n-1, real
+komi, japanese rules, 100 visits) and pulses KataGo's top pick on the
+board via the SAME golden two-ring glow lessons use (GoBoard's
+`highlights` pipeline — the "look here" language kids already know).
+The note gains a matching golden line: *"⭐ A better spot is glowing on
+the board — worth about N more points"* (N = |swing|, already in hand —
+no second eval needed). Design decisions: player mistakes only ('learn'
+swings on the bot's move have no "you should have played"); star hidden
+when KataGo agrees with the played move; results cached per move
+(scrubbing back is free); failures uncached (revisit retries);
+**web/no-bridge shows nothing** — the testers are on device, and the
+web fallback (a Render analyze endpoint) is cut-line. Retroactive on
+every saved game — no play-time capture needed, which also softens
+4b's premise.
+
+Tests 263 (better-move suite: analyzes the pre-mistake position, caches,
+clears off-move, hides on agreement, skips bot mistakes + web), layout
+11 green, build green. Verified in preview with an injected fake bridge
+(`window.kataGo` — it's re-read per call, so post-load injection works).
+
+**Watch on device:** the star's first render costs one 100-visit
+analysis (~1s-ish on iPad); it appears when ready rather than blocking
+the seek. If the wait feels dead, a "thinking…" shimmer on the note is
+the cheap next step.
+
 ## Session 46 — July 5, 2026 (DX4QAWTT: the territory net was passing mid-game)
 
 **Patrick's upload DX4QAWTT: the bot passed at moves 26/32/36/38 of an

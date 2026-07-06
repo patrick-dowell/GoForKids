@@ -201,9 +201,23 @@ Play-of-the-Game highlights become tappable: a highlight opens a quick replay sc
 > untouched. **Device-pass note: highlights will land one move earlier than
 > before, correctly on YOUR move, with you-framed headlines.**
 >
-> **Red-stone alternative-move overlay (show the better move on 'learn'
-> highlights via replay-time bridge analysis) discussed + deferred** —
-> Patrick tests the shipped version first, then decides if it's needed.
+> **DEVICE PASS ROUND 1 (2026-07-05): attribution fix validated on device**
+> (you-framed "This move backfired" on Patrick's own move). Two findings,
+> both fixed same evening (S47):
+> 1. **The way back was invisible** (Patrick missed ★ Highlights next to
+>    Close and got stuck) → the header title slot becomes an accent-filled
+>    iOS-style top-left **"← ★ Back to Highlights"** on drill-down replays.
+> 2. **"Clear what the bad play was, not what the good line was"** → the
+>    deferred red-stone shipped as the **better-move star**: on a player-
+>    mistake key move, on-device KataGo analyzes the position BEFORE the
+>    mistake (real history, 100 visits) and its top pick pulses on the
+>    board with the lesson-highlight glow + a golden note line ("⭐ A
+>    better spot is glowing on the board — worth about N more points").
+>    Player mistakes only; hidden when KataGo agrees with the move played;
+>    cached per move; retroactive on old games; web shows nothing (bridge-
+>    only — Render-analyze web fallback is cut-line). Detail: DEVJOURNAL S47.
+>
+> Closes on device pass round 2.
 
 ### 5. Replay upload — thin slice  ✅ CLOSED 2026-07-02 (Patrick's call after device validation + share test)
 Upload a finished game to the backend; get a shareable ID. Motivation: a friend wants to review games with Patrick, and it's the diagnostic channel for §2 (embedded selector logs) and §3 (bot-felt-wrong games become calibration evidence).

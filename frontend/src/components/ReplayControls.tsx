@@ -150,6 +150,12 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
   const hasHighlights = highlights.length > 0;
   const currentHighlight = highlights.find((h) => h.moveNumber === currentMove);
   const concept = currentHighlight?.conceptId ? getConcept(currentHighlight.conceptId) : undefined;
+  // "The good line" for the mistake under the cursor — a point on the board
+  // is pulsing when this is set (see replayStore._maybeAnalyzeBetterMove).
+  const betterMove = useReplayStore((s) => s.betterMove);
+  const betterPts = currentHighlight?.swing !== undefined
+    ? Math.max(1, Math.round(Math.abs(currentHighlight.swing)))
+    : null;
 
   // With score data, the score graph IS the scrubber (arc + key-move dots +
   // "Move N / M" header + drag-to-seek) — the panel has no vertical room for
@@ -162,18 +168,23 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
 
   return (
     <div className="replay-controls">
+      {/* When this replay is a drill-down from the highlights reel, the
+          header IS the way back: iOS-style back button top-left, accent-
+          colored so it can't be missed (Patrick's device pass: the old
+          Close-styled "★ Highlights" next to Close got overlooked). The
+          "Game Replay" title carries no information a kid needs — it yields
+          its slot to the back affordance. */}
       <div className="replay-header">
-        <h3>Game Replay</h3>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {returnToReview && (
-            <button onClick={backToHighlights} className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }}>
-              ★ Highlights
-            </button>
-          )}
-          <button onClick={onClose} className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }}>
-            Close
+        {returnToReview ? (
+          <button onClick={backToHighlights} className="btn btn-primary replay-back-highlights">
+            ← ★ Back to Highlights
           </button>
-        </div>
+        ) : (
+          <h3>Game Replay</h3>
+        )}
+        <button onClick={onClose} className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }}>
+          Close
+        </button>
       </div>
 
       {/* One line, not two — the replay panel fits the viewport with zero
@@ -248,6 +259,12 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
           }}
         >
           <div style={{ fontWeight: 600 }}>{currentHighlight.headline}</div>
+          {betterMove && (
+            <div className="replay-better-move" style={{ marginTop: 4, fontSize: 13 }}>
+              ⭐ A better spot is glowing on the board
+              {betterPts !== null ? ` — worth about ${betterPts} more point${betterPts === 1 ? '' : 's'}` : ''}.
+            </div>
+          )}
           {concept && (
             <div style={{ marginTop: 4, fontSize: 13, opacity: 0.9 }}>
               Learn: <ConceptLink id={concept.id} />

@@ -893,6 +893,23 @@ body {
   align-items: center;
 }
 
+/* The way back to the highlights reel when the replay is a §4a drill-down.
+   Accent-filled + bold so it reads as THE primary action in the panel —
+   Patrick's device pass missed the old Close-styled version entirely. */
+.replay-back-highlights {
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* "The good line" note row — golden to match the pulsing board hint it
+   points at (same 255,209,102 the lesson highlight glow uses). */
+.replay-better-move {
+  color: #ffd166;
+  font-weight: 600;
+}
+
 .replay-header h3 {
   font-size: 16px;
   font-weight: 600;

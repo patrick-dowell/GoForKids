@@ -334,6 +334,7 @@ export function GoBoard() {
   const replayCurrentMove = useReplayStore((s) => s.currentMove);
   const replayTerritory = useReplayStore((s) => s.territory);
   const replayDeadStones = useReplayStore((s) => s.deadStones);
+  const replayBetterMove = useReplayStore((s) => s.betterMove);
 
   // Learn (lesson) mode — takes precedence when active.
   const learnActive = useLearnStore((s) => s.active);
@@ -428,6 +429,11 @@ export function GoBoard() {
   //    (set after a part's auto-response fires) overrides the part highlight
   //    so we can point at newly-formed eye-regions.
   const highlights: Point[] = (() => {
+    // Replay: the "better spot" hint on a player-mistake key move reuses the
+    // lesson-highlight pulse — same visual language ("look here") the kid
+    // already knows from lessons. (S47, Patrick's device feedback: the
+    // review showed the bad play but not the good line.)
+    if (replayActive) return replayBetterMove ? [replayBetterMove] : [];
     if (!learnActive) return [];
     if (learnEyeHighlight && learnEyeHighlight.length > 0) return learnEyeHighlight;
     const lesson = LESSONS[learnLessonIndex];

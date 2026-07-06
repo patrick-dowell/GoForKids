@@ -257,13 +257,15 @@ test('replay on a key move: highlight note fits at every viewport', async ({ pag
         setState: (s: object) => void;
       };
     }).__replayStore;
-    store.setState({ gameResult: 'B+8.5', opponentRank: '15k', sharedId: 'DEMO1234' });
+    // returnToReview mounts the §4a back button — the widest header the
+    // panel ever shows (back + Close side by side on a 393px phone).
+    store.setState({ gameResult: 'B+8.5', opponentRank: '15k', sharedId: 'DEMO1234', returnToReview: 'demo' });
     const st = store.getState();
     st.goToMove(st.highlights[0].moveNumber);
   });
   await page.locator('.replay-highlight-note').waitFor();
   await sweep(page, 'replay-key-move', {
-    strict: ['.go-board-canvas', '.replay-controls', '.replay-highlight-note', 'btn:Download SGF'],
+    strict: ['.go-board-canvas', '.replay-controls', '.replay-highlight-note', 'btn:Download SGF', 'btn:← ★ Back to Highlights'],
     square: ['.go-board-canvas'],
   });
 });
