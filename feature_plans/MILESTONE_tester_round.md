@@ -5,6 +5,11 @@
 **Theme:** harden and polish the learning engine, then ship. **Validation > new features.**
 **Exit criteria:** the five remaining items below closed. Device validation is ongoing (Patrick + Roland validate items as they land, not as a separate end-gate — the original §7 checklist model worked and continues).
 
+> **SHIP STATE (2026-07-06 late night): ALL FIVE ITEMS BUILT, device-feedback
+> rounds absorbed (S45–S51), ladder swept + adjusted, everything pushed
+> (fa742c8). Patrick device-tests iPad+iPhone in the morning — if good, the
+> tester build goes out and this milestone CLOSES.**
+
 ---
 
 ## Done — original scope, closed 2026-07-02
