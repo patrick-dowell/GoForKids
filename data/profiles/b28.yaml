@@ -365,45 +365,36 @@ profiles:
       clarity_prior: 0.87
       clarity_score_gap: 15.0
     "9k":
-      # S44: measured ≈ human 9k column (48/21/13/17 vs 49/22/13/15,
-      # median 0.62 vs 0.51).
-      # S49 (2026-07-06): Patrick (2d) went 2-4 vs this rung EVEN over 6
-      # games — the 9k-6k gap had collapsed. First pass: rr .12→.10,
-      # temp 2.1→2.2, λ .25→.30 (ordering restored locally, 6k beat it
-      # 6/8). **Device game 5QDYHMFG then slaughtered Patrick (B+75) on
-      # the retuned profile** — measured 61% near-optimal moves, median
-      # loss 0.21 (human 9k: 49%, 0.51). Root cause is arithmetic, not
-      # pool content (pool probe: plenty of ≥2pt-losing candidates even
-      # at wrn 0.6): the b28 9×9 prior is so concentrated (top ~0.95-
-      # 0.98) that prior^(1/temp) stays ~75% argmax at temp 2.2, and
-      # λ=.30 only brings the top-move share down to ~0.6. sample_lapse
-      # is the dial that directly sets non-argmax mass: λ .30→.45
-      # (predicted top-move share ≈ .48 ≈ the human 9k column). Same
-      # λ-only precedent as the S44 round-2b 3k fix. 15k already runs
-      # λ.45 — which is why 15k's texture feels right and 9k's didn't.
-      # Rank identity vs 15k stays in rr (.10 vs .05), cap (5 vs 7),
-      # rmc (.05 vs .10). Ordering re-measured vs 12k + 6k, S49 log.
-      # + visits 16→12 (same session, Patrick's read confirmed by the
-      # numbers: "feels like the 6k bot with random mistakes thrown in"
-      # — λ only raises mistake FREQUENCY; the baseline between
-      # mistakes was still argmax-at-16-visits ≈ our 6k. Lower visits
-      # weakens the baseline itself, fights included. The rest of the
-      # ladder stays at visits 16 — watch ordering vs 12k on device.)
-      max_point_loss: 28.0
+      # S49c (2026-07-06): DERIVED FROM 12k, not from the old 9k lineage.
+      # Three weakening rounds of the S44 9k (rr/temp/λ, then visits 12 +
+      # λ.45) all still played far too strong against Patrick (2d) — see
+      # DEVJOURNAL S49/S49b and uploads 5QDYHMFG. Meanwhile he validated
+      # 12k by feel ("very beatable, with a touch of the 9k's strength",
+      # 3/4 wins). So the rung is now literally 12k's profile with ONE
+      # dial stronger: reading_rate .08→.10 (reads 1-in-10 moves instead
+      # of 1-in-12.5). Every other knob = 12k verbatim — notably cap 6
+      # and wrn .7, both of which the old 9k had STRONGER (cap 5 =
+      # smaller mistakes, wrn .6 = cleaner pool); that hidden strength
+      # is why "weakening" it never worked. Bounded below by a rung
+      # Patrick validated. Knob-history: 9x9_profile_archive.yaml.
+      # Prior-generation notes (dead dials, prior concentration ~0.95-
+      # 0.98 making policy_temp ineffective, λ = mistake frequency,
+      # visits = baseline level): DEVJOURNAL S49b.
+      max_point_loss: 26.0
       mistake_freq: 0.72
       policy_weight: 0.12
       randomness: 0.78
-      random_move_chance: 0.05
+      random_move_chance: 0.06
       local_bias: 0.0
       local_bias_in_opening: false
       local_bias_from_candidates: false
       reading_rate: 0.10
-      policy_temp: 2.2
-      wide_root_noise: 0.6
-      sample_lapse: 0.45
-      sample_loss_cap: 5.0
+      policy_temp: 2.3
+      wide_root_noise: 0.7
+      sample_lapse: 0.35
+      sample_loss_cap: 6.0
       first_line_chance: 0.0
-      visits: 12
+      visits: 16
       min_candidates: 10
       opening_moves: 3
       pass_threshold: 0.10

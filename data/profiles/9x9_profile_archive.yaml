@@ -148,3 +148,17 @@ archive:
       reading_rate: 0.10
       policy_temp: 2.2
       # other knobs unchanged (b28.yaml 9x9/9k)
+
+  s49c_9k_from12k:
+    description: >
+      S49c (2026-07-06): after three failed weakening rounds of the old
+      lineage (Patrick playtested each: "boulder still too hard"), the 9k
+      was rebased ON the validated 12k — 12k's profile verbatim with one
+      dial stronger (reading_rate .08→.10). Key insight from the diff:
+      the old 9k was HIDDEN-stronger than 12k on cap (5 vs 6 = smaller
+      mistakes) and wrn (.6 vs .7 = cleaner pool), so weakening
+      visits/λ/temp never touched what made it brutal. Bounded below by
+      a rung Patrick beats 3/4. No bot-vs-bot run (his instruction) —
+      acceptance = his playtest; automated sweep AFTER it feels right.
+    measured_rank: "12k + epsilon by construction; Patrick playtest pending"
+    knobs: "= b28.yaml 9x9/12k except reading_rate 0.10"
