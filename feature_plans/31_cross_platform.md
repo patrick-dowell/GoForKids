@@ -66,6 +66,11 @@ a second ladder to maintain. Keep as fallback if GPU cost is a blocker.
   all session. Always-on boxes ($220-450/mo) are the wrong shape for
   this traffic.
 
+## Implementation plan
+Step-by-step with estimates: **[31a_cloud_gpu_web.md](31a_cloud_gpu_web.md)**
+(≈5–8 working days total; step 0, the score-lead reuse fix, is worth
+doing independently of everything else).
+
 ## Decision inputs when revisiting
 - How many non-iOS users actually materialize (camp families, GO BASE)?
 - Monthly GPU cost vs. that demand; scale-to-zero acceptability.
