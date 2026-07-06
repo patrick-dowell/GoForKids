@@ -341,9 +341,40 @@ profiles:
       clarity_prior: 0.90
       clarity_score_gap: 18.0
     "12k":
-      # MEASURED ≈ human 12k column (43/26/19/12, median 0.74) in the
-      # candidate tournament. This is also the sampling mechanism's floor
-      # without random-move escalation.
+      # S50c (2026-07-06): re-seated. The old 12k profile moved up to the
+      # 9k seat (Patrick validated it there by feel); this rung is now the
+      # knob-midpoint of its neighbors 15k and (new) 9k. Untested at birth
+      # by design — Patrick device-tests before any automated runs.
+      max_point_loss: 27.0
+      mistake_freq: 0.74
+      policy_weight: 0.12
+      randomness: 0.78
+      random_move_chance: 0.08
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.065
+      policy_temp: 2.45
+      wide_root_noise: 0.7
+      sample_lapse: 0.40
+      sample_loss_cap: 6.5
+      first_line_chance: 0.0
+      visits: 16
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.10
+      clarity_prior: 0.885
+      clarity_score_gap: 16.5
+    "9k":
+      # S50c (2026-07-06, Patrick's call): the new Boulder = the old 12k
+      # profile VERBATIM. He beats that profile 3/4 and rates it "very
+      # beatable with a touch of 9k strength" — after a week of failed
+      # weakenings of the old 9k lineage (device-validated too strong every
+      # round: 5QDYHMFG, 2J77PPVC, N76NV5W6), the validated bot takes the
+      # 9k seat. 6k stays as the anchor above (gap size to be felt out).
+      # The sampler-v3 knobs (sample_min_loss, read_cooldown) are NOT used
+      # here — that mechanism lives in both selectors, dormant, for future
+      # texture work (its bot was consistent but sat below this profile).
       max_point_loss: 26.0
       mistake_freq: 0.72
       policy_weight: 0.12
@@ -357,44 +388,6 @@ profiles:
       wide_root_noise: 0.7
       sample_lapse: 0.35
       sample_loss_cap: 6.0
-      first_line_chance: 0.0
-      visits: 16
-      min_candidates: 10
-      opening_moves: 3
-      pass_threshold: 0.10
-      clarity_prior: 0.87
-      clarity_score_gap: 15.0
-    "9k":
-      # S49c (2026-07-06): DERIVED FROM 12k, not from the old 9k lineage.
-      # Three weakening rounds of the S44 9k (rr/temp/λ, then visits 12 +
-      # λ.45) all still played far too strong against Patrick (2d) — see
-      # DEVJOURNAL S49/S49b and uploads 5QDYHMFG. Meanwhile he validated
-      # 12k by feel ("very beatable, with a touch of the 9k's strength",
-      # 3/4 wins). So the rung is now literally 12k's profile with ONE
-      # dial stronger: reading_rate .08→.10 (reads 1-in-10 moves instead
-      # of 1-in-12.5). Every other knob = 12k verbatim — notably cap 6
-      # and wrn .7, both of which the old 9k had STRONGER (cap 5 =
-      # smaller mistakes, wrn .6 = cleaner pool); that hidden strength
-      # is why "weakening" it never worked. Bounded below by a rung
-      # Patrick validated. Knob-history: 9x9_profile_archive.yaml.
-      # Prior-generation notes (dead dials, prior concentration ~0.95-
-      # 0.98 making policy_temp ineffective, λ = mistake frequency,
-      # visits = baseline level): DEVJOURNAL S49b.
-      max_point_loss: 26.0
-      mistake_freq: 0.72
-      policy_weight: 0.12
-      randomness: 0.78
-      random_move_chance: 0.06
-      local_bias: 0.0
-      local_bias_in_opening: false
-      local_bias_from_candidates: false
-      reading_rate: 0.10
-      policy_temp: 2.3
-      wide_root_noise: 0.7
-      sample_lapse: 0.10
-      sample_loss_cap: 6.0
-      sample_min_loss: 0.5
-      read_cooldown: 2
       first_line_chance: 0.0
       visits: 16
       min_candidates: 10
