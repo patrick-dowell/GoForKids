@@ -67,6 +67,8 @@ OPTIONAL_KEYS: dict[str, type] = {
     "wide_root_noise": float,
     "sample_lapse": float,
     "sample_loss_cap": float,
+    "sample_min_loss": float,
+    "read_cooldown": float,
     "save_atari_chance": float,
     "capture_chance": float,
     "use_katago": bool,

@@ -491,7 +491,18 @@ export function pickLegalNonEyeMove(
   return null;
 }
 
-function selectWithKataGo(
+/** Read-streak state (S50): moves remaining on which the bot may NOT take
+ *  the reading path, keyed by color (bot-vs-bot runs two bots through this
+ *  module). Set to `profile.read_cooldown` after every read move — a weak
+ *  player doesn't produce several engine-quality moves in a row. Carrying a
+ *  ≤2 counter across games is harmless. Exported reset is for tests. */
+const _readCooldown: Partial<Record<Stone, number>> = {};
+export function _resetReadCooldowns(): void {
+  delete _readCooldown[Color.Black];
+  delete _readCooldown[Color.White];
+}
+
+export function selectWithKataGo(
   board: Board,
   color: Stone,
   profile: RankProfile,
@@ -623,25 +634,44 @@ function selectWithKataGo(
     c.move.row >= 0 &&
     !isEyeFill(board, color, { row: c.move.row, col: c.move.col });
 
-  if (profile.reading_rate !== undefined && Math.random() >= profile.reading_rate) {
-    let pool = candidates.filter(playable);
-    // Sampling loss cap (sampler v2): drop candidates more than
-    // sample_loss_cap points below the pool's best. Un-capped sampling
-    // turned sharp positions into coin flips — perfect play until one
-    // game-ending collapse ("blunders its way into a loss", Patrick's 15k
-    // read). Capped, a miss costs a few points; big blunders stay the
-    // explicit job of random_move_chance.
-    const cap = profile.sample_loss_cap;
-    if (cap !== undefined && pool.length > 1) {
-      const ref = pool[0].scoreLead; // pool keeps KataGo order: [0] = mover-best playable
-      const capped = pool.filter((c) => Math.abs(ref - c.scoreLead) <= cap);
-      if (capped.length > 0) pool = capped;
+  if (profile.reading_rate !== undefined) {
+    // Read-streak cap (S50): a read move arms the cooldown; while it's hot
+    // the bot MUST sample — no back-to-back engine-quality moves.
+    const cooldown = _readCooldown[color] ?? 0;
+    const reads = cooldown === 0 && Math.random() < profile.reading_rate;
+    if (cooldown > 0) _readCooldown[color] = cooldown - 1;
+    if (reads) {
+      _readCooldown[color] = profile.read_cooldown ?? 0;
+      // Fall through to the reading path below.
+    } else {
+      let pool = candidates.filter(playable);
+      // Sampling loss band (sampler v2 cap + v3 floor): a sampled move may
+      // lose at most sample_loss_cap points (no game-ending collapses) and
+      // must lose at least sample_min_loss (never accidentally perfect —
+      // the b28 policy is dan-level on 9×9, so without the floor roughly
+      // half the "shape intuition" moves landed on the engine's top pick
+      // and the bot out-read every weakening knob; S50, from Patrick's
+      // uploads 2J77PPVC/N76NV5W6). Floor yields if it would empty the
+      // pool (e.g. forced positions where every candidate is near-equal).
+      if (pool.length > 1) {
+        const ref = pool[0].scoreLead; // pool keeps KataGo order: [0] = mover-best playable
+        const cap = profile.sample_loss_cap;
+        if (cap !== undefined) {
+          const capped = pool.filter((c) => Math.abs(ref - c.scoreLead) <= cap);
+          if (capped.length > 0) pool = capped;
+        }
+        const floor = profile.sample_min_loss;
+        if (floor !== undefined) {
+          const banded = pool.filter((c) => Math.abs(ref - c.scoreLead) >= floor);
+          if (banded.length > 0) pool = banded;
+        }
+      }
+      if (pool.length > 0) {
+        const sel = sampleByPrior(pool, profile.policy_temp ?? 1.0, profile.sample_lapse ?? 0);
+        return { row: sel.move.row, col: sel.move.col };
+      }
+      // Nothing samplable — fall through to the reading path.
     }
-    if (pool.length > 0) {
-      const sel = sampleByPrior(pool, profile.policy_temp ?? 1.0, profile.sample_lapse ?? 0);
-      return { row: sel.move.row, col: sel.move.col };
-    }
-    // Nothing samplable — fall through to the reading path.
   }
 
   // --- Tactical clarity gate ---

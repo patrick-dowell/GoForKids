@@ -393,8 +393,10 @@ profiles:
       wide_root_noise: 0.7
       sample_lapse: 0.10
       sample_loss_cap: 6.0
+      sample_min_loss: 0.5
+      read_cooldown: 2
       first_line_chance: 0.0
-      visits: 8
+      visits: 16
       min_candidates: 10
       opening_moves: 3
       pass_threshold: 0.10

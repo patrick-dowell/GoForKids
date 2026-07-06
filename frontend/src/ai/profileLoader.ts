@@ -59,6 +59,16 @@ export interface RankProfile {
    *  sharp-position coin-flip collapses; big blunders stay the job of
    *  random_move_chance. Sampler v2, 2026-07-05. */
   sample_loss_cap?: number;
+  /** Min points below the pool's best a sampled move MUST be — unread moves
+   *  are mildly imperfect BY CONSTRUCTION, never accidentally perfect. The
+   *  b28 policy is dan-level on 9×9, so prior-sampling lands on the top
+   *  move ~half the time without this; that free perfection was the floor
+   *  every weakening attempt hit. Sampler v3 (S50, 2026-07-06). */
+  sample_min_loss?: number;
+  /** After a READ (engine-guided) move, force this many following moves
+   *  onto the sampled path — a weak player doesn't produce several great
+   *  moves in a row (Patrick's streak observation, S50). */
+  read_cooldown?: number;
   /** KataGo wideRootNoise override for move-selection analyses — widens the
    *  candidate pool with real (scored) weaker moves. */
   wide_root_noise?: number;

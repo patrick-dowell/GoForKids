@@ -85,6 +85,13 @@ from app.ai.profile_loader import get_profile
 
 logger = logging.getLogger(__name__)
 
+# Read-streak state (S50): moves remaining on which the bot may NOT take the
+# reading path, keyed by color (bot-vs-bot runs two bots through this module).
+# Set to profile["read_cooldown"] after every read move — a weak player
+# doesn't produce several engine-quality moves in a row. Carrying a ≤2
+# counter across games is harmless. Mirrors the TS selector's _readCooldown.
+_READ_COOLDOWN: dict = {}
+
 # Bot tuning parameters used to live as RANK_PROFILES_* dicts here. They now
 # live in data/profiles/*.yaml and are loaded via profile_loader.get_profile().
 # Tuning rationale per profile lives in AI_CALIBRATION.md.
@@ -641,24 +648,43 @@ async def _select_with_katago(
             return not _is_eye_fill(board, color, Point(c.move[0], c.move[1]))
 
         reading_rate = profile.get("reading_rate")
-        if reading_rate is not None and random.random() >= reading_rate:
-            pool = [c for c in analysis.candidates if _playable(c)]
-            # Sampling loss cap (sampler v2): drop candidates more than
-            # sample_loss_cap points below the pool's best — a miss costs a
-            # few points, not the game; big blunders stay the explicit job
-            # of random_move_chance. Mirrors the TS selector.
-            cap = profile.get("sample_loss_cap")
-            if cap is not None and len(pool) > 1:
-                ref = pool[0].score_lead  # pool keeps KataGo order: [0] = mover-best playable
-                capped = [c for c in pool if abs(ref - c.score_lead) <= cap]
-                if capped:
-                    pool = capped
-            if pool:
-                sel = _sample_by_prior(
-                    pool, profile.get("policy_temp", 1.0), profile.get("sample_lapse", 0.0)
-                )
-                return Point(sel.move[0], sel.move[1])
-            # Nothing samplable — fall through to the reading path.
+        if reading_rate is not None:
+            # Read-streak cap (S50): a read move arms the cooldown; while
+            # it's hot the bot MUST sample — no back-to-back engine-quality
+            # moves. Mirrors the TS selector.
+            cooldown = _READ_COOLDOWN.get(color, 0)
+            reads = cooldown == 0 and random.random() < reading_rate
+            if cooldown > 0:
+                _READ_COOLDOWN[color] = cooldown - 1
+            if reads:
+                _READ_COOLDOWN[color] = int(profile.get("read_cooldown", 0))
+                # Fall through to the reading path below.
+            else:
+                pool = [c for c in analysis.candidates if _playable(c)]
+                # Sampling loss band (sampler v2 cap + v3 floor): a sampled
+                # move loses at most sample_loss_cap points AND at least
+                # sample_min_loss — never accidentally perfect (the b28
+                # policy is dan-level on 9×9; without the floor ~half the
+                # sampled moves landed on the engine's top pick — S50).
+                # Floor yields if it would empty the pool.
+                if len(pool) > 1:
+                    ref = pool[0].score_lead  # pool keeps KataGo order: [0] = mover-best playable
+                    cap = profile.get("sample_loss_cap")
+                    if cap is not None:
+                        capped = [c for c in pool if abs(ref - c.score_lead) <= cap]
+                        if capped:
+                            pool = capped
+                    floor = profile.get("sample_min_loss")
+                    if floor is not None:
+                        banded = [c for c in pool if abs(ref - c.score_lead) >= floor]
+                        if banded:
+                            pool = banded
+                if pool:
+                    sel = _sample_by_prior(
+                        pool, profile.get("policy_temp", 1.0), profile.get("sample_lapse", 0.0)
+                    )
+                    return Point(sel.move[0], sel.move[1])
+                # Nothing samplable — fall through to the reading path.
 
         # --- Tactical clarity gate ---
         # If KataGo is clearly confident about one move, skip mistake
