@@ -58,7 +58,17 @@ setx STRICT_KATAGO 1
 
 (`STRICT_KATAGO` makes a misconfiguration fail with a clear error instead of silently falling back to a dumb built-in AI.)
 
-## 5. Start the backend
+## 5. Tune KataGo (one time)
+
+The first time KataGo runs on a machine, it spends several minutes tuning itself to your graphics card. Do that now, where you can watch the progress — otherwise it happens invisibly during your first game and looks like the bot froze:
+
+```powershell
+C:\katago\katago.exe benchmark -model "$HOME\GoForKids\backend\models\b28.bin.gz"
+```
+
+Let it run to completion. The result is cached, so this is a one-time wait.
+
+## 6. Start the backend
 
 In a new PowerShell window:
 
@@ -70,9 +80,9 @@ pip install -r requirements.txt  # first time only
 python -m uvicorn app.main:app --port 8000
 ```
 
-Leave the window open — it *is* the server. The first start can pause a few minutes while KataGo tunes itself to your graphics card; that's cached afterwards. http://localhost:8000/health should show a short line of text.
+Leave the window open — it *is* the server. http://localhost:8000/health should show a short line of text.
 
-## 6. Start the frontend
+## 7. Start the frontend
 
 In a second PowerShell window:
 
