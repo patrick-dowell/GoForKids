@@ -7,6 +7,7 @@ import { getKataGoBridge, toGtp } from '../api/nativeKataGo';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
 import { clearSelectorLog, recordSelectorLog, snapshotSelectorLog } from '../ai/selectorLog';
+import { getProfile } from '../ai/profileLoader';
 import { useAutoPlayStore } from './autoPlayStore';
 import { BOT_AVATARS, type PlayerAvatarType, type BotAvatarType } from '../components/Avatar';
 
@@ -614,10 +615,23 @@ export const useGameStore = create<GameState>((set, get) => ({
     // and records whether the native bridge was live (bridge=no ⇒ this game's
     // bot ran server-side; its selector diagnostics are in Render logs).
     clearSelectorLog();
+    // Profile stamp: which calibration the bundled b28.yaml actually carries
+    // for this game's rank. S49 lesson — profiles ship at BUILD time, so
+    // "did my rebuild pick up the retune?" must be answerable from an
+    // uploaded game alone, not from guessing at build timestamps.
+    let knobStamp = '';
+    try {
+      const p = getProfile(options?.targetRank ?? '15k', options?.boardSize ?? BOARD_SIZE);
+      knobStamp =
+        ` rr=${p.reading_rate ?? '-'} temp=${p.policy_temp ?? '-'} lapse=${p.sample_lapse ?? '-'}` +
+        ` mf=${p.mistake_freq ?? '-'}`;
+    } catch {
+      // Unknown rank/size (lessons, stubs) — header still logs without knobs.
+    }
     recordSelectorLog(
       `[game] start capture=v2 build=${__BUILD_TS__} size=${options?.boardSize ?? BOARD_SIZE} ` +
         `rank=${options?.targetRank ?? '15k'} mode=${options?.gameMode ?? 'ai'} ` +
-        `bridge=${getKataGoBridge() ? 'yes' : 'no'}`,
+        `bridge=${getKataGoBridge() ? 'yes' : 'no'}${knobStamp}`,
     );
 
     const gameMode = options?.gameMode ?? 'ai';
