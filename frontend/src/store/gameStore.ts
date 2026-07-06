@@ -624,7 +624,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const p = getProfile(options?.targetRank ?? '15k', options?.boardSize ?? BOARD_SIZE);
       knobStamp =
         ` rr=${p.reading_rate ?? '-'} temp=${p.policy_temp ?? '-'} lapse=${p.sample_lapse ?? '-'}` +
-        ` mf=${p.mistake_freq ?? '-'}`;
+        ` mf=${p.mistake_freq ?? '-'} v=${p.visits ?? '-'}`;
     } catch {
       // Unknown rank/size (lessons, stubs) — header still logs without knobs.
     }
