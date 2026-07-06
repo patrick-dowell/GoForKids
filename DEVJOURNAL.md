@@ -1,5 +1,32 @@
 # Development Journal
 
+## Session 51 — July 6, 2026 (the full-ladder X-ray + ship prep)
+
+**Patrick's felt verdicts on the S50c re-seat: 9k about right, 6k
+noticeably stronger, 12k weak-unsure.** Then his call: the full sweep —
+every 9×9 pair within 6 kyu (11 pairs), even + handicapped, 88 games +
+per-rung histograms from the even games (~2h background run; report:
+data/calibration_logs_b28/9x9_ladder_sweep_s51.md).
+
+**Findings:** macro-ordering correct (all five 6-kyu skip pairs right,
+3/4-4/4); H2 mildly over-compensates 3-kyu gaps (≈13-15 pts vs the
+~10.5 target — bridging math sane); per-move medians nearly FLAT across
+18k-6k (0.42-0.65) — rungs differ by mistake TIMING, which matches and
+felt-play measure and marginals can't (the S50 lesson, now visible
+ladder-wide). Two soft spots, both matching Patrick's feel: 15k↔12k flat
+(1/4 +0.2) and a 6k→3k cliff (+40.8) with 3k seated rich (60% near-opt,
+med 0.25 — tightest bot on the board).
+
+**Nudges (Patrick's call) + re-test of ONLY the affected pairs:** 12k
+quarter-step up (rr .065→.072, λ .40→.375) → 12k separated from 15k
+(2/4 +18.5) and stayed under 9k (0/4 -13.8) ✓. 3k down a notch (λ
+.28→.35, the S44-2b dial) → the cliff collapsed to flat-ish (2/4 -3.0);
+λ is steep on this rung; accepted for the tester round (nobody lives
+above 6k), λ .31 queued if a strong tester surfaces it.
+
+**Ship state: Patrick feels good about the ladder; his final call
+pending one more device pass on the adjusted 12k.**
+
 ## Session 50 — July 6, 2026 (the policy ceiling, sampler v3, and Patrick re-seats the ladder)
 
 **The night the 9k saga resolved — by discovering the problem was never

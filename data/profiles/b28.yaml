@@ -353,10 +353,10 @@ profiles:
       local_bias: 0.0
       local_bias_in_opening: false
       local_bias_from_candidates: false
-      reading_rate: 0.065
+      reading_rate: 0.072
       policy_temp: 2.45
       wide_root_noise: 0.7
-      sample_lapse: 0.40
+      sample_lapse: 0.375
       sample_loss_cap: 6.5
       first_line_chance: 0.0
       visits: 16
@@ -433,7 +433,7 @@ profiles:
       reading_rate: 0.24
       policy_temp: 1.7
       wide_root_noise: 0.55
-      sample_lapse: 0.28
+      sample_lapse: 0.35
       sample_loss_cap: 4.0
       first_line_chance: 0.0
       visits: 16
