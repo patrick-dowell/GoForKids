@@ -33,10 +33,43 @@ sample_loss_cap, visits, wrn untouched.
   system python lacks aiosqlite, env quirk, not a failure).
 
 Artifacts: battle log "Run — S49" in 9x9_s38-s42_bot_battles.md; lineage
-`s49_9k_rr10_t22_l30` in 9x9_profile_archive.yaml. **Closes on Patrick's
-device pass (needs the Xcode rebuild that's pending anyway for S47-48).**
-If 9k still feels hot, the next step on the same dials is rr .08-.09 /
-λ .33 — but resist iterating on bot-vs-bot noise alone (S39 lesson).
+`s49_9k_rr10_t22_l30` in 9x9_profile_archive.yaml. ~~Closes on Patrick's
+device pass.~~ **SUPERSEDED same night — see the S49b addendum below.**
+
+### S49b addendum — 5QDYHMFG: the retune wasn't enough, and the math says why
+
+**Patrick rebuilt (19:43, confirmed by build stamp) and the RETUNED 9k
+slaughtered him B+75 (upload 5QDYHMFG).** Post-mortem, three steps:
+
+1. **Measured the game:** the bot played 61% near-optimal moves, median
+   loss 0.21 (human 9k: 49%/0.51). Patrick's words: *"feels like the 6k
+   bot with a few random mistakes thrown in — if the randomness doesn't
+   trigger, it plays extremely well."* Exactly the distribution.
+2. **Pool probe (new tool, scratch: pool_probe.py pattern) killed the
+   pool-starvation theory:** on the game's own mid-game positions, even
+   wrn 0.6 pools average 7.4 candidates with ~5 losing ≥0.5pt (median
+   worst 17.5pts). The bad moves were IN the pool — the bot never picked
+   them. **The math: b28's 9×9 top-move prior runs 0.94-0.98, so
+   prior^(1/temp) stays ~75% argmax at temp 2.2 — policy_temp is a
+   nearly dead dial at these priors.** λ .30 only brought the top-move
+   share down to ~0.6 = the observed 61%.
+3. **λ alone can't fix Patrick's complaint either** — it raises mistake
+   FREQUENCY, but the baseline between mistakes stays argmax-at-16-
+   visits ≈ our 6k (and S39 already measured uniform-over-pool as
+   strong). The baseline dial is **visits**.
+
+**Final (talked through with Patrick, his call to try it): 9k visits
+16→12 + λ .30→.45**, temp/rr/cap/rmc unchanged. Distribution check
+landed ON the human column: near-opt 48% / median 0.59 (human 49%/0.51),
+and 3/4 quick losses to the 6k anchor. **12k explicitly untouched** —
+Patrick beats it 3/4 and it feels right; his play is the acceptance
+instrument (both local instruments passed profiles his games refuted,
+twice). New process artifacts: the game-start log now stamps profile
+knobs incl. visits (`rr= temp= lapse= mf= v=`), so any uploaded game
+names the exact calibration it played; the ~2-min distribution check
+(analyze_9x9_losses.py on a few quick games) replaces 8-game bot-vs-bot
+cells as the pre-handoff gate. Closes on Patrick's local build feel;
+watch 9k-vs-12k ordering (12k keeps visits 16).
 
 ## Session 48 — July 5, 2026 (the note earns its 4th line)
 

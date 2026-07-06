@@ -123,9 +123,28 @@ archive:
       avg W-margin -3.0); retuned lost 6/8 to 6k (median +7 W, mean skewed
       by two lapse blowouts) and still beat 12k 5/8 +18.1. Full log:
       calibration_logs_b28/9x9_s38-s42_bot_battles.md "Run - S49".
-    measured_rank: "between 12k and 6k (ordering restored); Patrick device pass pending"
+    measured_rank: "SUPERSEDED same night by s49b_9k_v12_l45 — slaughtered Patrick B+75 (5QDYHMFG); 61% near-opt / median 0.21"
     knobs:
       reading_rate: 0.10
       policy_temp: 2.2
       sample_lapse: 0.30
       # other knobs unchanged from the S44 9k (b28.yaml 9x9/9k)
+
+  s49b_9k_v12_l45:
+    description: >
+      S49b (2026-07-06): production 9k after the 5QDYHMFG post-mortem.
+      Two structural findings: (a) b28 9x9 top priors ~0.95-0.98 make
+      policy_temp a dead dial (prior^(1/2.2) stays ~75% argmax) — λ is
+      the knob that sets non-argmax mass directly; (b) λ only raises
+      mistake frequency — the baseline between mistakes was
+      argmax-at-16-visits ≈ the 6k ("feels like the 6k bot with random
+      mistakes thrown in" — Patrick). visits is the baseline dial.
+      Distribution check: near-opt 48% / median 0.59 = ON the human 9k
+      column (49%/0.51); 3/4 quick losses to the 6k anchor.
+    measured_rank: "distribution = human 9k column; Patrick local-build feel pending"
+    knobs:
+      visits: 12
+      sample_lapse: 0.45
+      reading_rate: 0.10
+      policy_temp: 2.2
+      # other knobs unchanged (b28.yaml 9x9/9k)
