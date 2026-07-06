@@ -144,7 +144,9 @@ def _load_from_path(path: Path) -> dict[int, dict[str, dict]]:
     if not path.exists():
         raise FileNotFoundError(f"profile YAML not found: {path}")
 
-    with path.open("r") as f:
+    # Explicit encoding: Windows defaults text mode to cp1252, which chokes
+    # on the UTF-8 punctuation in the YAML comments.
+    with path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     if not isinstance(data, dict) or "profiles" not in data:

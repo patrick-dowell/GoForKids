@@ -106,6 +106,7 @@ class KataGoEngine:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            encoding="utf-8",  # text=True alone uses cp1252 on Windows
             bufsize=1,
         )
 
