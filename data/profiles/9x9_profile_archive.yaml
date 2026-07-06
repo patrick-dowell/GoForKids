@@ -111,3 +111,21 @@ archive:
   #   - pre-S38 machinery 15k/9k (visits 5/9): pool too narrow for the
   #     mistake machinery to matter even on the JSON path; and on-device
   #     the parser bug made all of it moot anyway.
+
+  s49_9k_rr10_t22_l30:
+    description: >
+      S49 (2026-07-06): the production 9k after Patrick's even-game report
+      (2d went 2-4 vs the S44 9k — game-level strength ran ~6k despite the
+      per-move median matching the human 9k column). Weakened via OVERALL
+      level per Patrick's call — reading_rate .12->.10, policy_temp
+      2.1->2.2, sample_lapse .25->.30; blunder freq/magnitude untouched.
+      Validation: baseline 9k v 6k was INVERTED locally too (9k won 5/8,
+      avg W-margin -3.0); retuned lost 6/8 to 6k (median +7 W, mean skewed
+      by two lapse blowouts) and still beat 12k 5/8 +18.1. Full log:
+      calibration_logs_b28/9x9_s38-s42_bot_battles.md "Run - S49".
+    measured_rank: "between 12k and 6k (ordering restored); Patrick device pass pending"
+    knobs:
+      reading_rate: 0.10
+      policy_temp: 2.2
+      sample_lapse: 0.30
+      # other knobs unchanged from the S44 9k (b28.yaml 9x9/9k)

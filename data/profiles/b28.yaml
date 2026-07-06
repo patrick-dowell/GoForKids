@@ -365,9 +365,17 @@ profiles:
       clarity_prior: 0.87
       clarity_score_gap: 15.0
     "9k":
-      # MEASURED = human 9k column almost exactly (48/21/13/17 vs
-      # 49/22/13/15, median 0.62 vs 0.51) + Patrick's feel agreed. The
-      # anchor rung of the whole ladder.
+      # S44: measured ≈ human 9k column (48/21/13/17 vs 49/22/13/15,
+      # median 0.62 vs 0.51).
+      # S49 (2026-07-06): Patrick (2d) went 2-4 vs this rung EVEN over 6
+      # games — the 9k-6k gap had collapsed (a 2d should win ~always;
+      # per-move medians can match the human column while game-level
+      # strength runs hot). Per his call, weakened via OVERALL level —
+      # read less, sample noisier, miss more vital points — NOT blunder
+      # freq/magnitude: reading_rate .12→.10, policy_temp 2.1→2.2,
+      # sample_lapse .25→.30. Every value stays strictly inside the
+      # 12k↔6k bracket. Validation: bot-vs-bot vs the 6k anchor +
+      # loss histogram, S49 log.
       max_point_loss: 28.0
       mistake_freq: 0.72
       policy_weight: 0.12
@@ -376,10 +384,10 @@ profiles:
       local_bias: 0.0
       local_bias_in_opening: false
       local_bias_from_candidates: false
-      reading_rate: 0.12
-      policy_temp: 2.1
+      reading_rate: 0.10
+      policy_temp: 2.2
       wide_root_noise: 0.6
-      sample_lapse: 0.25
+      sample_lapse: 0.30
       sample_loss_cap: 5.0
       first_line_chance: 0.0
       visits: 16

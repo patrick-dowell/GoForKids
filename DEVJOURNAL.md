@@ -1,5 +1,43 @@
 # Development Journal
 
+## Session 49 — July 6, 2026 (the 9k-6k inversion: Patrick's even games catch what the histogram couldn't)
+
+**Patrick (2d) played the 9k even, 6 games: won 2, lost 4.** A 2d should
+beat a true 9k essentially always — the 9k-6k gap had collapsed. His
+prescription (same as the 15k/12k class): weaken the OVERALL level of
+play, don't touch blunder probability or magnitude.
+
+**Local reproduction was even starker: the ladder was INVERTED at that
+pair.** Baseline 8-game cell (komi 5.5, weaker side Black, fresh :8200
+b28 backend): **the S44 9k beat the frozen 6k anchor 5/8** (avg W-margin
+−3.0). Notable because the S44 campaign measured this 9k ON the human 9k
+histogram column — per-move medians can sit on the right column while
+game-level strength runs ~3 ranks hot. The mistake TEXTURE was right;
+there wasn't enough total damage per game. Patrick's even-game record is
+the instrument that catches this class; the histogram alone can't.
+
+**Retune (b28.yaml 9×9/9k, data-only, both selectors):** reading_rate
+.12→.10, policy_temp 2.1→2.2, sample_lapse .25→.30 — every value strictly
+inside the 12k↔6k bracket; random_move_chance, max_point_loss,
+sample_loss_cap, visits, wrn untouched.
+
+**Validation (both instruments, S49 battle-log run):**
+- **Ordering restored:** retuned 9k loses to 6k 6/8 (median W+7; mean
+  −5.8 skewed by two lapse-variance blowouts — the S44 "8-game cells are
+  ordering-sanity only" caveat applies) and still beats 12k 5/8 +18.1.
+- **Loss histogram (9k's moves, 8 games each side of the retune):** mean
+  loss 1.24→1.45 (+17%), concentrated in the middle game (phase curve
+  +1.46→+1.94) — exactly where sample_lapse bites; medium-mistake share
+  13%→17%; blunder rate flat (5%→6%, magnitude knobs untouched ✓).
+- Frontend 25 files / backend 40 tests green (backend via ./venv —
+  system python lacks aiosqlite, env quirk, not a failure).
+
+Artifacts: battle log "Run — S49" in 9x9_s38-s42_bot_battles.md; lineage
+`s49_9k_rr10_t22_l30` in 9x9_profile_archive.yaml. **Closes on Patrick's
+device pass (needs the Xcode rebuild that's pending anyway for S47-48).**
+If 9k still feels hot, the next step on the same dials is rr .08-.09 /
+λ .33 — but resist iterating on bot-vs-bot noise alone (S39 lesson).
+
 ## Session 48 — July 5, 2026 (the note earns its 4th line)
 
 **Patrick's device verdict on S47: "the new feature is really good" —

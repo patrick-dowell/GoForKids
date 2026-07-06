@@ -584,3 +584,45 @@ handicap sets: stronger side wins 64% (want: ~50% if 3.5pts/rank is right)
   15k v 12k [even k=6.5] game 1: white+53.5 (37s)
   15k v 12k [even k=6.5] game 2: black+14.5 (31s)
 ```
+
+## Run — S49 9k retune (2026-07-06)
+Trigger: Patrick (2d) went 2-4 vs 9k EVEN on device — the 9k-6k gap had
+collapsed. Fix per his call: overall level down (reading_rate .12→.10,
+policy_temp 2.1→2.2, sample_lapse .25→.30), blunder freq/magnitude
+untouched. Komi 5.5, weaker side Black, backend :8200 b28.
+
+Baseline (pre-retune) — INVERTED, corroborates the device result:
+```
+  9k v 6k game 1: black+39.5 (25s)
+  9k v 6k game 2: black+10.5 (24s)
+  9k v 6k game 3: black+3.5 (17s)
+  9k v 6k game 4: white+5.5 (17s)
+  9k v 6k game 5: black+0.5 (20s)
+  9k v 6k game 6: white+30.5 (21s)
+  9k v 6k game 7: white+40.5 (22s)
+  9k v 6k game 8: black+46.5 (20s)
+== 9k v 6k: stronger side (W) 3/8 avg W-margin -3.0
+```
+
+Retuned:
+```
+  9k v 6k game 1: white+0.5 (22s)
+  9k v 6k game 2: black+75.5 (22s)
+  9k v 6k game 3: black+32.5 (26s)
+  9k v 6k game 4: white+17.5 (24s)
+  9k v 6k game 5: white+17.5 (23s)
+  9k v 6k game 6: white+12.5 (23s)
+  9k v 6k game 7: white+7.5 (18s)
+  9k v 6k game 8: white+6.5 (22s)
+== 9k v 6k: stronger side (W) 6/8 avg W-margin -5.8 (median +7 — two
+   lapse-variance blowouts drag the mean; ordering is the signal)
+  12k v 9k game 1: black+1.5 (17s)
+  12k v 9k game 2: white+53.5 (24s)
+  12k v 9k game 3: white+14.5 (21s)
+  12k v 9k game 4: white+35.5 (27s)
+  12k v 9k game 5: black+19.5 (27s)
+  12k v 9k game 6: white+66.5 (33s)
+  12k v 9k game 7: black+23.5 (30s)
+  12k v 9k game 8: white+19.5 (33s)
+== 12k v 9k: stronger side (W) 5/8 avg W-margin +18.1 (ordering holds)
+```
