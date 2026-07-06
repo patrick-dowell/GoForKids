@@ -38,6 +38,8 @@ A Go (board game) teaching app built kid-first — but with enough depth for ret
 
 ## Setup
 
+Setting up on Windows? Follow [WINDOWS_SETUP.md](WINDOWS_SETUP.md) instead — the steps below assume macOS.
+
 ### Prerequisites
 
 - Node.js 20+
