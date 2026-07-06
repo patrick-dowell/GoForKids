@@ -391,10 +391,10 @@ profiles:
       reading_rate: 0.10
       policy_temp: 2.3
       wide_root_noise: 0.7
-      sample_lapse: 0.35
+      sample_lapse: 0.10
       sample_loss_cap: 6.0
       first_line_chance: 0.0
-      visits: 16
+      visits: 8
       min_candidates: 10
       opening_moves: 3
       pass_threshold: 0.10
