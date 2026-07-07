@@ -19,6 +19,8 @@ import {
   lossSetbackActive,
   isColorSymmetric,
   gameMatchup,
+  hasRung,
+  resolveRung,
 } from '../matchmaker';
 
 describe('matchupForRung (19×19)', () => {
@@ -422,5 +424,32 @@ describe('9×9 safeguard eases along each rung\'s own axis', () => {
   it('isSafeguardActive fires above threshold, not below', () => {
     expect(isSafeguardActive('15k', SAFEGUARD_LOSS_THRESHOLD, 9)).toBe(true);
     expect(isSafeguardActive('15k', SAFEGUARD_LOSS_THRESHOLD - 1, 9)).toBe(false);
+  });
+});
+
+describe('rung migration (stale saved ladders)', () => {
+  it('hasRung reflects the current ladder', () => {
+    expect(hasRung('15k', 9)).toBe(true);
+    expect(hasRung('21k', 9)).toBe(false); // dropped in the S44 9×9 rebuild
+    expect(hasRung('23k', 9)).toBe(false);
+  });
+
+  it('resolveRung passes valid rungs through unchanged', () => {
+    for (const r of ladderRungs(9)) expect(resolveRung(r, 9)).toBe(r);
+    for (const r of ladderRungs(19)) expect(resolveRung(r, 19)).toBe(r);
+  });
+
+  it('resolveRung migrates a dropped rung to the nearest valid one (Roland crash)', () => {
+    // 21k (old 9×9) sits between 22k and 20k; ties → the weaker/easier rung.
+    expect(resolveRung('21k', 9)).toBe('22k');
+    expect(hasRung(resolveRung('21k', 9), 9)).toBe(true);
+    expect(resolveRung('23k', 9)).toBe('22k');
+    // Whatever it returns must be a real, lookup-safe rung (no throw).
+    expect(() => matchupForRung(resolveRung('21k', 9), 9)).not.toThrow();
+    expect(() => nextRung(resolveRung('21k', 9), 9)).not.toThrow();
+  });
+
+  it('resolveRung falls back to the starting rung for garbage input', () => {
+    expect(resolveRung('not-a-rank', 9)).toBe(startingRung(9));
   });
 });

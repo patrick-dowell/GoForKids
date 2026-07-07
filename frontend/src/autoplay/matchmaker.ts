@@ -300,6 +300,48 @@ export function matchupForRung(rung: Rung, boardSize: BoardSize = 19): Matchup {
   return specToMatchup(spec, ladder);
 }
 
+/** True when `rung` exists on the given board's ladder. */
+export function hasRung(rung: Rung, boardSize: BoardSize = 19): boolean {
+  const ladder = LADDERS[boardSize];
+  return ladder ? ladder.rungIndex.has(rung) : false;
+}
+
+/** Monotonic strength scalar for a rank label (stronger ⇒ larger):
+ *  "30k" → -30, "1k" → -1, "1d" → +1, "2d" → +2. Unparseable ⇒ NaN. */
+function rankStrength(rung: string): number {
+  const m = /^(\d+)([kd])$/.exec(rung);
+  if (!m) return NaN;
+  const n = parseInt(m[1], 10);
+  return m[2] === 'k' ? -n : n;
+}
+
+/** Resolve a possibly-stale persisted rung to a valid one on the current
+ *  ladder: returns it unchanged if it exists, otherwise the nearest rung by
+ *  strength (ties → the weaker/easier one, since rungs are ordered easy→hard
+ *  and we scan front-to-back with a strict `<`). This is the migration for
+ *  saved rungs from an older ladder shape — the S44 9×9 rebuild dropped the
+ *  21k/23k rungs, and a device still parked on one of them crashed the
+ *  ranked/profile screens (Roland's iPad, 2026-07-06). Falls back to the
+ *  starting rung for unparseable input or a board with no ladder. */
+export function resolveRung(rung: Rung, boardSize: BoardSize = 19): Rung {
+  const ladder = LADDERS[boardSize];
+  if (!ladder) return rung;
+  if (ladder.rungIndex.has(rung)) return rung;
+  const target = rankStrength(rung);
+  if (Number.isNaN(target)) return ladder.startingRung;
+  let best: Rung = ladder.startingRung;
+  let bestDiff = Infinity;
+  for (const r of ladder.rungs) {
+    const s = rankStrength(r);
+    const diff = Number.isNaN(s) ? Infinity : Math.abs(s - target);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = r;
+    }
+  }
+  return best;
+}
+
 /** Effective matchup for a player given their rung and current loss streak.
  *  The safeguard always eases the matchup toward the player along the same
  *  difficulty axis the rung lives on:

@@ -1,5 +1,31 @@
 # Development Journal
 
+## Session 52 — July 6, 2026 (production crash: stale saved rung → black screen)
+
+**Roland's iPad black-screened on 9×9 profile / ranked play after the new
+TestFlight build:** `Error: Unknown rung "21k" on 9×9`. The S44 ladder
+rebuild dropped the old 9×9 rungs 21k/23k (replaced by the 22k desert
+rung + komi triples), but a device parked mid-ladder on 21k had it saved
+in the autoplay localStorage slot. `loadFromStorage` restored the rung
+verbatim, and the first matchmaker lookup (`effectiveMatchup`/
+`matchupForRung`) threw → React tree crashed → black screen. A migration
+was missing when the ladder shape changed.
+
+**Fix (matchmaker + autoplay store, no other files):**
+- `matchmaker.ts`: `hasRung(rung, size)` + `resolveRung(rung, size)` —
+  returns the rung if it exists, else the nearest valid rung by rank
+  strength (ties → the weaker/easier one; garbage → the starting rung;
+  no ladder → passthrough).
+- `autoPlayStore.loadFromStorage`: migrate every persisted slot's
+  `currentRung` through `resolveRung` on load. No-op for valid rungs;
+  21k/23k → 22k.
+- Verified by reproducing Roland's exact saved state in the preview
+  (`21k` 9×9 slot → `setBoardSize(9)` no longer throws; rung = 22k) and
+  by direct lookups (`matchupForRung`/`effectiveMatchup`/`nextRung` on
+  the resolved rung all succeed). Frontend 272 tests (+4), build green.
+- Lesson for future ladder edits: any rung-label change needs a load-time
+  migration, since rungs are persisted per board in localStorage.
+
 ## Session 51 — July 6, 2026 (the full-ladder X-ray + ship prep)
 
 **Patrick's felt verdicts on the S50c re-seat: 9k about right, 6k

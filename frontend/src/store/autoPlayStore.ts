@@ -8,6 +8,7 @@ import {
   matchupForRung,
   freshState,
   prevRung,
+  resolveRung,
 } from '../autoplay/matchmaker';
 import {
   type Rating,
@@ -339,8 +340,21 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
       const slots: Partial<Record<BoardKey, PersistedSlot>> = {};
       for (const [key, slot] of Object.entries(stored)) {
         if (!slot) continue;
+        // Migrate a stale saved rung to a valid one on the current ladder.
+        // The S44 9×9 rebuild dropped the 21k/23k rungs; a device still
+        // parked on one crashed the ranked/profile screen with "Unknown
+        // rung" (Roland's iPad, 2026-07-06). resolveRung is a no-op for
+        // valid rungs.
+        const size = parseInt(key, 10) as BoardSize; // "9x9" → 9
+        let rungState = slot.rungState;
+        if (rungState?.currentRung) {
+          const migrated = resolveRung(rungState.currentRung, size);
+          if (migrated !== rungState.currentRung) {
+            rungState = { ...rungState, currentRung: migrated };
+          }
+        }
         slots[key as BoardKey] = {
-          rungState: slot.rungState,
+          rungState,
           history: slot.history ?? [],
           promotionEvents: slot.promotionEvents ?? [],
           shadowRating: slot.shadowRating ?? freshRating(),
