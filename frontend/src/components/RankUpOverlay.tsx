@@ -28,7 +28,7 @@ export function RankUpOverlay() {
           <span className="rankup-rung-to">{currentRung}</span>
         </div>
         <p className="rankup-sub">
-          Three wins in a row — onward to a tougher opponent.
+          Congratulations on your wins — onward to a tougher opponent.
         </p>
         <button className="rankup-btn" onClick={dismiss}>
           Continue
