@@ -25,6 +25,14 @@ hover` still matches on desktop (hover preserved there). CSS-only change.
 Lesson: in a WKWebView app, author hover styles under `@media (hover:
 hover)` from the start.
 
+**Follow-up (Patrick noticed same session): buttons no longer lit up on
+tap at all.** The gated `:hover` had been doubling as the only press
+feedback on touch — with it gone, taps gave nothing. Added a universal
+`button:active { filter: brightness(1.25); transform: scale(0.97) }`.
+`:active` is touch-safe (shows only while pressed, clears on release — no
+stickiness), so every button now lights up + presses in on tap, on touch
+and mouse alike. Verified in preview (primary glows, secondary lightens).
+
 ## Session 52 — July 6, 2026 (production crash: stale saved rung → black screen)
 
 **Roland's iPad black-screened on 9×9 profile / ranked play after the new

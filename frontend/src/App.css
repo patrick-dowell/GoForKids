@@ -569,6 +569,16 @@ body {
   transition: background 0.15s;
 }
 
+/* Universal press feedback. :active is touch-SAFE — it shows only while the
+   finger/button is down and clears the instant you release, unlike :hover
+   which sticks on iOS (the feedback bug fixed 2026-07-06). Now that hover is
+   gated to real-pointer devices, this gives every button an immediate "lit
+   up + pressed" response on tap. Works for mouse too. */
+button:active {
+  filter: brightness(1.25);
+  transform: scale(0.97);
+}
+
 .btn-primary {
   background: var(--accent);
   color: #000;
