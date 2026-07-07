@@ -65,8 +65,9 @@
   border-radius: 6px;
   cursor: pointer;
 }
-
-.privacy-close:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+@media (hover: hover) {
+  .privacy-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
 }

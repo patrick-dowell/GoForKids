@@ -127,9 +127,10 @@
   color: #e6edf3;
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
-
-.autoplay-end-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.1);
+@media (hover: hover) {
+  .autoplay-end-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
 }
 
 .autoplay-end-btn-primary {
@@ -137,10 +138,11 @@
   color: #fff;
   box-shadow: 0 4px 16px rgba(88, 166, 255, 0.3);
 }
-
-.autoplay-end-btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 22px rgba(88, 166, 255, 0.4);
+@media (hover: hover) {
+  .autoplay-end-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 22px rgba(88, 166, 255, 0.4);
+  }
 }
 
 /* Feature 25 — loss-setback note under the progress bar */
@@ -164,6 +166,8 @@
   font-weight: 600;
   cursor: pointer;
 }
-.autoplay-end-review-btn:hover {
-  background: rgba(255, 211, 110, 0.18);
+@media (hover: hover) {
+  .autoplay-end-review-btn:hover {
+    background: rgba(255, 211, 110, 0.18);
+  }
 }

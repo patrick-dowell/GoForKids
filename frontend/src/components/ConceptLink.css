@@ -12,9 +12,10 @@
   text-underline-offset: 2px;
   cursor: pointer;
 }
-
-.concept-link:hover,
-.concept-link:focus-visible {
-  color: var(--concept-link-hover, #c7e6ff);
-  text-decoration-style: solid;
+@media (hover: hover) {
+  .concept-link:hover,
+  .concept-link:focus-visible {
+    color: var(--concept-link-hover, #c7e6ff);
+    text-decoration-style: solid;
+  }
 }

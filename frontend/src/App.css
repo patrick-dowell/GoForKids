@@ -380,9 +380,10 @@ body {
   border-color: var(--accent);
   background: rgba(88, 166, 255, 0.08);
 }
-
-.avatar-picker-option:hover {
-  border-color: var(--text-muted);
+@media (hover: hover) {
+  .avatar-picker-option:hover {
+    border-color: var(--text-muted);
+  }
 }
 
 .avatar-picker-name {
@@ -572,9 +573,10 @@ body {
   background: var(--accent);
   color: #000;
 }
-
-.btn-primary:hover {
-  background: var(--accent-hover);
+@media (hover: hover) {
+  .btn-primary:hover {
+    background: var(--accent-hover);
+  }
 }
 
 .btn-secondary {
@@ -582,9 +584,10 @@ body {
   color: var(--text-primary);
   border: 1px solid var(--border);
 }
-
-.btn-secondary:hover {
-  background: var(--border);
+@media (hover: hover) {
+  .btn-secondary:hover {
+    background: var(--border);
+  }
 }
 
 .btn-accent {
@@ -592,9 +595,10 @@ body {
   color: var(--accent);
   border: 1px solid var(--accent);
 }
-
-.btn-accent:hover {
-  background: rgba(88, 166, 255, 0.25);
+@media (hover: hover) {
+  .btn-accent:hover {
+    background: rgba(88, 166, 255, 0.25);
+  }
 }
 
 .btn-accent:disabled {
@@ -607,10 +611,11 @@ body {
   color: var(--danger);
   border: 1px solid var(--danger);
 }
-
-.btn-danger:hover {
-  background: var(--danger);
-  color: #000;
+@media (hover: hover) {
+  .btn-danger:hover {
+    background: var(--danger);
+    color: #000;
+  }
 }
 
 /* Game result */
@@ -790,9 +795,10 @@ body {
   border: 1px solid transparent;
   transition: border-color 0.1s;
 }
-
-.library-item:hover {
-  border-color: var(--border);
+@media (hover: hover) {
+  .library-item:hover {
+    border-color: var(--border);
+  }
 }
 
 .library-item-main {
@@ -839,10 +845,11 @@ body {
   border-radius: 4px;
   line-height: 1;
 }
-
-.library-delete:hover {
-  color: var(--danger);
-  background: rgba(255, 107, 107, 0.1);
+@media (hover: hover) {
+  .library-delete:hover {
+    color: var(--danger);
+    background: rgba(255, 107, 107, 0.1);
+  }
 }
 
 .library-share {
@@ -857,10 +864,11 @@ body {
   white-space: nowrap;
   align-self: center;
 }
-
-.library-share:hover:not(:disabled) {
-  color: var(--text-primary);
-  border-color: var(--text-secondary);
+@media (hover: hover) {
+  .library-share:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+  }
 }
 
 .library-share:disabled {
@@ -961,9 +969,10 @@ body {
   justify-content: center;
   transition: background 0.1s;
 }
-
-.replay-btn:hover:not(:disabled) {
-  background: var(--border);
+@media (hover: hover) {
+  .replay-btn:hover:not(:disabled) {
+    background: var(--border);
+  }
 }
 
 .replay-btn:disabled {
@@ -976,9 +985,10 @@ body {
   color: #000;
   font-weight: bold;
 }
-
-.replay-btn-play:hover {
-  background: var(--accent-hover);
+@media (hover: hover) {
+  .replay-btn-play:hover {
+    background: var(--accent-hover);
+  }
 }
 
 .replay-actions {
@@ -1101,11 +1111,12 @@ body {
   cursor: pointer;
   transition: color 0.15s, background 0.15s, transform 0.3s;
 }
-
-.settings-gear:hover {
-  color: var(--text-primary);
-  background: var(--border);
-  transform: rotate(30deg);
+@media (hover: hover) {
+  .settings-gear:hover {
+    color: var(--text-primary);
+    background: var(--border);
+    transform: rotate(30deg);
+  }
 }
 
 /* Theme picker cards */
@@ -1129,9 +1140,10 @@ body {
   text-align: center;
   transition: border-color 0.15s, background 0.15s;
 }
-
-.theme-card:hover {
-  border-color: var(--text-muted);
+@media (hover: hover) {
+  .theme-card:hover {
+    border-color: var(--text-muted);
+  }
 }
 
 .theme-card.selected {
@@ -1181,9 +1193,10 @@ body {
   font-size: 13px;
   transition: background 0.15s, color 0.15s;
 }
-
-.library-tab:hover {
-  color: var(--text-primary);
+@media (hover: hover) {
+  .library-tab:hover {
+    color: var(--text-primary);
+  }
 }
 
 .library-tab.active {
@@ -1216,9 +1229,10 @@ body {
   padding: 6px 12px;
   color: var(--text-muted);
 }
-
-.library-clear-btn:hover {
-  color: var(--danger);
+@media (hover: hover) {
+  .library-clear-btn:hover {
+    color: var(--danger);
+  }
 }
 
 .library-confirm-text {

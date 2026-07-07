@@ -65,10 +65,12 @@
   transition: color 0.15s, border-color 0.15s, background 0.15s;
   animation: scoring-fade-in 200ms ease-out;
 }
-.scoring-escape:hover {
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.4);
-  background: rgba(255, 255, 255, 0.06);
+@media (hover: hover) {
+  .scoring-escape:hover {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.06);
+  }
 }
 
 @keyframes scoring-spin {

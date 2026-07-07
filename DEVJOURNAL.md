@@ -1,5 +1,30 @@
 # Development Journal
 
+## Session 53 — July 6, 2026 (first TestFlight feedback: the iOS sticky-hover trap)
+
+**First TestFlight feedback (tester jruesch7, iPhone 15 Pro, build 5):
+"Pre selected button and had to press twice."** Two screenshots, both
+quiz answer buttons (Lesson 9 Two Eyes 3 "Gone"; Lesson 11 Territory
+"10") rendered with a blue `--accent` (#58a6ff) border — looking
+pre-selected.
+
+**Cause: the classic iOS WKWebView hover trap.** Touch devices have no
+real hover, so iOS "sticks" a button's `:hover` state after a tap — the
+button keeps its hover styling (here a blue accent border + lift) and
+looks selected, and the first tap can be consumed applying hover before
+the second registers the click. `.learn-quiz-answer-btn:hover` set
+`border-color: var(--accent)` = the exact blue in the screenshots.
+
+**Fix (app-wide sweep, Patrick's call): guard every `:hover` rule with
+`@media (hover: hover)`** so hover styling only applies on real-pointer
+devices (mouse/desktop) and never on touch. Scripted brace-aware
+transform wrapped all **64** `:hover` rules across 16 CSS files; none
+were grouped with `:active`/`:focus` (verified first), so pressed/focus
+states on touch are untouched. Build green, home renders clean, `hover:
+hover` still matches on desktop (hover preserved there). CSS-only change.
+Lesson: in a WKWebView app, author hover styles under `@media (hover:
+hover)` from the start.
+
 ## Session 52 — July 6, 2026 (production crash: stale saved rung → black screen)
 
 **Roland's iPad black-screened on 9×9 profile / ranked play after the new

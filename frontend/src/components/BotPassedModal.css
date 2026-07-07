@@ -77,9 +77,10 @@
   color: var(--text-primary);
   border: 1px solid var(--border);
 }
-
-.bot-passed-btn-secondary:hover {
-  background: var(--border);
+@media (hover: hover) {
+  .bot-passed-btn-secondary:hover {
+    background: var(--border);
+  }
 }
 
 .bot-passed-btn-primary {
@@ -87,8 +88,9 @@
   color: #fff;
   box-shadow: 0 3px 12px rgba(88, 166, 255, 0.3);
 }
-
-.bot-passed-btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 5px 16px rgba(88, 166, 255, 0.45);
+@media (hover: hover) {
+  .bot-passed-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 16px rgba(88, 166, 255, 0.45);
+  }
 }

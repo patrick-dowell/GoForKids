@@ -37,8 +37,10 @@
   line-height: 1;
   cursor: pointer;
 }
-.review-close:hover {
-  background: rgba(255, 255, 255, 0.16);
+@media (hover: hover) {
+  .review-close:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
 }
 
 .review-title {
@@ -73,9 +75,10 @@
   transition: background 0.15s, transform 0.1s;
   -webkit-tap-highlight-color: transparent;
 }
-
-.review-card:hover {
-  background: rgba(255, 255, 255, 0.07);
+@media (hover: hover) {
+  .review-card:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
 }
 
 .review-card:active {
@@ -136,8 +139,10 @@
   font-weight: 600;
   cursor: pointer;
 }
-.review-done:hover {
-  filter: brightness(1.08);
+@media (hover: hover) {
+  .review-done:hover {
+    filter: brightness(1.08);
+  }
 }
 
 /* "Step through the game" — open the replay from the review (fp 28) */
@@ -154,6 +159,8 @@
   font-weight: 600;
   cursor: pointer;
 }
-.review-replay-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+@media (hover: hover) {
+  .review-replay-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
 }

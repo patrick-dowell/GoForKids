@@ -63,10 +63,11 @@
   cursor: pointer;
   transition: all 0.15s;
 }
-
-.profile-back-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e6edf3;
+@media (hover: hover) {
+  .profile-back-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e6edf3;
+  }
 }
 
 .profile-header-title {
@@ -137,9 +138,10 @@
   align-items: center;
   gap: 10px;
 }
-
-.profile-name-display:hover {
-  color: #f0d590;
+@media (hover: hover) {
+  .profile-name-display:hover {
+    color: #f0d590;
+  }
 }
 
 .profile-name-placeholder {
@@ -152,9 +154,10 @@
   font-size: 14px;
   color: #555d68;
 }
-
-.profile-name-display:hover .profile-name-edit-hint {
-  color: #f0d590;
+@media (hover: hover) {
+  .profile-name-display:hover .profile-name-edit-hint {
+    color: #f0d590;
+  }
 }
 
 .profile-name-input {
@@ -348,10 +351,11 @@
   cursor: pointer;
   transition: all 0.15s;
 }
-
-.profile-avatar-option:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.15);
+@media (hover: hover) {
+  .profile-avatar-option:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
 }
 
 .profile-avatar-option-selected {
@@ -390,9 +394,10 @@
   width: 100%;
   text-align: left;
 }
-
-.profile-advanced-toggle:hover {
-  color: #e6edf3;
+@media (hover: hover) {
+  .profile-advanced-toggle:hover {
+    color: #e6edf3;
+  }
 }
 
 .profile-advanced-body {
@@ -586,9 +591,10 @@
   cursor: pointer;
   transition: all 0.15s;
 }
-
-.profile-dev-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
+@media (hover: hover) {
+  .profile-dev-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+  }
 }
 
 .profile-dev-btn:disabled {
@@ -600,9 +606,10 @@
   border-color: rgba(229, 90, 90, 0.3);
   color: #e58a8a;
 }
-
-.profile-dev-btn-danger:hover:not(:disabled) {
-  background: rgba(229, 90, 90, 0.1);
+@media (hover: hover) {
+  .profile-dev-btn-danger:hover:not(:disabled) {
+    background: rgba(229, 90, 90, 0.1);
+  }
 }
 
 /* ---- Dialog player display (used by NewGameDialog) ---- */
@@ -633,9 +640,10 @@
   text-decoration: underline;
   padding: 4px 6px;
 }
-
-.dialog-player-link:hover {
-  color: #79b8ff;
+@media (hover: hover) {
+  .dialog-player-link:hover {
+    color: #79b8ff;
+  }
 }
 
 /* Feature 25 — voluntary derank (player-facing, two-tap inline confirm) */
@@ -652,8 +660,10 @@
   padding: 6px 14px;
   cursor: pointer;
 }
-.profile-derank-btn:hover {
-  opacity: 1;
+@media (hover: hover) {
+  .profile-derank-btn:hover {
+    opacity: 1;
+  }
 }
 .profile-derank-btn-armed {
   border-color: #e6a23c;

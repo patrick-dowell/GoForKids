@@ -50,10 +50,11 @@
   cursor: pointer;
   transition: color 0.15s, background 0.15s;
 }
-
-.lesson-end-close:hover {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
+@media (hover: hover) {
+  .lesson-end-close:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+  }
 }
 
 @keyframes lesson-end-pop {
@@ -285,10 +286,11 @@
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
-
-.lesson-end-panel-btn:hover {
-  background: var(--border);
-  border-color: var(--text-muted);
+@media (hover: hover) {
+  .lesson-end-panel-btn:hover {
+    background: var(--border);
+    border-color: var(--text-muted);
+  }
 }
 
 .lesson-end-actions {
@@ -314,9 +316,10 @@
   color: var(--text-primary);
   border: 1px solid var(--border);
 }
-
-.lesson-end-btn-secondary:hover {
-  background: var(--border);
+@media (hover: hover) {
+  .lesson-end-btn-secondary:hover {
+    background: var(--border);
+  }
 }
 
 .lesson-end-btn-primary {
@@ -324,10 +327,11 @@
   color: #fff;
   box-shadow: 0 4px 18px rgba(88, 166, 255, 0.3);
 }
-
-.lesson-end-btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 24px rgba(88, 166, 255, 0.45);
+@media (hover: hover) {
+  .lesson-end-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(88, 166, 255, 0.45);
+  }
 }
 
 /* Short viewports (phone landscape, ~390pt tall after rotate) — shrink

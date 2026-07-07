@@ -37,8 +37,10 @@
   line-height: 1;
   cursor: pointer;
 }
-.glossary-close:hover {
-  background: rgba(255, 255, 255, 0.16);
+@media (hover: hover) {
+  .glossary-close:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
 }
 
 /* ---------- Index ---------- */
@@ -75,8 +77,10 @@
   cursor: pointer;
   text-align: left;
 }
-.glossary-card:hover {
-  background: rgba(255, 255, 255, 0.1);
+@media (hover: hover) {
+  .glossary-card:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
 }
 .glossary-card-extended {
   font-weight: 500;
@@ -95,8 +99,10 @@
   cursor: pointer;
   padding: 0;
 }
-.glossary-back:hover {
-  opacity: 1;
+@media (hover: hover) {
+  .glossary-back:hover {
+    opacity: 1;
+  }
 }
 .glossary-concept-name {
   margin: 0 0 8px;
@@ -138,8 +144,10 @@
   font-size: 14px;
   cursor: pointer;
 }
-.glossary-chip:hover {
-  background: rgba(255, 255, 255, 0.1);
+@media (hover: hover) {
+  .glossary-chip:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
 }
 
 /* Concept page — "do the lesson" affordance (fp 29 glossary↔lessons) */
@@ -156,8 +164,10 @@
   font-weight: 600;
   cursor: pointer;
 }
-.glossary-lesson-btn:hover {
-  filter: brightness(1.08);
+@media (hover: hover) {
+  .glossary-lesson-btn:hover {
+    filter: brightness(1.08);
+  }
 }
 
 /* Captioned extra diagrams (Concept.examples) */
@@ -203,10 +213,11 @@
   text-overflow: ellipsis;
   transition: color 0.15s, border-color 0.15s;
 }
-
-.glossary-nav-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--text-muted);
+@media (hover: hover) {
+  .glossary-nav-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+  }
 }
 
 .glossary-nav-count {

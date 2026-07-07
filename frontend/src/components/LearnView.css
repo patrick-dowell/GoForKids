@@ -70,10 +70,11 @@
   text-align: left;
   justify-self: start;
 }
-
-.learn-back-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
+@media (hover: hover) {
+  .learn-back-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+  }
 }
 
 .learn-progress {
@@ -97,10 +98,11 @@
   justify-content: center;
   transition: all 0.15s;
 }
-
-.learn-progress-dot:hover {
-  color: var(--text-primary);
-  border-color: var(--text-muted);
+@media (hover: hover) {
+  .learn-progress-dot:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+  }
 }
 
 .learn-progress-dot-done {
@@ -319,11 +321,12 @@
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, transform 0.1s;
 }
-
-.learn-quiz-answer-btn:hover {
-  background: var(--border);
-  border-color: var(--accent);
-  transform: translateY(-1px);
+@media (hover: hover) {
+  .learn-quiz-answer-btn:hover {
+    background: var(--border);
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
 }
 
 /* ---------- Reward overlay (post-puzzle batch) ---------- */
@@ -441,10 +444,11 @@
   box-shadow: 0 4px 18px rgba(255, 209, 102, 0.3);
   transition: transform 0.15s, box-shadow 0.15s;
 }
-
-.learn-reward-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(255, 209, 102, 0.45);
+@media (hover: hover) {
+  .learn-reward-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px rgba(255, 209, 102, 0.45);
+  }
 }
 
 /* ---------- Game-kind lesson "Ready to play" card ---------- */
@@ -536,10 +540,11 @@
   transition: transform 0.15s, box-shadow 0.15s;
   align-self: stretch;
 }
-
-.learn-game-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(88, 166, 255, 0.45);
+@media (hover: hover) {
+  .learn-game-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px rgba(88, 166, 255, 0.45);
+  }
 }
 
 /* ============================================================
@@ -761,10 +766,11 @@
   color: var(--text-secondary);
   transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
-
-.choose-avatar-option:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255, 209, 102, 0.4);
+@media (hover: hover) {
+  .choose-avatar-option:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 209, 102, 0.4);
+  }
 }
 
 .choose-avatar-option-selected {
@@ -858,10 +864,11 @@
   text-align: left;
   transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
-
-.advanced-menu-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255, 209, 102, 0.4);
+@media (hover: hover) {
+  .advanced-menu-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 209, 102, 0.4);
+  }
 }
 
 .advanced-menu-card-done {

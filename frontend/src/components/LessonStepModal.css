@@ -73,10 +73,11 @@
   box-shadow: 0 4px 18px rgba(88, 166, 255, 0.3);
   transition: transform 0.1s, box-shadow 0.15s;
 }
-
-.lesson-step-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 24px rgba(88, 166, 255, 0.45);
+@media (hover: hover) {
+  .lesson-step-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(88, 166, 255, 0.45);
+  }
 }
 
 .lesson-step-buttons {
@@ -92,10 +93,11 @@
   border: 1px solid var(--border);
   box-shadow: none;
 }
-
-.lesson-step-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.04);
-  box-shadow: none;
+@media (hover: hover) {
+  .lesson-step-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.04);
+    box-shadow: none;
+  }
 }
 
 /* ---------- Quiz feedback modal variants ---------- */

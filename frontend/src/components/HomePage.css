@@ -143,11 +143,12 @@
   cursor: pointer;
   transition: all 0.15s;
 }
-
-.home-rank-chip:hover {
-  background: rgba(212, 192, 144, 0.14);
-  border-color: rgba(212, 192, 144, 0.45);
-  transform: translateY(-1px);
+@media (hover: hover) {
+  .home-rank-chip:hover {
+    background: rgba(212, 192, 144, 0.14);
+    border-color: rgba(212, 192, 144, 0.45);
+    transform: translateY(-1px);
+  }
 }
 
 .home-rank-chip-label {
@@ -193,10 +194,11 @@
   color: #fff;
   box-shadow: 0 4px 20px rgba(88, 166, 255, 0.3);
 }
-
-.home-btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 28px rgba(88, 166, 255, 0.4);
+@media (hover: hover) {
+  .home-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 28px rgba(88, 166, 255, 0.4);
+  }
 }
 
 .home-btn-secondary {
@@ -205,10 +207,11 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(8px);
 }
-
-.home-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.1);
-  transform: translateY(-2px);
+@media (hover: hover) {
+  .home-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: translateY(-2px);
+  }
 }
 
 .home-btn-learn {
@@ -216,10 +219,11 @@
   color: #1a1a30;
   box-shadow: 0 4px 20px rgba(255, 209, 102, 0.25);
 }
-
-.home-btn-learn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 28px rgba(255, 209, 102, 0.4);
+@media (hover: hover) {
+  .home-btn-learn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 28px rgba(255, 209, 102, 0.4);
+  }
 }
 
 /* Bot roster */
@@ -303,9 +307,10 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-
-.home-privacy-link:hover {
-  color: rgba(255, 255, 255, 0.7);
+@media (hover: hover) {
+  .home-privacy-link:hover {
+    color: rgba(255, 255, 255, 0.7);
+  }
 }
 
 /* ============================================================
