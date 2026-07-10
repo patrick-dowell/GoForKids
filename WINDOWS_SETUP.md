@@ -115,6 +115,7 @@ Close both windows to stop.
 
 - **Backend exits with a KataGo error** — a step 4 setting is wrong, or your window was opened before you ran them. In a new window, `echo $env:KATAGO_PATH $env:KATAGO_MODEL $env:KATAGO_CONFIG $env:CALIBRATION_PROFILE_PATH` — each should be a path that exists. Fix with `setx`, then open a fresh window.
 - **"model file is implausibly small"** — Git LFS didn't finish; run `git lfs pull` inside `$HOME\GoForKids` (step 3).
+- **`cublas64_12.dll` (or any `cu*.dll`) not found** — you downloaded the CUDA build of KataGo, which needs NVIDIA's CUDA toolkit installed. Use the `opencl-windows-x64.zip` one instead (step 2) — it works on NVIDIA cards with no extra installs.
 - **`VCRUNTIME140.dll` not found** — install https://aka.ms/vs/17/release/vc_redist.x64.exe and retry.
 - **KataGo crashes with the OpenCL version** — your graphics drivers don't support it; replace `C:\katago` with the `eigenavx2-windows-x64.zip` release.
 - **"running scripts is disabled on this system"** — run the `Set-ExecutionPolicy` line from step 1.
