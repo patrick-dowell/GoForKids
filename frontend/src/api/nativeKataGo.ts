@@ -7,7 +7,14 @@
  * frontend/src/ai/moveSelector.ts picks the actual move using b28-calibrated
  * profile logic. The bridge is intentionally dumb — it does NOT pick a move,
  * just runs analysis.
+ *
+ * Cloud bot (July 2026): the Settings toggle "Bot plays online" makes
+ * getKataGoBridge() return null even inside the iPad app, forcing all bot
+ * moves onto the HTTP/Render path — the escape hatch for old iPads whose
+ * on-device analysis is unplayably slow.
  */
+
+import { useSettingsStore } from '../store/settingsStore';
 
 /** One candidate from `kata-genmove_analyze`. Bridge passes through the
  *  raw KataGo fields; fields are optional because parser drops malformed ones. */
@@ -70,6 +77,14 @@ declare global {
 }
 
 export function getKataGoBridge(): KataGoBridge | null {
+  // Cloud bot (Settings → "Bot plays online"): report "no bridge" even when
+  // Swift injected one, so EVERY consumer — game routing (client.ts useLocal),
+  // the finish loop, replay better-move analysis, SGF share, the bridge=
+  // game-log header — uniformly falls back to the HTTP/web path. Exists for
+  // older iPads where on-device analysis takes ~1 min/move vs ~2s on Render.
+  // Checked on every call (nothing caches the bridge) so the toggle takes
+  // effect immediately, no reload needed.
+  if (useSettingsStore.getState().cloudBot) return null;
   return typeof window !== 'undefined' && window.kataGo ? window.kataGo : null;
 }
 
