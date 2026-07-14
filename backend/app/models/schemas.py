@@ -58,6 +58,15 @@ class AIMoveResponse(BaseModel):
     captures: list[PointSchema]
     debug: Optional[dict] = None  # For development: KataGo analysis info
     score_lead: Optional[float] = None  # See GameStateResponse.score_lead.
+    # Eval of the position the AI analyzed — i.e. right after the PREVIOUS
+    # move (usually the player's), before the AI replied. Black-perspective,
+    # like score_lead. The frontend records it one move earlier than
+    # score_lead so score swings attribute to the mover who caused them
+    # (§4a/S45 fix — see AIMoveDTO in frontend/src/api/types.ts and
+    # mergeAiScorePoints in gameStore.ts). Populated only when
+    # GOFORKIDS_FAST_MOVES reuses the selector's own analysis; None keeps
+    # the frontend on its old single-entry behavior.
+    score_lead_before: Optional[float] = None
     # When the AI's pass ends the game, the scored final state — board with
     # dead stones removed, full result dict. The active game is deleted
     # post-scoring, so a follow-up GET would 404; piping the state through

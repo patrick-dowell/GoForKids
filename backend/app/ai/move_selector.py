@@ -24,6 +24,7 @@ from __future__ import annotations
 import math
 import random
 import logging
+from dataclasses import dataclass
 from typing import Optional
 
 from app.game.engine import Board, Color, Point, BOARD_SIZE
@@ -80,10 +81,34 @@ def _is_eye_fill(board: Board, color: Color, point: Point) -> bool:
     return friendly_diags >= required
 
 
-from app.katago.engine import get_engine, PositionAnalysis
+from app.katago.engine import get_engine, MoveCandidate, PositionAnalysis
 from app.ai.profile_loader import get_profile
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SelectorEval:
+    """Score data captured from the selector's own KataGo analysis, so the
+    caller can refresh the live score graph without a second engine query
+    (GOFORKIDS_FAST_MOVES). Python twin of the capture in client.ts
+    getAIMoveViaBridge (§4a/S45 attribution fix). Both values are
+    Black-perspective, like every scoreLead in this codebase.
+
+    `score_lead_before`: the best non-pass candidate's scoreLead from the
+    FIRST analysis ≈ the eval of the analyzed position itself, i.e. of the
+    board right after the OPPONENT's move. Set once so eye-fill re-picks
+    (which re-analyze the same position) don't move it. Deliberately not
+    rootInfo.scoreLead: wideRootNoise profiles spread root visits across
+    bad moves and drag the root average, while each candidate's own
+    subtree eval stays honest.
+
+    `candidates`: the LAST analysis's raw candidate list, so the caller can
+    look up the eval of the move actually chosen (TS `lastCandidates`).
+    Stays None when the profile never queries KataGo (30k heuristic) or
+    the engine is unavailable."""
+    score_lead_before: Optional[float] = None
+    candidates: Optional[list[MoveCandidate]] = None
 
 # Read-streak state (S50): moves remaining on which the bot may NOT take the
 # reading path, keyed by color (bot-vs-bot runs two bots through this module).
@@ -261,6 +286,7 @@ async def select_ai_move(
     opponent_passed: bool = False,
     engine_moves: Optional[list[list[str]]] = None,
     engine_setup: Optional[list[list[str]]] = None,
+    eval_out: Optional[SelectorEval] = None,
 ) -> Optional[Point]:
     """Select a move for the AI at the given target rank.
 
@@ -273,10 +299,13 @@ async def select_ai_move(
     in KataGo query form (see engine.analyze) — without them KataGo analyzes a
     bare stone layout and can't see ko bans, so it suggests recaptures our
     engine rejects (the web half of the 888P9NXK ko-pass bug).
+    `eval_out`, when provided, is filled with score data from the analysis
+    this selection ran anyway (see SelectorEval) — the GOFORKIDS_FAST_MOVES
+    path reads it instead of paying for a second engine query.
     """
     move = await _select_ai_move_inner(
         board, color, target_rank, last_opponent_move, opponent_passed,
-        engine_moves, engine_setup,
+        engine_moves, engine_setup, eval_out,
     )
 
     # Safety check: NEVER fill your own eye. No human above 30k does this.
@@ -286,7 +315,7 @@ async def select_ai_move(
         for _ in range(5):
             alt = await _select_ai_move_inner(
                 board, color, target_rank, last_opponent_move, opponent_passed,
-                engine_moves, engine_setup,
+                engine_moves, engine_setup, eval_out,
             )
             if alt and not _is_eye_fill(board, color, alt):
                 return alt
@@ -321,6 +350,7 @@ async def _select_ai_move_inner(
     opponent_passed: bool = False,
     engine_moves: Optional[list[list[str]]] = None,
     engine_setup: Optional[list[list[str]]] = None,
+    eval_out: Optional[SelectorEval] = None,
 ) -> Optional[Point]:
     """Inner move selection (before eye-fill safety check)."""
     profile = get_profile(target_rank, board.size)
@@ -333,7 +363,7 @@ async def _select_ai_move_inner(
     if engine:
         return await _select_with_katago(
             engine, board, color, target_rank, last_opponent_move,
-            opponent_passed, engine_moves, engine_setup,
+            opponent_passed, engine_moves, engine_setup, eval_out,
         )
     else:
         return _pick_random_legal(board, color)
@@ -437,6 +467,7 @@ async def _select_with_katago(
     opponent_passed: bool = False,
     engine_moves: Optional[list[list[str]]] = None,
     engine_setup: Optional[list[list[str]]] = None,
+    eval_out: Optional[SelectorEval] = None,
 ) -> Optional[Point]:
     """
     KataGo-backed rank-calibrated move selection.
@@ -476,6 +507,21 @@ async def _select_with_katago(
             moves=engine_moves, initial_stones=engine_setup,
             override_settings=overrides,
         )
+
+        if eval_out is not None:
+            # Fast-moves score capture — mirrors the analyze() closure in
+            # client.ts getAIMoveViaBridge. Best non-pass candidate ≈ the
+            # eval of the analyzed position (assumes best play from here);
+            # first analysis wins so a re-pick doesn't move it. Captured
+            # BEFORE the legality filter below rebinds analysis.candidates,
+            # so eval_out keeps the raw list (TS lastCandidates semantics).
+            if eval_out.score_lead_before is None and analysis.candidates:
+                best_non_pass = next(
+                    (c for c in analysis.candidates if c.move[0] >= 0), None
+                )
+                src = best_non_pass if best_non_pass is not None else analysis.candidates[0]
+                eval_out.score_lead_before = src.score_lead
+            eval_out.candidates = analysis.candidates
 
         # Diagnostic logging: dump KataGo's full candidate list during the
         # opening so we can see exactly what the search returned. Helps

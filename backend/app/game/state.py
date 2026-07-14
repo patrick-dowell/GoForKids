@@ -20,7 +20,7 @@ from app.models.schemas import (
     StoneColor,
     GameMode,
 )
-from app.ai.move_selector import select_ai_move, _pick_legal_non_eye_move
+from app.ai.move_selector import select_ai_move, _pick_legal_non_eye_move, SelectorEval
 from app.katago.engine import get_engine, point_to_gtp
 from app.game import storage
 
@@ -44,7 +44,9 @@ class ActiveGame:
     black_rank: Optional[str] = None  # For bot-vs-bot
     white_rank: Optional[str] = None  # For bot-vs-bot
     # KataGo's last point-margin estimate from Black's perspective.
-    # Updated after every move; surfaced to the UI for the live score graph.
+    # Surfaced to the UI for the live score graph. Refreshed after every
+    # move by default; under GOFORKIDS_FAST_MOVES only at bot moves, from
+    # the selector's own analysis (see get_ai_move).
     score_lead: Optional[float] = None
 
 
@@ -131,6 +133,16 @@ SUPPORTED_SIZES = (5, 9, 13, 19)
 # graph stays consistent across all bot strengths.
 SCORE_ESTIMATE_VISITS = int(os.environ.get("KATAGO_SCORE_VISITS", "30"))
 OWNERSHIP_VISITS = int(os.environ.get("KATAGO_OWNERSHIP_VISITS", "200"))
+
+
+def _fast_moves_enabled() -> bool:
+    """GOFORKIDS_FAST_MOVES=1: skip the dedicated per-move score eval and
+    refresh the score graph from the bot's own move-selection query instead
+    — one engine query per exchange instead of two, so a human /move returns
+    in ~100ms instead of blocking ~2.5s on KataGo. Default off = the old
+    per-move-eval behavior, making the change A/B-able by env flip. Read
+    per call (not at import) so tests and env flips need no module reload."""
+    return os.environ.get("GOFORKIDS_FAST_MOVES", "").lower() in ("1", "true", "yes")
 
 
 async def _compute_score_lead(game: "ActiveGame") -> Optional[float]:
@@ -263,8 +275,12 @@ class GameManager:
         game.consecutive_passes = 0
         game.current_color = game.current_color.opposite()
 
-        # Refresh the live score estimate for the UI graph.
-        game.score_lead = await _compute_score_lead(game)
+        # Refresh the live score estimate for the UI graph. Fast-moves mode
+        # skips the eval so the tap returns immediately: game.score_lead
+        # keeps the last known estimate, and the bot's reply carries this
+        # move's eval as score_lead_before (see get_ai_move).
+        if not _fast_moves_enabled():
+            game.score_lead = await _compute_score_lead(game)
 
         await self._save(game)
         return self._to_response(game)
@@ -488,13 +504,23 @@ class GameManager:
         # of filling its own territory.
         opponent_passed = game.consecutive_passes >= 1
         engine_setup, engine_moves = _engine_history(game)
+        # Fast-moves mode: capture score data from the analysis the selector
+        # runs anyway, instead of paying for a dedicated eval afterwards.
+        fast_moves = _fast_moves_enabled()
+        sel_eval = SelectorEval() if fast_moves else None
         point = await select_ai_move(
             game.board, game.current_color, rank,
             last_opponent_move=last_opponent_move,
             opponent_passed=opponent_passed,
             engine_moves=engine_moves,
             engine_setup=engine_setup,
+            eval_out=sel_eval,
         )
+        # Eval of the position the bot analyzed = the board right after the
+        # opponent's (usually the player's) move. The frontend records it one
+        # move earlier than score_lead (§4a/S45 attribution). None when fast
+        # moves are off or the selector never queried KataGo.
+        lead_before = sel_eval.score_lead_before if sel_eval else None
 
         if point is None:
             # AI passes — board unchanged, the prior score_lead is still valid.
@@ -503,9 +529,11 @@ class GameManager:
             # _persist_finished_game; pipe the scored response through so
             # the frontend can apply the dead-stone overlay without a 404.
             final_state = pass_response if pass_response and pass_response.phase == "finished" else None
+            fallback_lead = pass_response.score_lead if pass_response else game.score_lead
             return AIMoveResponse(
                 point=PointSchema(row=-1, col=-1), captures=[],
-                score_lead=pass_response.score_lead if pass_response else game.score_lead,
+                score_lead=lead_before if lead_before is not None else fallback_lead,
+                score_lead_before=lead_before,
                 final_state=final_state,
             )
 
@@ -527,9 +555,11 @@ class GameManager:
             logger.warning(f"[{rank}] PASS reason=commit-rejected-exhausted")
             pass_response = await self.pass_move(game_id)
             final_state = pass_response if pass_response and pass_response.phase == "finished" else None
+            fallback_lead = pass_response.score_lead if pass_response else game.score_lead
             return AIMoveResponse(
                 point=PointSchema(row=-1, col=-1), captures=[],
-                score_lead=pass_response.score_lead if pass_response else game.score_lead,
+                score_lead=lead_before if lead_before is not None else fallback_lead,
+                score_lead_before=lead_before,
                 final_state=final_state,
             )
 
@@ -544,14 +574,39 @@ class GameManager:
         game.consecutive_passes = 0
         game.current_color = game.current_color.opposite()
 
-        # Refresh the live score estimate for the UI graph.
-        game.score_lead = await _compute_score_lead(game)
+        # Refresh the live score estimate for the UI graph. Fast-moves mode
+        # reuses the selector's own analysis instead of a fresh eval,
+        # mirroring client.ts getAIMoveViaBridge (§4a/S45): the chosen
+        # candidate's scoreLead when it was read with >= 2 visits
+        # (wideRootNoise fills the pool tail with 1-visit noise), else the
+        # pre-move eval. A dedicated eval runs only when the selector never
+        # analyzed at all (30k heuristic profile / stub AI), keeping the
+        # graph at one engine query — and one real point — per exchange.
+        if fast_moves:
+            chosen_lead = None
+            if sel_eval.candidates:
+                cand = next(
+                    (c for c in sel_eval.candidates
+                     if c.move[0] == point.row and c.move[1] == point.col),
+                    None,
+                )
+                if cand is not None and cand.visits >= 2:
+                    chosen_lead = cand.score_lead
+            if chosen_lead is not None:
+                game.score_lead = chosen_lead
+            elif lead_before is not None:
+                game.score_lead = lead_before
+            else:
+                game.score_lead = await _compute_score_lead(game)
+        else:
+            game.score_lead = await _compute_score_lead(game)
 
         await self._save(game)
         return AIMoveResponse(
             point=PointSchema(row=point.row, col=point.col),
             captures=[PointSchema(row=c.row, col=c.col) for c in captures],
             score_lead=game.score_lead,
+            score_lead_before=lead_before,
         )
 
     async def _score_game_async(self, game: ActiveGame):
