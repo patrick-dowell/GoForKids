@@ -415,11 +415,15 @@ export function GoBoard() {
       phase === 'playing' &&
       !aiThinking &&
       gameMode !== 'botvsbot' &&
-      // Only when it's the player's turn vs the bot. Without this, a
+      // Local pass-and-play: both colors tap the same board, so the
+      // turn check must not apply (playerColor stays fixed at creation
+      // while currentColor alternates — requiring them equal locks the
+      // board for the second color after move 1).
+      // Vs the bot: only when it's the player's turn. Without this, a
       // White player could tap the empty board during the window before
       // the bot's opening Black move (aiThinking is still false then) and
       // place the bot's stone themselves, desyncing the game.
-      currentColor === playerColor;
+      (gameMode === 'local' || currentColor === playerColor);
 
   // Lesson highlights:
   //  - puzzle/game lessons: only when showHint is set
