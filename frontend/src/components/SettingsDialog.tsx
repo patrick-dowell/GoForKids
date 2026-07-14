@@ -12,6 +12,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const setDensity = useSettingsStore((s) => s.setDensity);
   const showScoreGraph = useSettingsStore((s) => s.showScoreGraph);
   const setShowScoreGraph = useSettingsStore((s) => s.setShowScoreGraph);
+  const cloudBot = useSettingsStore((s) => s.cloudBot);
+  const setCloudBot = useSettingsStore((s) => s.setCloudBot);
 
   const options: ThemeId[] = ['cosmic', 'classic'];
   const densityOptions: { value: Density; label: string; desc: string }[] = [
@@ -76,6 +78,20 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               onChange={(e) => setShowScoreGraph(e.target.checked)}
             />
             {' '}Show score graph during play
+          </label>
+        </div>
+
+        {/* Cloud bot: routes bot moves to the Render backend even when the
+            native bridge exists — for older iPads where on-device KataGo is
+            unplayably slow. An adult flips this per-device; needs internet. */}
+        <div className="dialog-field">
+          <label>
+            <input
+              type="checkbox"
+              checked={cloudBot}
+              onChange={(e) => setCloudBot(e.target.checked)}
+            />
+            {' '}Bot plays online (for older iPads)
           </label>
         </div>
       </div>
