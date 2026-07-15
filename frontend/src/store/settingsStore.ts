@@ -21,7 +21,7 @@ interface PersistedSettings {
   themeId: ThemeId;
   density: Density;
   showScoreGraph: boolean;
-  /** Cloud bot (2026-07-14, school session): force bot moves onto the
+  /** Cloud bot (2026-07-14): force bot moves onto the
    *  HTTP/Render path even when the native KataGo bridge is injected. For
    *  older iPads where on-device analysis takes ~1 min/move vs ~2s on
    *  Render. Enforced inside getKataGoBridge() — when ON the getter returns

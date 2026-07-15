@@ -4,7 +4,7 @@ import { Color } from '../src/engine/types';
 
 /**
  * Local (pass-and-play) regression: BOTH colors must be able to place stones
- * by tapping. Broke publicly at the Dawson camp session (2026-07-13): the
+ * by tapping. Broke in real use (2026-07-13): the
  * canClick turn gate in GoBoard.tsx required currentColor === playerColor —
  * right for vs-AI (stops the White player tapping during the window before
  * the bot's opening Black move), but in local mode playerColor is fixed at
@@ -14,7 +14,7 @@ import { Color } from '../src/engine/types';
  * Drives the REAL tap path (pointer events on the canvas → canClick →
  * commitMove → playMove), not the store directly — the store was never
  * broken; the UI gate was. Local mode needs no backend, and `playwright
- * test` (npm run test:layout, the pre-camp-build gate) picks this up along
+ * test` (npm run test:layout, the pre-release gate) picks this up along
  * with the layout sweep.
  */
 

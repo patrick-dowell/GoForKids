@@ -5,7 +5,7 @@
  * the native KataGo bridge is injected: getKataGoBridge() returns null, so
  * client.ts routes createGame/ai-move over HTTP to Render instead of the
  * on-device path. Exists for old iPads where on-device analysis takes
- * ~1 min/move vs ~2s on Render (2026-07-15 school session).
+ * ~1 min/move vs ~2s on Render.
  *
  * Project-wide vitest env is 'node'; we shim `localStorage` + `window` here
  * (same approach as localGameRouter.test.ts) rather than pull in jsdom.
