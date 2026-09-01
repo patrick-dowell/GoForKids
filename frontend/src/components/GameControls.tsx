@@ -1,6 +1,7 @@
 import { useGameStore } from '../store/gameStore';
 import { useAutoPlayStore } from '../store/autoPlayStore';
 import { useSettingsStore } from '../store/settingsStore';
+import { getKataGoBridge } from '../api/nativeKataGo';
 import { BOT_AVATARS } from './Avatar';
 import { Color } from '../engine/types';
 import { ScoreGraph } from './ScoreGraph';
@@ -36,6 +37,15 @@ export function GameControls() {
   const autoplayContext = useGameStore((s) => s.autoplayContext);
   const undoBank = useAutoPlayStore((s) => s.undoBank);
   const showScoreGraph = useSettingsStore((s) => s.showScoreGraph);
+  // Subscribed (not just read) so the button reacts if the cloud-bot
+  // setting flips mid-session.
+  const cloudBot = useSettingsStore((s) => s.cloudBot);
+  // Finish Game runs a tight loop of full-strength engine moves. On-device
+  // that's free; through the backend it's the most expensive request class
+  // per unit of user value, so the server disables it (403) and we don't
+  // offer it. getKataGoBridge() already returns null under cloudBot, but the
+  // subscription above is what makes this re-render when the toggle moves.
+  const onDeviceFinish = !cloudBot && getKataGoBridge() !== null;
 
   const isBotVsBot = gameMode === 'botvsbot';
   const isAIGame = !!gameId && !isBotVsBot;
@@ -140,7 +150,7 @@ export function GameControls() {
               </button>
             )
           )}
-          {!!gameId && !isBotVsBot && moveCount >= 20 && (
+          {!!gameId && !isBotVsBot && moveCount >= 20 && onDeviceFinish && (
             <button
               onClick={finishGame}
               className="btn btn-accent"

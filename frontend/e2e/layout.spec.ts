@@ -187,6 +187,11 @@ test('game screen, late-game worst case: full trays + graph + all buttons', asyn
   // suite FIRST, then make it pay for itself).
   await seedPickedProfile(page);
   await page.addInitScript(() => {
+    // Fake the iPad bridge so Finish Game mounts: the button is
+    // on-device-only as of 2026-09-01 (cloud finish disabled server-side),
+    // and this worst case is precisely the iPad scenario. The stub is never
+    // invoked — the injected late-game state doesn't run the finish loop.
+    (window as unknown as { kataGo: object }).kataGo = {};
     localStorage.setItem(
       'goforkids_settings',
       JSON.stringify({ themeId: 'cosmic', density: 'full', showScoreGraph: true }),

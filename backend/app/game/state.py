@@ -132,7 +132,10 @@ SUPPORTED_SIZES = (5, 9, 13, 19)
 # just the value-network prior. Independent of the bot's profile so the
 # graph stays consistent across all bot strengths.
 SCORE_ESTIMATE_VISITS = int(os.environ.get("KATAGO_SCORE_VISITS", "30"))
-OWNERSHIP_VISITS = int(os.environ.get("KATAGO_OWNERSHIP_VISITS", "200"))
+# 200 → 50 (2026-09-01): dead-stone detection on our boards doesn't need
+# 200 visits, and at 200 a cluster of games ending was enough to starve
+# every live game's moves (the 2026-07-15 stall, reproduced by loadtest).
+OWNERSHIP_VISITS = int(os.environ.get("KATAGO_OWNERSHIP_VISITS", "50"))
 
 
 def _fast_moves_enabled() -> bool:
@@ -164,6 +167,7 @@ async def _compute_score_lead(game: "ActiveGame") -> Optional[float]:
             game.board.to_2d(), player,
             max_visits=SCORE_ESTIMATE_VISITS,
             komi=game.komi, size=game.board.size,
+            priority=10,  # rides the live move path — never behind scoring
         )
         return analysis.score_lead
     except Exception as e:
@@ -405,7 +409,7 @@ class GameManager:
         engine_setup, engine_moves = _engine_history(game)
         try:
             analysis = await engine.analyze(
-                board_2d, player, max_visits=500,
+                board_2d, player, max_visits=500, priority=-10,
                 komi=game.komi, size=game.board.size,
                 moves=engine_moves, initial_stones=engine_setup,
             )
@@ -626,6 +630,7 @@ class GameManager:
                     board_2d, "B", max_visits=OWNERSHIP_VISITS,
                     komi=game.komi, include_ownership=True,
                     size=game.board.size,
+                    priority=-10,  # scoring yields to live-game moves
                 )
                 if analysis.ownership:
                     # Ownership values: +1 = definitely black, -1 = definitely white

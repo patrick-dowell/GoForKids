@@ -82,6 +82,10 @@ class KataGoEngine:
         self._pending: dict[str, asyncio.Future] = {}
         self._reader_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
+        # Per-query wait ceiling. Sits UNDER the frontend's 20s request
+        # timeout: a wait the client has already abandoned is pure zombie
+        # load, so fail fast and terminate (see analyze()).
+        self._query_timeout = float(os.environ.get("KATAGO_QUERY_TIMEOUT", "15"))
 
     async def start(self):
         """Start the KataGo analysis process."""
@@ -142,6 +146,7 @@ class KataGoEngine:
         moves: Optional[list[list[str]]] = None,
         initial_stones: Optional[list[list[str]]] = None,
         override_settings: Optional[dict] = None,
+        priority: int = 0,
     ) -> PositionAnalysis:
         """Analyze a board position. Returns candidate moves with evaluations.
 
@@ -191,6 +196,11 @@ class KataGoEngine:
             "maxVisits": max_visits or self.config.max_visits,
             "analyzeTurns": [len(move_list)],
             "includeOwnership": include_ownership,
+            # Higher runs first. Live-game moves pass 10, end-of-game scoring
+            # passes -10, so a burst of scoring queries can never delay the
+            # moves of games still being played (the 2026-07-15 saturation
+            # stall's trigger, reproduced by tools/loadtest.py 2026-09-01).
+            "priority": priority,
         }
         if override_settings:
             # Per-query search overrides, e.g. {"wideRootNoise": 0.6} — spreads
@@ -206,7 +216,31 @@ class KataGoEngine:
             self.process.stdin.write(json.dumps(query) + "\n")
             self.process.stdin.flush()
 
-        result = await asyncio.wait_for(future, timeout=30.0)
+        try:
+            result = await asyncio.wait_for(future, timeout=self._query_timeout)
+        except asyncio.TimeoutError:
+            # Giving up on the wait must also stop KataGo's computation:
+            # a cancelled future leaves the query grinding server-side, and
+            # that zombie load is what held the engine wedged in the
+            # 2026-07-15 saturation stall (verified by load test 2026-09-01
+            # — every abandoned 200-visit scoring query kept a lane busy).
+            self._pending.pop(query_id, None)
+            try:
+                async with self._lock:
+                    self.process.stdin.write(
+                        json.dumps(
+                            {
+                                "id": f"terminate-{query_id}",
+                                "action": "terminate",
+                                "terminateId": query_id,
+                            }
+                        )
+                        + "\n"
+                    )
+                    self.process.stdin.flush()
+            except Exception:
+                logger.warning(f"terminate write failed for {query_id}")
+            raise
         return self._parse_response(result, size)
 
     async def _read_loop(self):

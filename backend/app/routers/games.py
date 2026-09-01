@@ -1,3 +1,4 @@
+import os
 import uuid
 from typing import Optional
 from fastapi import APIRouter, HTTPException
@@ -39,8 +40,12 @@ async def score_position(req: dict):
         raise HTTPException(status_code=503, detail="KataGo not available")
 
     try:
+        from app.game.state import OWNERSHIP_VISITS
+
         analysis = await engine.analyze(
-            board, "B", max_visits=200, komi=7.5, include_ownership=True, size=size,
+            board, "B", max_visits=OWNERSHIP_VISITS, komi=7.5,
+            include_ownership=True, size=size,
+            priority=-10,  # end-of-game scoring yields to live-game moves
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"KataGo analysis failed: {e}")
@@ -140,7 +145,18 @@ async def finish_move(game_id: str):
     The Finish Game flow calls this in a tight loop so the player can
     watch KataGo wrap up the game in real-time, instead of bundling 100+
     moves into a single 30-second request like the old auto-complete did.
+
+    Disabled on the cloud backend by default (2026-09-01): a tight loop of
+    500-visit queries is the single most expensive request class per unit
+    of user value, and the on-device bridge serves the feature for free.
+    Old clients that still call it get a clean 403. Re-enable with
+    CLOUD_FINISH_ENABLED=1 if a hosted deployment ever wants it.
     """
+    if os.environ.get("CLOUD_FINISH_ENABLED", "").lower() not in ("1", "true", "yes"):
+        raise HTTPException(
+            status_code=403,
+            detail="Finish Game is not available on the cloud bot",
+        )
     result = await manager.finish_move(game_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Game not found")

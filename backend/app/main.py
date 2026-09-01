@@ -28,8 +28,46 @@ app = FastAPI(
     title="GoForKids API",
     description="Backend API for GoForKids — a Go teaching app",
     version="0.1.0",
+    # NOTE: request-latency middleware is added below the app definition —
+    # one compact line per request so a hosted deployment's log stream is
+    # enough to reconstruct an incident (the 2026-07-15 stall left no
+    # forensics because nothing durable was logged per-request).
     lifespan=lifespan,
 )
+
+_req_logger = logging.getLogger("app.request")
+
+
+@app.middleware("http")
+async def log_request_latency(request, call_next):
+    """One compact line per request: method path -> status in N ms.
+
+    This is the forensic record the 2026-07-15 incident lacked: with a log
+    drain attached to the hosting platform, these lines alone reconstruct
+    arrival rate, latency distribution, and error clustering for any window.
+    """
+    import time as _time
+
+    t0 = _time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        _req_logger.warning(
+            "%s %s -> EXC in %dms",
+            request.method,
+            request.url.path,
+            int((_time.perf_counter() - t0) * 1000),
+        )
+        raise
+    _req_logger.info(
+        "%s %s -> %d in %dms",
+        request.method,
+        request.url.path,
+        response.status_code,
+        int((_time.perf_counter() - t0) * 1000),
+    )
+    return response
+
 
 # Always-allowed origins for the iPad app's bundled React frontend:
 #   - `app://localhost` is what WKWebView sends when the page is loaded via

@@ -506,6 +506,7 @@ async def _select_with_katago(
             board_2d, player, max_visits=analysis_visits, size=board.size,
             moves=engine_moves, initial_stones=engine_setup,
             override_settings=overrides,
+            priority=10,  # live-game moves outrank scoring/finish queries
         )
 
         if eval_out is not None:
