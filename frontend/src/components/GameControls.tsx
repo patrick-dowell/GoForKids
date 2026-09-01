@@ -33,6 +33,8 @@ export function GameControls() {
   const resign = useGameStore((s) => s.resign);
   const undo = useGameStore((s) => s.undo);
   const finishGame = useGameStore((s) => s.finishGame);
+  const botStuck = useGameStore((s) => s.botStuck);
+  const retryAIMove = useGameStore((s) => s.retryAIMove);
   const lessonContext = useGameStore((s) => s.lessonContext);
   const autoplayContext = useGameStore((s) => s.autoplayContext);
   const undoBank = useAutoPlayStore((s) => s.undoBank);
@@ -116,6 +118,16 @@ export function GameControls() {
 
         {lessonContext ? <WhoIsWinning /> : showScoreGraph && <ScoreGraph />}
       </div>
+
+      {/* Timeout-recovery affordance: both silent recovery attempts failed,
+          the game is parked on the bot's turn, and this is the kid's way to
+          unstick it. The tap re-enters the recovery ladder (resync first —
+          never a blind retry). */}
+      {botStuck && phase === 'playing' && (
+        <button onClick={retryAIMove} className="btn btn-accent" disabled={aiThinking}>
+          The bot got stuck — tap to try again
+        </button>
+      )}
 
       {phase === 'playing' && !isBotVsBot && (
         <div className="control-buttons">

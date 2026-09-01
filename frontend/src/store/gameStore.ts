@@ -319,6 +319,13 @@ interface GameState {
    *  a "what just happened" modal so newcomers don't think the game silently
    *  ended. Cleared by either the user passing back or dismissing. */
   botJustPassed: boolean;
+  /** Timeout-recovery ladder terminal state (2026-09-01): both silent
+   *  recovery attempts failed, so the game is parked on the bot's turn.
+   *  UI surfaces a kid-readable tap-to-retry; the tap re-enters the ladder
+   *  via retryAIMove. Before this existed, an ai-move failure was a
+   *  console.warn and a silently stuck game — the client half of the
+   *  2026-07-15 "bots just stopped" incident. */
+  botStuck: boolean;
   /** Lesson-context only: true when the player has no legal moves on their
    *  turn. Surfaces a "you're out of choices, pass to end the game" modal
    *  with a single Pass & end action that fires both sides' passes in
@@ -356,7 +363,9 @@ interface GameState {
   pass: () => void;
   resign: () => void;
   undo: () => boolean;
-  requestAIMove: () => Promise<void>;
+  requestAIMove: (opts?: { isRetry?: boolean }) => Promise<void>;
+  /** Re-enter the recovery ladder from the tap-to-retry affordance. */
+  retryAIMove: () => void;
   requestBotVsBotMove: () => Promise<void>;
   setBotVsBotSpeed: (ms: number) => void;
   toggleBotVsBotPause: () => void;
@@ -592,6 +601,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   undosThisGame: 0,
   desyncReported: false,
   botJustPassed: false,
+  botStuck: false,
   playerOutOfMoves: false,
   lessonGameEndDismissed: false,
   gameEndDismissed: false,
@@ -710,6 +720,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       undosThisGame: 0,
       desyncReported: false,
       botJustPassed: false,
+      botStuck: false,
       playerOutOfMoves: false,
       lessonGameEndDismissed: false,
       gameEndDismissed: false,
@@ -1019,7 +1030,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     return didUndo;
   },
 
-  requestAIMove: async () => {
+  requestAIMove: async (opts?: { isRetry?: boolean }) => {
     const { gameId, _game, phase, targetRank, lessonContext, playerColor } = get();
     if (!gameId || phase !== 'playing') return;
 
@@ -1049,7 +1060,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
     }
 
-    set({ aiThinking: true });
+    set({ aiThinking: true, botStuck: false });
 
     try {
       // Pass targetRank so the iPad bridge path can apply rank-calibrated
@@ -1190,9 +1201,87 @@ export const useGameStore = create<GameState>((set, get) => ({
         });
       }
     } catch (e) {
-      console.warn('AI move failed:', e);
-      set({ aiThinking: false });
+      // Timeout-recovery ladder (2026-09-01). A failed ai-move leaves us in
+      // one of three worlds and only the server knows which: (a) it
+      // completed the move and the response was lost — resync and NEVER
+      // retry (a blind retry double-moves the bot and desyncs the boards);
+      // (b) it never completed it — one silent retry; (c) the link itself
+      // is down — surface a kid-readable tap-to-retry. Before this ladder,
+      // the catch was a console.warn and a silently stuck game: the client
+      // half of the 2026-07-15 "bots just stopped playing" incident.
+      const isRetry = opts?.isRetry === true;
+      const reason = e instanceof Error ? e.message : String(e);
+      recordSelectorLog(
+        `[game] ai-move FAILED move=${_game.moveHistory.length} ` +
+          `via=${getKataGoBridge() ? 'bridge' : 'http'} retry=${isRetry} (${reason})`,
+      );
+      if (get().phase !== 'playing') {
+        set({ aiThinking: false });
+        return;
+      }
+      // Step 1: resync — did the server complete work we never saw?
+      try {
+        const server = await api.getGame(gameId);
+        if (server.move_number > _game.moveHistory.length) {
+          if (server.last_move && typeof server.last_move.row === 'number') {
+            const pt = { row: server.last_move.row, col: server.last_move.col };
+            const captures = _game.forceApplyServerMove(pt, server.board);
+            playPlaceSound(pt.row, pt.col);
+            recordSelectorLog(
+              `[game] recovery: server had committed (${pt.row},${pt.col}) — resynced, no retry`,
+            );
+            // scoreHistory skips this move's KataGo points (the response
+            // that carried them is the thing we lost) — one missing graph
+            // point beats a doubled move.
+            set({
+              aiThinking: false,
+              botStuck: false,
+              ...snapshot(_game, { lastMove: pt, lastCaptures: captures }),
+            });
+          } else {
+            // Ahead without a placed stone: the bot's committed move was a
+            // pass. Mirror it locally; pass() also ends the game if this is
+            // the second consecutive pass.
+            const wasPlaying = _game.phase === 'playing';
+            _game.pass();
+            playPassSound();
+            recordSelectorLog('[game] recovery: server had committed a pass — resynced');
+            set({
+              aiThinking: false,
+              botStuck: false,
+              ...snapshot(_game),
+              botJustPassed: wasPlaying && _game.phase === 'playing',
+            });
+          }
+          return;
+        }
+      } catch (syncErr) {
+        // Can't even read game state — the link is down. Straight to the
+        // affordance; a silent retry would just burn another timeout.
+        recordSelectorLog(
+          `[game] recovery: state fetch failed ` +
+            `(${syncErr instanceof Error ? syncErr.message : syncErr}) — surfacing`,
+        );
+        set({ aiThinking: false, botStuck: true });
+        return;
+      }
+      // Step 2: server reachable and still waiting on the bot's move — one
+      // silent retry, then stop being clever.
+      if (!isRetry) {
+        recordSelectorLog('[game] recovery: server in sync — retrying once');
+        return get().requestAIMove({ isRetry: true });
+      }
+      // Step 3: both attempts failed with a reachable server. Hand the
+      // player the fix; the tap re-enters this ladder from the top.
+      recordSelectorLog('[game] recovery: retry also failed — surfacing tap-to-retry');
+      set({ aiThinking: false, botStuck: true });
     }
+  },
+
+  retryAIMove: () => {
+    if (get().aiThinking) return; // single-flight: taps can't stack requests
+    set({ botStuck: false });
+    void get().requestAIMove();
   },
 
   requestBotVsBotMove: async () => {
