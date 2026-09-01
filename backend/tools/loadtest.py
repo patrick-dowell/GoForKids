@@ -188,6 +188,115 @@ def run_finisher(idx, base, stop_at, samples, errors, lock):
                 break
 
 
+def run_scorer(idx, base, stop_at, samples, errors, lock):
+    """Game-ending client: plays a short game then double-passes, which
+    triggers the automatic end-of-game ownership scoring server-side (no
+    explicit user action beyond finishing a game normally). The second
+    pass request carries the scoring cost; that's the measured request."""
+    rng = random.Random(2000 + idx)
+    while time.time() < stop_at:
+        try:
+            state = post(
+                base, "/api/games", {"board_size": 9, "target_rank": "15k", "mode": "casual"}
+            )
+        except Exception as e:  # noqa: BLE001
+            with lock:
+                errors.append(("s-create", repr(e)))
+            return
+        gid = state["game_id"]
+        for _ in range(6):
+            pts = empty_points(state["board"])
+            for _ in range(8):
+                r, c = rng.choice(pts)
+                try:
+                    state = post(base, f"/api/games/{gid}/move", {"row": r, "col": c})
+                    break
+                except urllib.error.HTTPError as e:
+                    if e.code == 400:
+                        continue
+                    break
+                except Exception:  # noqa: BLE001
+                    break
+            try:
+                post(base, f"/api/games/{gid}/ai-move")
+            except Exception:  # noqa: BLE001
+                pass
+        # End the game: pass, then the bot replies, then pass again until
+        # the game leaves "playing" — the pass that ends it runs scoring.
+        for _ in range(6):
+            t0 = time.time()
+            try:
+                state = post(base, f"/api/games/{gid}/pass")
+                dt = time.time() - t0
+                with lock:
+                    samples.append((time.time(), f"scr{idx}", dt, "pass-ok"))
+                if state.get("phase") != "playing":
+                    break
+                try:
+                    post(base, f"/api/games/{gid}/ai-move")
+                except Exception:  # noqa: BLE001
+                    pass
+            except urllib.error.HTTPError as e:
+                dt = time.time() - t0
+                with lock:
+                    samples.append((time.time(), f"scr{idx}", dt, "pass-err"))
+                if e.code == 400:
+                    break
+                with lock:
+                    errors.append(("pass", f"HTTP {e.code}"))
+                break
+            except Exception as e:  # noqa: BLE001
+                dt = time.time() - t0
+                with lock:
+                    samples.append((time.time(), f"scr{idx}", dt, "pass-err"))
+                with lock:
+                    errors.append(("pass", repr(e)))
+                break
+        time.sleep(rng.uniform(2, 5))
+
+
+# A plausible late-ish 9x9 position (~40 stones) for /score-position load:
+# the endpoint analyzes whatever board it's given; cost is the 200-visit
+# ownership query, not position aesthetics.
+LATE_BOARD_9 = [
+    [0, 1, 1, 2, 2, 0, 2, 1, 0],
+    [1, 1, 2, 2, 0, 2, 2, 1, 1],
+    [0, 1, 1, 2, 2, 2, 1, 1, 0],
+    [1, 1, 2, 0, 2, 1, 1, 0, 1],
+    [1, 2, 2, 2, 2, 1, 0, 1, 1],
+    [2, 2, 0, 2, 1, 1, 1, 1, 2],
+    [0, 2, 2, 1, 1, 0, 1, 2, 2],
+    [2, 2, 1, 1, 0, 1, 1, 2, 0],
+    [0, 2, 1, 0, 1, 1, 2, 2, 2],
+]
+
+
+def run_ender(idx, base, stop_at, samples, errors, lock):
+    """Simulates games ending: each loop is one end-of-game scoring call
+    (POST /score-position, a 200-visit ownership query — what real clients
+    fire when a game ends), spaced like a rolling cluster of endings."""
+    rng = random.Random(3000 + idx)
+    while time.time() < stop_at:
+        # Distinct position per call — identical boards let KataGo's cache
+        # serve repeats nearly free, which real game-endings never are.
+        board = [row[:] for row in LATE_BOARD_9]
+        for _ in range(6):
+            r, c = rng.randrange(9), rng.randrange(9)
+            board[r][c] = rng.choice([0, 1, 2])
+        t0 = time.time()
+        try:
+            post(base, "/api/games/score-position", {"board": board})
+            dt = time.time() - t0
+            with lock:
+                samples.append((time.time(), f"end{idx}", dt, "score-ok"))
+        except Exception as e:  # noqa: BLE001
+            dt = time.time() - t0
+            with lock:
+                samples.append((time.time(), f"end{idx}", dt, "score-err"))
+                errors.append(("score-position", repr(e)))
+        time.sleep(rng.uniform(8, 15))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", required=True)
@@ -195,6 +304,8 @@ def main():
     ap.add_argument("--duration", type=int, default=180)
     ap.add_argument("--think", default="10,20")
     ap.add_argument("--finishers", type=int, default=0)
+    ap.add_argument("--scorers", type=int, default=0)
+    ap.add_argument("--enders", type=int, default=0)
     ap.add_argument("--csv", default=None)
     args = ap.parse_args()
     think_lo, think_hi = (float(x) for x in args.think.split(","))
@@ -216,6 +327,20 @@ def main():
             daemon=True,
         )
         for k in range(args.finishers)
+    ] + [
+        threading.Thread(
+            target=run_scorer,
+            args=(k, args.base, stop_at, samples, errors, lock),
+            daemon=True,
+        )
+        for k in range(args.scorers)
+    ] + [
+        threading.Thread(
+            target=run_ender,
+            args=(k, args.base, stop_at, samples, errors, lock),
+            daemon=True,
+        )
+        for k in range(args.enders)
     ]
     for i, t in enumerate(threads):
         t.start()
@@ -227,7 +352,12 @@ def main():
         f"\nphase: clients={args.clients} finishers={args.finishers} "
         f"duration={args.duration}s think={args.think}"
     )
-    for label, statuses in (("ai-move", ("ok",)), ("finish-move", ("finish-ok",))):
+    for label, statuses in (
+        ("ai-move", ("ok",)),
+        ("finish-move", ("finish-ok",)),
+        ("pass/score", ("pass-ok",)),
+        ("score-position", ("score-ok",)),
+    ):
         rows = [s for s in samples if s[3] in statuses]
         errs = len([s for s in samples if s[3] == statuses[0].replace("ok", "err")])
         lat = [s[2] for s in rows]
