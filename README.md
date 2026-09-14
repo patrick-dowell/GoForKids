@@ -2,6 +2,8 @@
 
 A Go (board game) teaching app built kid-first — but with enough depth for returning adult players. Play against a rank-calibrated AI that feels like a real opponent, not a crippled engine. Review your games with plain-language explanations powered by Claude.
 
+Built by Patrick Dowell with Claude Code; AI-authored commits carry a Co-Authored-By trailer.
+
 **Status:** v1 technical foundation + the full first-cut Learn-to-Play arc (lessons 1–11) + an auto-play ranked progression on 19×19, now in closed beta on Render. Proves the AI rank ladder, board feel, study mode, small-board play on 5×5 / 9×9 / 13×13 / 19×19, an end-to-end intro flow that teaches placement, capture, survival, capture races, life-and-death (one eye dies, two eyes live forever), territory counting, and a one-tap Play flow that tracks the player's rank from 30k and picks each matchup deterministically off a 29-rung ladder.
 
 ## What's Working
