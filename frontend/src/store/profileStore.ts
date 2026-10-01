@@ -31,6 +31,10 @@ interface ProfileState {
 
   setAvatar: (avatar: PlayerAvatarType) => void;
   setDisplayName: (name: DisplayName) => void;
+  /** Take the avatar from the linked profile (sync, feature 32). Sets both
+   *  fields as given (unlike `setAvatar`, which always marks a deliberate
+   *  pick); the display name is untouched and never leaves the device. */
+  adoptAvatar: (avatar: string, avatarPicked: boolean) => void;
   loadFromStorage: () => void;
 }
 
@@ -62,6 +66,13 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   setDisplayName: (displayName) => {
     set({ displayName });
     persist({ avatar: get().avatar, displayName, avatarPicked: get().avatarPicked });
+  },
+
+  adoptAvatar: (avatar, avatarPicked) => {
+    if (!isValidAvatar(avatar)) return;
+    if (avatar === get().avatar && avatarPicked === get().avatarPicked) return;
+    set({ avatar, avatarPicked });
+    persist({ avatar, displayName: get().displayName, avatarPicked });
   },
 
   loadFromStorage: () => {

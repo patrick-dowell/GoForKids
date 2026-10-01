@@ -7,6 +7,7 @@ import {
   effectiveMatchup,
   matchupForRung,
   freshState,
+  hasLadder,
   prevRung,
   resolveRung,
 } from '../autoplay/matchmaker';
@@ -33,7 +34,7 @@ export interface PromotionEvent {
   ts: number;
 }
 
-interface PersistedSlot {
+export interface PersistedSlot {
   rungState: RungState;
   history: HistoryEntry[];
   promotionEvents: PromotionEvent[];
@@ -46,16 +47,29 @@ interface PersistedSlot {
 
 /** localStorage key per board, e.g. "9x9" / "19x19". Cross-board ladders are
  *  independent (feature 24): a player's 9×9 progress is separate from 19×19. */
-type BoardKey = '9x9' | '13x13' | '19x19';
-function boardKey(b: BoardSize): BoardKey {
+export type BoardKey = '9x9' | '13x13' | '19x19';
+export function boardKey(b: BoardSize): BoardKey {
   return `${b}x${b}` as BoardKey;
 }
 
-interface PersistedState {
+/** The persisted payload of `goforkids.autoplay.v1`. Also the `ladder` of the
+ *  sync state document (feature 32), unchanged. */
+export interface PersistedState {
   byBoardSize: Partial<Record<BoardKey, PersistedSlot>>;
   /** Player-level ranked undo bank (0..UNDO_BANK_MAX). Optional for back-compat
    *  with payloads written before banked undos shipped (absent ⇒ full bank). */
   undoBank?: number;
+}
+
+/** One finished ranked game, as `recordResult` applies it. Sync (feature 32)
+ *  queues these while a device can't push, and re-applies them in order on
+ *  top of the server's ladder; `ts` doubles as the history entry's timestamp,
+ *  which is how a re-apply recognises a result the server already holds. */
+export interface RankedResult {
+  boardSize: BoardSize;
+  result: 'win' | 'loss';
+  undosUsed: number;
+  ts: number;
 }
 
 interface AutoPlayState {
@@ -125,6 +139,14 @@ interface AutoPlayState {
 
   /** Load persisted state from localStorage. Called on app mount. */
   loadFromStorage: () => void;
+
+  /** The persisted payload as it stands (what `goforkids.autoplay.v1` holds). */
+  exportLadder: () => PersistedState;
+
+  /** Replace every board's ladder and the undo bank with `payload` (sync,
+   *  feature 32), keep the active board, and persist. Stale rungs migrate
+   *  exactly as on load. Celebration state is left alone. */
+  adoptLadder: (payload: PersistedState) => void;
 }
 
 const STORAGE_KEY = 'goforkids.autoplay.v1';
@@ -170,6 +192,134 @@ function persistState(slots: Partial<Record<BoardKey, PersistedSlot>>, undoBank:
   } catch (e) {
     console.warn('Failed to save auto-play state:', e);
   }
+}
+
+export interface AppliedRankedResult {
+  slot: PersistedSlot;
+  undoBank: number;
+  promoted: boolean;
+  fromRung: Rung | null;
+}
+
+/**
+ * Apply one finished ranked game to its board's slot and the undo bank. Pure.
+ * This is the whole of what `recordResult` does to the ladder — the history
+ * entry, `applyResult`, the promotion event, the shadow-rating update and the
+ * undo refill — so sync can re-apply queued results through the same logic.
+ */
+export function applyRankedResult(
+  slot: PersistedSlot,
+  undoBank: number,
+  r: RankedResult,
+): AppliedRankedResult {
+  const { rungState, history, promotionEvents } = slot;
+  const shadowRating = slot.shadowRating ?? freshRating();
+  const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak, r.boardSize);
+  const newEntry: HistoryEntry = {
+    rung: rungState.currentRung,
+    bot: matchup.bot,
+    handicap: matchup.handicap,
+    result: r.result,
+    ts: r.ts,
+    undosUsed: r.undosUsed,
+  };
+  const out = applyResult(rungState, r.result, r.boardSize);
+  const newHistory = [...history, newEntry].slice(-HISTORY_CAP);
+  const newPromotionEvents = out.promoted && out.fromRung
+    ? [...promotionEvents, { from: out.fromRung, to: out.state.currentRung, ts: r.ts }].slice(-HISTORY_CAP)
+    : promotionEvents;
+  // Shadow rating update. The matchup's effective opponent strength is
+  // the player's CURRENT rung (handicap/komi balances bot rank to player
+  // rung by construction), so we compare the player against `currentRung`.
+  const oppMu = rankToRating(rungState.currentRung);
+  const newShadowRating = updateRating(shadowRating, oppMu, BOT_OPP_PHI, r.result === 'win' ? 1 : 0);
+  return {
+    slot: {
+      rungState: out.state,
+      history: newHistory,
+      promotionEvents: newPromotionEvents,
+      shadowRating: newShadowRating,
+    },
+    // Finishing a ranked game (win OR loss) refills one undo, capped — so the
+    // bank trends toward ~1 undo available per game, which covers misclicks.
+    undoBank: Math.min(UNDO_BANK_MAX, undoBank + 1),
+    promoted: out.promoted,
+    fromRung: out.fromRung,
+  };
+}
+
+/** Parse a persisted payload (from storage or from the sync record) into
+ *  clean slots and a clamped undo bank, migrating stale rungs. */
+export function normalizeLadder(payload: Partial<PersistedState> | null | undefined): {
+  slots: Partial<Record<BoardKey, PersistedSlot>>;
+  undoBank: number;
+} {
+  const stored = payload?.byBoardSize ?? {};
+  const slots: Partial<Record<BoardKey, PersistedSlot>> = {};
+  for (const [key, slot] of Object.entries(stored)) {
+    if (!slot) continue;
+    // Migrate a stale saved rung to a valid one on the current ladder.
+    // The S44 9×9 rebuild dropped the 21k/23k rungs; a device still
+    // parked on one crashed the ranked/profile screen with "Unknown
+    // rung" (2026-07-06). resolveRung is a no-op for valid rungs.
+    const size = parseInt(key, 10) as BoardSize; // "9x9" → 9
+    let rungState = slot.rungState;
+    if (rungState?.currentRung) {
+      const migrated = resolveRung(rungState.currentRung, size);
+      if (migrated !== rungState.currentRung) {
+        rungState = { ...rungState, currentRung: migrated };
+      }
+    }
+    slots[key as BoardKey] = {
+      rungState,
+      history: slot.history ?? [],
+      promotionEvents: slot.promotionEvents ?? [],
+      shadowRating: slot.shadowRating ?? freshRating(),
+    };
+  }
+  // Undo bank is player-level (clamped; absent in old payloads ⇒ full).
+  const undoBank = Math.max(0, Math.min(UNDO_BANK_MAX, payload?.undoBank ?? UNDO_BANK_MAX));
+  return { slots, undoBank };
+}
+
+/**
+ * Re-apply queued ranked results, in order, on top of another copy of the
+ * ladder (sync's rebase, feature 32). A result whose timestamp already sits
+ * in that board's history is skipped: it reached the server on an earlier
+ * push whose reply was lost. Results for a board with no ladder are skipped.
+ * Returns the new payload and the results that were actually applied.
+ */
+export function reapplyRankedResults(
+  base: Partial<PersistedState> | null | undefined,
+  queued: ReadonlyArray<RankedResult>,
+): { ladder: PersistedState; applied: RankedResult[] } {
+  const norm = normalizeLadder(base);
+  let slots = norm.slots;
+  let undoBank = norm.undoBank;
+  const applied: RankedResult[] = [];
+  for (const r of queued) {
+    if (!hasLadder(r.boardSize)) continue;
+    const key = boardKey(r.boardSize);
+    const slot = slots[key] ?? emptySlot(r.boardSize);
+    if (slot.history.some((h) => h.ts === r.ts && h.result === r.result)) continue;
+    const out = applyRankedResult(slot, undoBank, r);
+    slots = { ...slots, [key]: out.slot };
+    undoBank = out.undoBank;
+    applied.push(r);
+  }
+  return { ladder: { byBoardSize: slots, undoBank }, applied };
+}
+
+type RankedResultListener = (r: RankedResult) => void;
+const rankedResultListeners = new Set<RankedResultListener>();
+
+/** Be told about every ranked result `recordResult` applies (sync queues them).
+ *  Returns an unsubscribe function. */
+export function onRankedResult(fn: RankedResultListener): () => void {
+  rankedResultListeners.add(fn);
+  return () => {
+    rankedResultListeners.delete(fn);
+  };
 }
 
 // Note: derived values (current matchup, safeguard-active flag, validation-
@@ -219,49 +369,23 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
   },
 
   recordResult: (result: 'win' | 'loss', undosUsed = 0) => {
-    const { boardSize, rungState, history, promotionEvents, shadowRating, slots, undoBank } = get();
-    const matchup = effectiveMatchup(rungState.currentRung, rungState.lossStreak, boardSize);
-    const ts = Date.now();
-    const newEntry: HistoryEntry = {
-      rung: rungState.currentRung,
-      bot: matchup.bot,
-      handicap: matchup.handicap,
-      result,
-      ts,
-      undosUsed,
-    };
-    const out = applyResult(rungState, result, boardSize);
-    const newHistory = [...history, newEntry].slice(-HISTORY_CAP);
-    const newPromotionEvents = out.promoted && out.fromRung
-      ? [...promotionEvents, { from: out.fromRung, to: out.state.currentRung, ts }].slice(-HISTORY_CAP)
-      : promotionEvents;
-    // Shadow rating update. The matchup's effective opponent strength is
-    // the player's CURRENT rung (handicap/komi balances bot rank to player
-    // rung by construction), so we compare the player against `currentRung`.
-    const oppMu = rankToRating(rungState.currentRung);
-    const newShadowRating = updateRating(shadowRating, oppMu, BOT_OPP_PHI, result === 'win' ? 1 : 0);
-    const slot: PersistedSlot = {
-      rungState: out.state,
-      history: newHistory,
-      promotionEvents: newPromotionEvents,
-      shadowRating: newShadowRating,
-    };
-    const newSlots = { ...slots, [boardKey(boardSize)]: slot };
-    // Finishing a ranked game (win OR loss) refills one undo, capped — so the
-    // bank trends toward ~1 undo available per game, which covers misclicks.
-    const newUndoBank = Math.min(UNDO_BANK_MAX, undoBank + 1);
+    const s = get();
+    const r: RankedResult = { boardSize: s.boardSize, result, undosUsed, ts: Date.now() };
+    const out = applyRankedResult(activeSlot(s), s.undoBank, r);
+    const newSlots = { ...s.slots, [boardKey(s.boardSize)]: out.slot };
     set({
-      rungState: out.state,
-      history: newHistory,
-      promotionEvents: newPromotionEvents,
-      shadowRating: newShadowRating,
+      rungState: out.slot.rungState,
+      history: out.slot.history,
+      promotionEvents: out.slot.promotionEvents,
+      shadowRating: out.slot.shadowRating ?? freshRating(),
       slots: newSlots,
       gamePending: false,
       showRankUp: out.promoted,
       pendingFromRung: out.fromRung,
-      undoBank: newUndoBank,
+      undoBank: out.undoBank,
     });
-    persistState(newSlots, newUndoBank);
+    persistState(newSlots, out.undoBank);
+    for (const fn of rankedResultListeners) fn(r);
   },
 
   // Don't clear `pendingFromRung` here — AutoPlayGameEndModal reads it to
@@ -336,34 +460,9 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const payload = JSON.parse(raw) as PersistedState;
-      const stored = payload.byBoardSize ?? {};
-      const slots: Partial<Record<BoardKey, PersistedSlot>> = {};
-      for (const [key, slot] of Object.entries(stored)) {
-        if (!slot) continue;
-        // Migrate a stale saved rung to a valid one on the current ladder.
-        // The S44 9×9 rebuild dropped the 21k/23k rungs; a device still
-        // parked on one crashed the ranked/profile screen with "Unknown
-        // rung" (Roland's iPad, 2026-07-06). resolveRung is a no-op for
-        // valid rungs.
-        const size = parseInt(key, 10) as BoardSize; // "9x9" → 9
-        let rungState = slot.rungState;
-        if (rungState?.currentRung) {
-          const migrated = resolveRung(rungState.currentRung, size);
-          if (migrated !== rungState.currentRung) {
-            rungState = { ...rungState, currentRung: migrated };
-          }
-        }
-        slots[key as BoardKey] = {
-          rungState,
-          history: slot.history ?? [],
-          promotionEvents: slot.promotionEvents ?? [],
-          shadowRating: slot.shadowRating ?? freshRating(),
-        };
-      }
+      const { slots, undoBank } = normalizeLadder(payload);
       // Active board defaults to 19×19 on load.
       const active = slots['19x19'] ?? emptySlot(19);
-      // Undo bank is player-level (clamped; absent in old payloads ⇒ full).
-      const undoBank = Math.max(0, Math.min(UNDO_BANK_MAX, payload.undoBank ?? UNDO_BANK_MAX));
       set({
         boardSize: 19,
         rungState: active.rungState ?? freshState(19),
@@ -376,6 +475,26 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
     } catch (e) {
       console.warn('Failed to load auto-play state:', e);
     }
+  },
+
+  exportLadder: () => {
+    const { slots, undoBank } = get();
+    return { byBoardSize: slots, undoBank };
+  },
+
+  adoptLadder: (payload: PersistedState) => {
+    const { slots, undoBank } = normalizeLadder(payload);
+    const { boardSize } = get();
+    const active = slots[boardKey(boardSize)] ?? emptySlot(boardSize);
+    set({
+      rungState: active.rungState ?? freshState(boardSize),
+      history: active.history,
+      promotionEvents: active.promotionEvents,
+      shadowRating: active.shadowRating ?? freshRating(),
+      slots,
+      undoBank,
+    });
+    persistState(slots, undoBank);
   },
 }));
 
