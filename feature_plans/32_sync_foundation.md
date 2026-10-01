@@ -93,7 +93,7 @@ Rules the server enforces:
   player's newest 100 by `date` (ISO 8601 string, ties broken by id) and
   deletes the rest. A second `PUT` of the same id replaces the first.
 - **`selectorLog`** is removed from a replay payload before it is stored.
-- **Rate limits**, in memory: `POST /players` 10 an hour,
+- **Rate limits**, in memory: `POST /players` 60 an hour,
   `POST /pairing-codes/redeem` 20 an hour, per client address. The key is
   the client address as seen through `SYNC_TRUSTED_PROXY_HOPS` trusted
   proxies: 0 (the default, no trusted proxy) ignores `X-Forwarded-For`
