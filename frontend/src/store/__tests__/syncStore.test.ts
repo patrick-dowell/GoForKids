@@ -628,6 +628,33 @@ describe('log out', () => {
     expect(m.profile.useProfileStore.getState().handle).toEqual([2, 9]);
   });
 
+  it('refuses when the pass cannot save the state, even though a revoke would work', async () => {
+    const { m, server } = await loggedInPlayer();
+    server.intercept = (c) =>
+      c.method === 'PUT' && c.path === '/sync/state' ? json(503, { detail: 'down' }) : undefined;
+
+    await expect(m.sync.useSyncStore.getState().logOut()).rejects.toBeTruthy();
+
+    expect(server.count('DELETE', '/sync/devices/current')).toBe(0);
+    expect(server.tokens.has('tok-1')).toBe(true);
+    expect(m.sync.useSyncStore.getState().deviceToken).toBe('tok-1');
+    expect(m.sync.useSyncStore.getState().pendingResults).toHaveLength(1);
+    expect(m.auto.useAutoPlayStore.getState().history).toHaveLength(1);
+  });
+
+  it('refuses when the replays cannot be reconciled, even with the state already level', async () => {
+    const { m, server } = await loggedInPlayer();
+    await m.sync.useSyncStore.getState().sync(); // state and replays level now
+    expect(m.sync.useSyncStore.getState().dirty).toBe(false);
+    server.intercept = (c) => (c.method === 'GET' && c.path === '/sync/games' ? json(503, { detail: 'down' }) : undefined);
+
+    await expect(m.sync.useSyncStore.getState().logOut()).rejects.toBeTruthy();
+
+    expect(server.count('DELETE', '/sync/devices/current')).toBe(0);
+    expect(m.sync.useSyncStore.getState().deviceToken).toBe('tok-1');
+    expect(m.library.useLibraryStore.getState().games).toHaveLength(1);
+  });
+
   it('refuses when the revoke fails, and changes nothing', async () => {
     const { m, server } = await loggedInPlayer();
     server.intercept = (c) =>
