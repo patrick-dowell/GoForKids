@@ -11,8 +11,9 @@ gets a secret token; a second device joins the same record with a short
 pairing code. After that every linked device reads and writes the one
 record, so rank, lessons and the replay library follow the player.
 
-A player who never turns sync on has nothing on the server. The app
-behaves exactly as it does today for them.
+**Revision 2 (below) changes who has a record:** every player gets one
+at first launch. Where this document's earlier sections and Revision 2
+disagree, Revision 2 wins.
 
 ## Decisions (settled before the build)
 
@@ -24,8 +25,9 @@ behaves exactly as it does today for them.
   queue and re-applies them on top of the server's state at the next sync.
 - **The library keeps the newest 100 games** and drops the oldest, on the
   device and on the server.
-- **The display name stays on the device.** It is free text, so it never
-  enters the record. Settings stay per device. The bot's diagnostic log
+- **No free-text name.** The app generates the player's name from two
+  curated word lists (Revision 2), so nothing a player types reaches the
+  server. Settings stay per device. The bot's diagnostic log
   (`selectorLog`) stays out of synced replays.
 
 ## Not in this slice
@@ -170,3 +172,147 @@ revokes the token and keeps the local data.
 - Together: two browser profiles against a local backend. Play a ranked
   game in one, press Play in the other, and the rank and the replay are
   there.
+
+---
+
+## Revision 2 — every player has a profile
+
+Phase 1 ships only when all of this section is built.
+
+### What changes
+
+- **Every player has a record on the server.** It is created at first
+  launch, not when a second device is added. "Add a device" only ever
+  connects a device to an account that already exists.
+- **The name is generated.** The free-text display name is removed
+  everywhere. A name is two words, one from each list below, stored and
+  sent as two list positions.
+- **Logging in takes the account whole.** Nothing a device held before is
+  merged into the account it logs into.
+- **Logging out clears the device's player data** and returns to the
+  first-run choice.
+
+### Contract changes (server)
+
+- The state document gains one allowed top-level key, `handle`: a JSON
+  array of exactly two integers, each from 0 to 63. Any other shape
+  answers **422**. The key may be absent. The allowlist is now `schema`,
+  `ladder`, `lessons`, `avatar`, `avatarPicked`, `handle`.
+- `POST /players` is limited to **60 an hour** per client address (was
+  10), because a room of devices updates at once behind one address.
+- Nothing else in the route table changes.
+
+### Names
+
+Two lists of 64 words. They are append-only: a position never changes
+its word. The client renders `handle = [a, n]` as
+`ADJECTIVES[a] + " " + NOUNS[n]`. A new name is two uniform random
+positions. Names are not unique and do not need to be.
+
+`ADJECTIVES` (positions 0 to 63, in this order):
+Cosmic, Quiet, Bright, Swift, Gentle, Clever, Brave, Sunny, Lucky,
+Mighty, Curious, Golden, Silver, Starry, Lunar, Solar, Misty, Frosty,
+Breezy, Glowing, Sparkling, Shining, Twinkling, Floating, Drifting,
+Soaring, Orbiting, Spinning, Dancing, Humming, Patient, Steady, Calm,
+Kind, Jolly, Merry, Nimble, Bold, Daring, Sturdy, Wandering, Roaming,
+Dreamy, Wise, Speedy, Mellow, Peppy, Zippy, Fuzzy, Velvet, Crystal,
+Amber, Emerald, Sapphire, Ruby, Coral, Indigo, Violet, Scarlet, Copper,
+Radiant, Electric, Stellar, Astral
+
+`NOUNS` (positions 0 to 63, in this order):
+Otter, Comet, Panda, Falcon, Fox, Owl, Turtle, Dolphin, Tiger, Koala,
+Heron, Badger, Lynx, Raven, Sparrow, Penguin, Gecko, Dragon, Phoenix,
+Griffin, Meteor, Nebula, Galaxy, Planet, Rocket, Satellite, Asteroid,
+Quasar, Pulsar, Nova, Moon, Star, Orbit, Voyager, Explorer, Pilot,
+Ranger, Captain, Wizard, Knight, Summit, Harbor, Mountain, River,
+Forest, Meadow, Canyon, Glacier, Volcano, Thunder, Breeze, Tide,
+Beacon, Spark, Lantern, Compass, Kite, Acorn, Maple, Willow, Lotus,
+Bamboo, Crane, Whale
+
+Wherever the app showed the display name it shows the generated name.
+The text box and its pencil go; a **Shuffle** button on the Profile page
+picks a new name. A shared replay sends the rendered name as
+`player_name`. The old `displayName` value in local storage is dropped
+on load and never sent.
+
+### First launch
+
+The app decides once, at start-up, which of three cases it is in.
+
+1. **Logged in** (a device token is stored): run a sync pass, as today.
+2. **An existing player without a profile** (no token, and the device
+   holds any ranked history, finished lesson, saved replay or a
+   deliberately picked avatar): generate a name, create the profile from
+   what the device holds, send every local replay, and show one card,
+   once: the new name, a Shuffle button, and a line saying progress is
+   now saved online. The player is not asked first.
+3. **A new install** (no token and none of the above): show the
+   first-run choice before anything else: **"New player"** or **"I
+   already play on another device"**. New player generates a name (with
+   Shuffle), continues into the existing first-run flow, and creates the
+   profile. The other choice asks for a code and logs in.
+
+Creating a profile never blocks play. If the request fails (offline, a
+429, a 5xx) the app carries on with local data and tries again at the
+next app open and at each sync trigger until it succeeds. Results played
+in the meantime are part of the state the eventual create sends.
+
+### Log in
+
+Reached from the first-run choice only. Redeem the code, then replace the
+device's rank, lessons, avatar and name with the account's and fetch its
+replays. Nothing local is merged in. Needs the network.
+
+### Add a device
+
+On the Profile page's Devices section: **"Add a device"** shows a
+ten-minute code, in two groups of four, with its expiry. If the profile
+has not been created yet, it is created first.
+
+### Log out
+
+On the Profile page's Devices section, after one confirm that names what
+will happen. Run a sync pass; only if it succeeds (state pushed, replays
+reconciled), revoke this device's token, clear the device's player data
+(rank and history on every board, lessons, replays, avatar, name, and
+all sync state; device settings stay), and show the first-run choice. If
+the pass or the revoke cannot complete, say so and change nothing.
+
+### A token the server refuses
+
+A **401** on any sync request means this device was logged out elsewhere.
+Clear the device's player data and sync state and show the first-run
+choice, with one line explaining why.
+
+### The four edges from the first review
+
+- A 401 is handled as above (the device no longer shows as connected
+  while every request fails).
+- A sync pass that finishes after the 2 second cap at Play must not
+  change the rank while a ranked game is in progress: hold what it
+  brought and apply it when the game ends, before that game's result is
+  recorded on top.
+- A replay the server refuses with 413 or 422 is remembered and not sent
+  again.
+- The Play wiring is covered by a test.
+
+### Privacy text
+
+The in-app privacy text says there are no accounts. Rewrite it to say
+what is now true, in words a parent can read in a minute: a profile is
+created automatically; it holds a random identifier, a generated name,
+rank, lessons, the avatar and saved games; no email, no typed name; how
+to ask for deletion.
+
+### Verification for Revision 2
+
+- Backend: the `handle` shapes (valid, wrong length, out of range,
+  non-integer, absent), and the create limit at 60.
+- Frontend: `npm run build`, `npm test`, `npm run test:layout`. Tests for
+  each first-launch case, the retry of a failed create, log in replacing
+  everything with no merge, log out clearing only after a successful
+  pass and refusing offline, the 401 path, the held pass during a ranked
+  game, the refused replay, name rendering and Shuffle, and that no
+  request body anywhere contains the old display name.
+- Together: two browser origins against a local backend.
+
