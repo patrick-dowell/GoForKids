@@ -30,7 +30,21 @@ import type {
   PointDTO,
 } from './types';
 
-const API_BASE = `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'}/api`;
+export const API_BASE = `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'}/api`;
+
+/** A non-OK HTTP response. Keeps the status and the parsed JSON body so a
+ *  caller can act on them (sync reads the 409 body and tells 404 from 429);
+ *  the message is what the plain Error used to carry. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: unknown;
+  constructor(status: number, body: unknown, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
 
 /**
  * Number of *additional* retries on network-level fetch failure
@@ -73,7 +87,7 @@ export function abortPendingRequests(): void {
   inFlight.clear();
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
@@ -87,8 +101,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       });
       if (!res.ok) {
         const error = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(error.detail || `API error: ${res.status}`);
+        throw new ApiError(res.status, error, error?.detail || `API error: ${res.status}`);
       }
+      // 204 No Content (sync's DELETE routes) has no body to parse.
+      if (res.status === 204) return undefined as T;
       return res.json();
     } catch (e) {
       lastError = e;

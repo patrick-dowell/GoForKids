@@ -41,8 +41,15 @@ interface LibraryState {
    *  cleared when the server no longer has the code so Share reappears. */
   setSharedId: (id: string, sharedId: string | undefined) => void;
   clearAll: () => void;
+  /** Replace the whole list (sync's replay merge, feature 32) and persist.
+   *  The caller keeps it newest first and within the cap. */
+  replaceGames: (games: SavedGame[]) => void;
   loadFromStorage: () => void;
 }
+
+/** The library keeps the newest this-many games, on the device and (feature
+ *  32) in the synced record. */
+export const LIBRARY_CAP = 100;
 
 const STORAGE_KEY = 'goforkids_library';
 
@@ -58,7 +65,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   games: [],
 
   saveGame: (game: SavedGame) => {
-    const games = [game, ...get().games].slice(0, 100);
+    const games = [game, ...get().games].slice(0, LIBRARY_CAP);
     set({ games });
     persistGames(games);
   },
@@ -78,6 +85,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   clearAll: () => {
     set({ games: [] });
     persistGames([]);
+  },
+
+  replaceGames: (games: SavedGame[]) => {
+    set({ games });
+    persistGames(games);
   },
 
   loadFromStorage: () => {

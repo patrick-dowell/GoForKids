@@ -333,7 +333,7 @@ test('profile: sanctioned scroll screen — everything reachable', async ({ page
   await page.getByRole('button', { name: /Profile/ }).click();
   await page.locator('.profile-avatar-grid').waitFor();
   await sweep(page, 'profile', {
-    reachable: ['.profile-avatar-grid'],
+    reachable: ['.profile-avatar-grid', '.profile-devices'],
     noBodyScroll: true, // WKWebView: must be an explicit container (S17 fix)
   });
 });

@@ -27,6 +27,7 @@ import { useSettingsStore } from './store/settingsStore';
 import { useAutoPlayStore } from './store/autoPlayStore';
 import { type Matchup, type BoardSize } from './autoplay/matchmaker';
 import { useProfileStore } from './store/profileStore';
+import { startSync } from './store/syncStore';
 import { LESSONS } from './learn/lessons';
 import { BOT_AVATARS } from './components/Avatar';
 import { AutoPlayView } from './components/AutoPlayView';
@@ -150,6 +151,10 @@ function App() {
     useLibraryStore.getState().loadFromStorage();
     useAutoPlayStore.getState().loadFromStorage();
     useProfileStore.getState().loadFromStorage();
+    // Sync (feature 32) loads last so the loads above aren't read as local
+    // changes; a linked device then runs its app-open pass. Not linked ⇒
+    // no request.
+    void startSync();
   }, []);
 
   // Auto-play game-end recording. Two guards needed beyond gamePending:

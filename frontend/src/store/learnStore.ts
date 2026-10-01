@@ -119,6 +119,9 @@ interface LearnState {
   /** Mark a lesson complete from outside the lesson loop (e.g. App.tsx when the
    *  game-kind lesson kicks off the real game). Persists + updates the dot. */
   markComplete: (id: string) => void;
+  /** Add lesson ids finished on another linked device (sync, feature 32).
+   *  Union only, never removes; persists when anything was added. */
+  addCompleted: (ids: ReadonlyArray<string>) => void;
   /** Quiz: record the player's answer to the current question and surface the
    *  feedback modal. Lesson advances on a separate `advanceQuiz` call. */
   answerQuiz: (answerIndex: number) => void;
@@ -900,6 +903,15 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     if (get().completed.has(id)) return;
     const completed = new Set(get().completed);
     completed.add(id);
+    saveCompleted(completed);
+    set({ completed });
+  },
+
+  addCompleted: (ids: ReadonlyArray<string>) => {
+    const missing = ids.filter((id) => typeof id === 'string' && !get().completed.has(id));
+    if (missing.length === 0) return;
+    const completed = new Set(get().completed);
+    for (const id of missing) completed.add(id);
     saveCompleted(completed);
     set({ completed });
   },
