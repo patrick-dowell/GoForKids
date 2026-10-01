@@ -28,7 +28,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 
 from app.sync import storage
 from app.sync.ratelimit import RateLimiter
@@ -43,6 +43,8 @@ ALLOWED_STATE_KEYS = frozenset({"schema", "ladder", "lessons", "avatar", "avatar
 MAX_STATE_BYTES = 512 * 1024
 MAX_GAME_BYTES = 1024 * 1024
 MAX_GAME_ID_LENGTH = 128
+# Revisions stay exact in a JavaScript number.
+MAX_REV = 2**53
 
 _HOUR = 3600.0
 create_limiter = RateLimiter(limit=10, window_s=_HOUR)
@@ -132,7 +134,37 @@ def _enforce(limiter: RateLimiter, request: Request, now: float) -> None:
 
 
 def _compact_json(value: Any) -> str:
-    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+    # allow_nan=False: finite_body() has already refused NaN and Infinity.
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+
+
+def _has_non_finite(value: Any) -> bool:
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, float):
+            if not math.isfinite(item):
+                return True
+        elif isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+    return False
+
+
+async def finite_body(request: Request) -> None:
+    """Refuse a JSON body holding NaN or Infinity anywhere.
+
+    Python's parser accepts the NaN / Infinity literals, and an overflowing
+    number such as 1e999 parses to Infinity. Stored, either would make every
+    later read of the row fail to serialise.
+    """
+    try:
+        body = await request.json()
+    except ValueError:
+        return  # not JSON at all; FastAPI's own validation answers that
+    if _has_non_finite(body):
+        raise HTTPException(status_code=422, detail="Request body contains a non-finite number")
 
 
 def _checked_state_json(state: Dict[str, Any]) -> str:
@@ -160,7 +192,8 @@ class RedeemRequest(BaseModel):
 
 
 class PutStateRequest(BaseModel):
-    base_rev: int
+    # Strict: "2", 2.0 and true are refused rather than coerced.
+    base_rev: StrictInt = Field(ge=0, le=MAX_REV)
     state: Dict[str, Any]
 
 
@@ -174,7 +207,10 @@ class PutGameRequest(BaseModel):
 
 @router.post("/players", status_code=201)
 async def create_player(
-    body: CreatePlayerRequest, request: Request, now: float = Depends(current_time)
+    body: CreatePlayerRequest,
+    request: Request,
+    _finite: None = Depends(finite_body),
+    now: float = Depends(current_time),
 ):
     state_json = _checked_state_json(body.state)
     _enforce(create_limiter, request, now)
@@ -234,6 +270,7 @@ async def get_state(device: Device = Depends(current_device)):
 async def put_state(
     body: PutStateRequest,
     device: Device = Depends(current_device),
+    _finite: None = Depends(finite_body),
     now: float = Depends(current_time),
 ):
     state_json = _checked_state_json(body.state)
@@ -273,6 +310,7 @@ async def put_game(
     body: PutGameRequest,
     game_id: str = Path(min_length=1, max_length=MAX_GAME_ID_LENGTH),
     device: Device = Depends(current_device),
+    _finite: None = Depends(finite_body),
     now: float = Depends(current_time),
 ):
     payload = dict(body.payload)
