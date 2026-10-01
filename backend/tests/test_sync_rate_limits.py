@@ -8,6 +8,8 @@ from app.sync.ratelimit import RateLimiter
 from tests.sync_helpers import bearer, new_player
 
 HOUR = 3600
+CREATE_LIMIT = 60
+REDEEM_LIMIT = 20
 
 
 def _from(address: str) -> dict:
@@ -20,11 +22,12 @@ async def _create(client, headers=None):
     )
 
 
-async def test_create_allows_10_an_hour_then_429_until_the_clock_moves(client, clock):
-    for _ in range(10):
+async def test_create_allows_60_an_hour_then_429_until_the_clock_moves(client, clock):
+    for _ in range(CREATE_LIMIT - 1):
         assert (await _create(client)).status_code == 201
+    assert (await _create(client)).status_code == 201  # the 60th
 
-    r = await _create(client)
+    r = await _create(client)  # the 61st
     assert r.status_code == 429
     assert r.headers["retry-after"] == str(HOUR)
 
@@ -36,30 +39,31 @@ async def test_create_allows_10_an_hour_then_429_until_the_clock_moves(client, c
 
 
 async def test_create_window_slides(client, clock):
-    for _ in range(5):
+    half = CREATE_LIMIT // 2
+    for _ in range(half):
         assert (await _create(client)).status_code == 201
     clock.advance(HOUR / 2)
-    for _ in range(5):
+    for _ in range(half):
         assert (await _create(client)).status_code == 201
     assert (await _create(client)).status_code == 429
     clock.advance(HOUR / 2)
-    # The first five have left the window; the second five have not.
-    for _ in range(5):
+    # The first half have left the window; the second half have not.
+    for _ in range(half):
         assert (await _create(client)).status_code == 201
     assert (await _create(client)).status_code == 429
 
 
 async def test_refused_create_makes_no_record(client, sync_db):
-    for _ in range(10):
+    for _ in range(CREATE_LIMIT):
         await _create(client)
     assert (await _create(client)).status_code == 429
     with sqlite3.connect(sync_db) as db:
-        assert db.execute("SELECT COUNT(*) FROM sync_players").fetchone()[0] == 10
+        assert db.execute("SELECT COUNT(*) FROM sync_players").fetchone()[0] == CREATE_LIMIT
 
 
 async def test_redeem_allows_20_an_hour_then_429_until_the_clock_moves(client, clock):
     _, auth = await new_player(client)
-    for _ in range(20):
+    for _ in range(REDEEM_LIMIT):
         r = await client.post("/api/sync/pairing-codes/redeem", json={"code": "AAAAAAAA"})
         assert r.status_code == 404
 
@@ -76,7 +80,7 @@ async def test_redeem_allows_20_an_hour_then_429_until_the_clock_moves(client, c
 
 
 async def test_the_two_limits_are_counted_separately(client):
-    for _ in range(20):
+    for _ in range(REDEEM_LIMIT):
         await client.post("/api/sync/pairing-codes/redeem", json={"code": "AAAAAAAA"})
     assert (await _create(client)).status_code == 201
 
@@ -95,7 +99,7 @@ async def _redeem(client, headers):
 
 
 async def test_by_default_a_rotating_forwarded_header_does_not_dodge_create(client):
-    for i in range(10):
+    for i in range(CREATE_LIMIT):
         assert (await _create(client, _from(f"203.0.113.{i}"))).status_code == 201
     assert (await _create(client, _from("203.0.113.99"))).status_code == 429
     assert (await _create(client, _from("203.0.113.98, 198.51.100.1"))).status_code == 429
@@ -103,25 +107,25 @@ async def test_by_default_a_rotating_forwarded_header_does_not_dodge_create(clie
 
 
 async def test_by_default_a_rotating_forwarded_header_does_not_dodge_redeem(client):
-    for i in range(20):
+    for i in range(REDEEM_LIMIT):
         assert (await _redeem(client, _from(f"203.0.113.{i}"))).status_code == 404
     assert (await _redeem(client, _from("203.0.113.99"))).status_code == 429
 
 
 async def test_malformed_hop_setting_trusts_no_proxy(client, monkeypatch):
     monkeypatch.setenv("SYNC_TRUSTED_PROXY_HOPS", "one")
-    for i in range(10):
+    for i in range(CREATE_LIMIT):
         assert (await _create(client, _from(f"203.0.113.{i}"))).status_code == 201
     assert (await _create(client, _from("203.0.113.99"))).status_code == 429
 
 
 async def test_one_hop_a_spoofed_prefix_does_not_dodge_either_limit(client, monkeypatch):
     _hops(monkeypatch, 1)
-    for i in range(10):
+    for i in range(CREATE_LIMIT):
         r = await _create(client, _from(f"203.0.113.{i}, 198.51.100.7"))
         assert r.status_code == 201
     assert (await _create(client, _from("203.0.113.99, 198.51.100.7"))).status_code == 429
-    for i in range(20):
+    for i in range(REDEEM_LIMIT):
         r = await _redeem(client, _from(f"203.0.113.{i}, 198.51.100.7"))
         assert r.status_code == 404
     assert (await _redeem(client, _from("203.0.113.99, 198.51.100.7"))).status_code == 429
@@ -129,7 +133,7 @@ async def test_one_hop_a_spoofed_prefix_does_not_dodge_either_limit(client, monk
 
 async def test_one_hop_different_rightmost_addresses_get_separate_buckets(client, monkeypatch):
     _hops(monkeypatch, 1)
-    for _ in range(10):
+    for _ in range(CREATE_LIMIT):
         assert (await _create(client, _from("198.51.100.7"))).status_code == 201
     assert (await _create(client, _from("198.51.100.7"))).status_code == 429
     assert (await _create(client, _from("198.51.100.7, 198.51.100.8"))).status_code == 201
@@ -137,7 +141,7 @@ async def test_one_hop_different_rightmost_addresses_get_separate_buckets(client
 
 async def test_one_hop_reads_all_copies_of_the_header_as_one_list(client, monkeypatch):
     _hops(monkeypatch, 1)
-    for i in range(10):
+    for i in range(CREATE_LIMIT):
         headers = [("X-Forwarded-For", f"203.0.113.{i}"), ("X-Forwarded-For", "198.51.100.7")]
         assert (await _create(client, headers)).status_code == 201
     assert (await _create(client, _from("198.51.100.7"))).status_code == 429
@@ -145,7 +149,7 @@ async def test_one_hop_reads_all_copies_of_the_header_as_one_list(client, monkey
 
 async def test_two_hops_key_on_the_second_entry_from_the_right(client, monkeypatch):
     _hops(monkeypatch, 2)
-    for i in range(10):
+    for i in range(CREATE_LIMIT):
         r = await _create(client, _from(f"203.0.113.{i}, 198.51.100.7, 10.0.0.{i}"))
         assert r.status_code == 201
     assert (await _create(client, _from("198.51.100.7, 10.0.0.50"))).status_code == 429
@@ -154,7 +158,7 @@ async def test_two_hops_key_on_the_second_entry_from_the_right(client, monkeypat
 
 async def test_header_shorter_than_the_hops_falls_back_to_the_peer(client, monkeypatch):
     _hops(monkeypatch, 2)
-    for i in range(10):
+    for i in range(CREATE_LIMIT):
         assert (await _create(client, _from(f"203.0.113.{i}"))).status_code == 201
     # All ten were keyed on the socket peer, as is a request with no header.
     assert (await _create(client)).status_code == 429

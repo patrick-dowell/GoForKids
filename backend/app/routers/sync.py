@@ -51,7 +51,9 @@ MAX_GAME_ID_LENGTH = 128
 MAX_REV = 2**53
 
 _HOUR = 3600.0
-create_limiter = RateLimiter(limit=10, window_s=_HOUR)
+# 60, not 10: every device creates a profile at first launch, and a room of
+# devices can do that at once from behind one address.
+create_limiter = RateLimiter(limit=60, window_s=_HOUR)
 redeem_limiter = RateLimiter(limit=20, window_s=_HOUR)
 
 
