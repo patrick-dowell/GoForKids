@@ -155,8 +155,16 @@ async function sweep(page: Page, screen: string, spec: ProbeSpec) {
   expect(failures, failures.join('\n')).toEqual([]);
 }
 
+// Sync (feature 32) never reaches a real server from this suite: a seeded
+// player would otherwise create a profile on whatever backend answers at the
+// API address. Aborted requests fail the way offline ones do — silently.
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/sync/**', (route) => route.abort());
+});
+
 /** Mark the one-time avatar pick as done so tests land on their target
- *  screen instead of the ChooseAvatarScreen gate. */
+ *  screen instead of the ChooseAvatarScreen gate. (A picked avatar also
+ *  makes this an existing player, so the first-run choice is skipped.) */
 async function seedPickedProfile(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -290,8 +298,11 @@ test('lesson: board fits at every viewport', async ({ page }) => {
 });
 
 test('choose-avatar gate: confirm button reachable at every viewport', async ({ page }) => {
-  // Fresh profile — the one-time character select must appear.
+  // Fresh install — the first-run choice comes first; New player then leads
+  // into the one-time character select.
   await page.goto('/?learn=1');
+  await page.getByRole('button', { name: 'New player' }).click();
+  await page.getByRole('button', { name: "Let's go →" }).click();
   await page.locator('.choose-avatar-grid').waitFor();
   await sweep(page, 'choose-avatar', {
     strict: ['.choose-avatar-back', "btn:That's me! →", '.learn-reward-title'],
@@ -335,6 +346,50 @@ test('profile: sanctioned scroll screen — everything reachable', async ({ page
   await sweep(page, 'profile', {
     reachable: ['.profile-avatar-grid', '.profile-devices'],
     noBodyScroll: true, // WKWebView: must be an explicit container (S17 fix)
+  });
+});
+
+test('first-run choice: fits without scrolling at every viewport, all three steps', async ({ page }) => {
+  // Fresh install: nothing stored, so the first-run choice is the first screen.
+  await page.goto('/');
+  await page.locator('.first-run').waitFor();
+  await sweep(page, 'first-run', {
+    strict: ['.first-run-title', 'btn:New player', 'btn:I already play on another device', 'btn:Privacy & Terms'],
+    noBodyScroll: true,
+  });
+
+  await page.getByRole('button', { name: 'New player' }).click();
+  await page.locator('.first-run-name').waitFor();
+  await sweep(page, 'first-run-name', {
+    strict: ['.first-run-name', 'btn:Shuffle', "btn:Let's go →", 'btn:← Back'],
+    noBodyScroll: true,
+  });
+
+  await page.getByRole('button', { name: '← Back' }).click();
+  await page.getByRole('button', { name: 'I already play on another device' }).click();
+  await page.locator('.first-run-input').waitFor();
+  await sweep(page, 'first-run-login', {
+    strict: ['.first-run-title', '.first-run-input', 'btn:Log in', 'btn:Back'],
+    noBodyScroll: true,
+  });
+});
+
+test('name card (existing player, first launch with a profile): fits at every viewport', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'goforkids.profile.v1',
+      JSON.stringify({ avatar: 'tide', avatarPicked: true, handle: [26, 33] }),
+    );
+    localStorage.setItem(
+      'goforkids.sync.v1',
+      JSON.stringify({ playerId: 'p', deviceToken: 'layout-probe', baseRev: 1, showIntro: true }),
+    );
+  });
+  await page.goto('/');
+  await page.locator('.name-intro-card').waitFor();
+  await sweep(page, 'name-card', {
+    strict: ['.name-intro-card', '.first-run-name', 'btn:Shuffle', 'btn:OK'],
+    noBodyScroll: true,
   });
 });
 

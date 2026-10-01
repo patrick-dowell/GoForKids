@@ -20,6 +20,11 @@ import { Color } from '../src/engine/types';
 
 const SIZE = 9;
 
+// As in layout.spec.ts: sync requests never leave the test browser.
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/sync/**', (route) => route.abort());
+});
+
 // Same seeding as layout.spec.ts — skip the first-run avatar picker.
 async function seedPickedProfile(page: Page) {
   await page.addInitScript(() => {
