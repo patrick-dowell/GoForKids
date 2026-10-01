@@ -12,9 +12,10 @@ import { ApiError, request } from './client';
 import type { PersistedState } from '../store/autoPlayStore';
 import type { SavedGame } from '../store/libraryStore';
 
-/** The synced state document. Its top-level keys are exactly these five —
- *  the server answers 422 to any other key, which is what keeps the display
- *  name (free text) out of the record. Settings are not synced. */
+/** The synced state document. Its top-level keys are only these six — the
+ *  server answers 422 to any other key. There is no free-text name: the
+ *  player's name travels as `handle`, two word-list positions. Settings are
+ *  not synced. */
 export interface SyncStateDoc {
   schema: 1;
   /** The persisted payload of `goforkids.autoplay.v1`, unchanged. */
@@ -23,6 +24,9 @@ export interface SyncStateDoc {
   lessons: string[];
   avatar: string;
   avatarPicked: boolean;
+  /** The generated name as [adjective, noun] positions (0–63 each). May be
+   *  absent (a record made before names existed). */
+  handle?: [number, number];
 }
 
 export interface RemoteState {

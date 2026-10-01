@@ -1,0 +1,202 @@
+/* First-run choice (feature 32, revision 2) and the one-time name card.
+   A full screen that never scrolls: every size here is clamped to the
+   viewport so phone landscape (~372px of usable height) still fits. */
+
+.first-run {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding:
+    calc(12px + var(--safe-top))
+    calc(20px + var(--safe-right))
+    calc(12px + var(--safe-bottom))
+    calc(20px + var(--safe-left));
+  background:
+    radial-gradient(ellipse at center, rgba(255, 209, 102, 0.12), transparent 65%),
+    radial-gradient(ellipse at top, rgba(88, 166, 255, 0.06), transparent 60%),
+    #0d1117;
+  color: #e6edf3;
+}
+
+.first-run-stars {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1px 1px at 12% 18%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1px 1px at 28% 72%, rgba(255, 255, 255, 0.4), transparent),
+    radial-gradient(1px 1px at 47% 12%, rgba(200, 200, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 66% 38%, rgba(255, 255, 255, 0.35), transparent),
+    radial-gradient(1px 1px at 82% 22%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 90% 80%, rgba(200, 200, 255, 0.4), transparent);
+}
+
+.first-run-content {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(8px, 2.2vh, 18px);
+  text-align: center;
+}
+
+.first-run-title {
+  margin: 0;
+  font-size: clamp(24px, 5vh, 40px);
+  font-weight: 800;
+  line-height: 1.15;
+  background: linear-gradient(135deg, #ffd166 0%, #f0d590 60%, #d4a045 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.first-run-sub {
+  margin: 0;
+  font-size: clamp(14px, 2.4vh, 18px);
+  line-height: 1.4;
+  color: #c0c8d4;
+}
+
+.first-run-notice {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #e6a23c;
+}
+
+.first-run-name {
+  font-size: clamp(26px, 6vh, 46px);
+  font-weight: 800;
+  line-height: 1.15;
+  color: #ffd166;
+}
+
+.first-run-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.first-run-btn {
+  font-family: inherit;
+  font-size: clamp(15px, 2.6vh, 19px);
+  font-weight: 700;
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  padding: clamp(9px, 1.8vh, 15px) 18px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+@media (hover: hover) {
+  .first-run-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+.first-run-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.first-run-btn-primary {
+  color: #1a1206;
+  background: linear-gradient(135deg, #ffd166, #d4a045);
+  border-color: rgba(255, 209, 102, 0.8);
+}
+@media (hover: hover) {
+  .first-run-btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, #ffe08a, #e0b055);
+  }
+}
+
+.first-run-link {
+  font-family: inherit;
+  font-size: 13px;
+  color: #8b949e;
+  background: none;
+  border: none;
+  text-decoration: underline;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.first-run-input {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: clamp(18px, 3vh, 24px);
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  text-align: center;
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 209, 102, 0.4);
+  border-radius: 10px;
+  padding: clamp(6px, 1.4vh, 10px) 12px;
+  outline: none;
+  width: 100%;
+  max-width: 260px;
+  box-sizing: border-box;
+}
+
+.first-run-error {
+  margin: 0;
+  font-size: 14px;
+  color: #e58a8a;
+}
+
+/* Short, wide screens (phone landscape): buttons side by side. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .first-run-actions {
+    flex-direction: row;
+    max-width: 560px;
+  }
+  .first-run-actions .first-run-btn {
+    flex: 1;
+  }
+}
+
+/* The one-time name card, over the home screen. */
+.name-intro-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding:
+    calc(12px + var(--safe-top))
+    calc(16px + var(--safe-right))
+    calc(12px + var(--safe-bottom))
+    calc(16px + var(--safe-left));
+  background: rgba(5, 8, 12, 0.72);
+}
+
+.name-intro-card {
+  width: 100%;
+  max-width: 420px;
+  max-height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(8px, 2vh, 16px);
+  text-align: center;
+  padding: clamp(16px, 3vh, 28px) 22px;
+  background: #121821;
+  border: 1px solid rgba(255, 209, 102, 0.3);
+  border-radius: 18px;
+}

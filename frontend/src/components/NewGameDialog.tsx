@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useGameStore, MAX_HANDICAP_BY_SIZE, type GameMode } from '../store/gameStore';
 import { useProfileStore } from '../store/profileStore';
+import { renderName } from '../profile/names';
 import { Color } from '../engine/types';
 import { Avatar, BOT_AVATARS } from './Avatar';
 
@@ -77,7 +78,7 @@ export function NewGameDialog({ onClose, onOpenProfile }: NewGameDialogProps) {
   // Avatar lives in profileStore now (Profile page owns the picker).
   // NewGameDialog reads it; a "Change in Profile" link is offered below.
   const playerAvatar = useProfileStore((s) => s.avatar);
-  const displayName = useProfileStore((s) => s.displayName);
+  const handle = useProfileStore((s) => s.handle);
   const [boardSize, setBoardSize] = useState<number>(getSavedBoardSize());
   const maxHandicap = MAX_HANDICAP_BY_SIZE[boardSize] ?? 9;
   // Bot vs bot ranks
@@ -173,7 +174,7 @@ export function NewGameDialog({ onClose, onOpenProfile }: NewGameDialogProps) {
             <div className="dialog-player-row">
               <Avatar type={playerAvatar} size={36} />
               <span className="dialog-player-name">
-                {displayName || 'Playing as you'}
+                {renderName(handle) || 'Playing as you'}
               </span>
               {onOpenProfile && (
                 <button

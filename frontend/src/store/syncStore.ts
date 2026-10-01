@@ -3,12 +3,15 @@ import { ApiError } from '../api/client';
 import {
   normalizePairingCode,
   syncApi,
+  type DeviceGrant,
   type PairingCode,
   type RemoteGameEntry,
   type RemoteState,
   type SyncStateDoc,
 } from '../api/sync';
+import { isHandle, randomHandle } from '../profile/names';
 import {
+  onBeforeRankedResult,
   onRankedResult,
   reapplyRankedResults,
   useAutoPlayStore,
@@ -19,17 +22,22 @@ import { LIBRARY_CAP, useLibraryStore, type SavedGame } from './libraryStore';
 import { useProfileStore } from './profileStore';
 
 /**
- * Sync (feature 32): one player record on the server, shared by every device
- * that links to it. No account — a device token, and a pairing code to bring
- * a second device in. See feature_plans/32_sync_foundation.md.
+ * Sync (feature 32, revision 2): every player has a profile — a record on
+ * the server holding rank, lessons, avatar, generated name and replays. No
+ * account: a device token, and a pairing code to log another device in. See
+ * feature_plans/32_sync_foundation.md.
  *
- * A device that is not linked makes no sync request at all: every trigger
- * below returns before touching the network or storage.
+ * At start-up the app is in one of three cases (`startSync`):
+ *   1. logged in (a token is stored) — run a pass;
+ *   2. an existing player without a profile — create one, silently, from
+ *      what the device holds, and introduce the generated name once;
+ *   3. a new install — show the first-run choice: New player, or log in.
+ * Creating never blocks play: a failed create is retried at every app open
+ * and every sync trigger until it lands.
  *
- * The record holds the ladder, finished lessons and the avatar (the state
- * document), plus the replay library. A revision counter decides which side
- * is newer. Ranked results this device could not push wait in a queue and
- * are re-applied, in order, on top of the server's ladder at the next pass.
+ * A revision counter decides which side is newer. Ranked results this device
+ * could not push wait in a queue and are re-applied, in order, on top of the
+ * server's ladder at the next pass.
  */
 
 const STORAGE_KEY = 'goforkids.sync.v1';
@@ -39,6 +47,15 @@ export const PLAY_SYNC_TIMEOUT_MS = 2000;
 
 /** How many times a pass rebases and re-pushes after a 409. */
 export const MAX_CONFLICT_RETRIES = 3;
+
+/** Why a profile is waiting to be created: made from progress this device
+ *  already had, or chosen as "New player" at first run. */
+export type PendingCreate = 'existing' | 'new';
+
+/** Shown on the first-run choice after a 401 cleared this device. */
+export type FirstRunNotice = 'logged-out';
+
+export type StartupCase = 'logged-in' | 'pending' | 'existing' | 'first-run';
 
 interface PersistedSync {
   playerId: string | null;
@@ -55,6 +72,12 @@ interface PersistedSync {
   pendingGameDeletes: string[];
   /** Epoch ms of the last pass that left this device level with the server. */
   lastSyncAt: number | null;
+  /** A profile still to be created (no token yet). */
+  pendingCreate: PendingCreate | null;
+  /** The one-time card introducing the generated name is due. */
+  showIntro: boolean;
+  /** Replays the server refused (413 / 422): never sent again. */
+  refusedGameIds: string[];
 }
 
 const EMPTY: PersistedSync = {
@@ -66,23 +89,39 @@ const EMPTY: PersistedSync = {
   syncedGameIds: [],
   pendingGameDeletes: [],
   lastSyncAt: null,
+  pendingCreate: null,
+  showIntro: false,
+  refusedGameIds: [],
 };
 
 interface SyncState extends PersistedSync {
   /** A pass is running (UI hint only). */
   syncing: boolean;
+  /** Show the first-run choice (New player / log in) before anything else. */
+  firstRun: boolean;
+  /** One line on the first-run choice saying why it is back. */
+  firstRunNotice: FirstRunNotice | null;
 
   loadFromStorage: () => void;
-  /** Run a pass now (or join the one queued behind the running pass). */
-  sync: () => Promise<void>;
-  /** Mint a pairing code for another device, turning sync on first if this
-   *  device is not linked yet. */
+  /** Run a pass now (or join the one queued behind the running pass).
+   *  Resolves true when the pass completed: state level, replays reconciled. */
+  sync: () => Promise<boolean>;
+  /** First run → "New player": keep the chosen name, create the profile in
+   *  the background, and carry on into the app. */
+  startNewPlayer: () => void;
+  /** First run → "I already play on another device": redeem the code and
+   *  take the account whole — rank, lessons, avatar, name, replays. Nothing
+   *  local is merged in. Throws (changing nothing) when it can't. */
+  logIn: (code: string) => Promise<void>;
+  /** Mint a pairing code that logs another device into this profile,
+   *  creating the profile first if it doesn't exist yet. */
   addDevice: () => Promise<PairingCode>;
-  /** Join the record a pairing code points to. This device's ladder is
-   *  replaced by the record's; lessons are unioned; replays are merged. */
-  link: (code: string) => Promise<void>;
-  /** Revoke this device's token. Local rank, lessons and replays stay. */
-  unlink: () => Promise<void>;
+  /** Push everything, revoke this device's token, clear the player's data
+   *  here (settings stay) and go back to the first-run choice. Throws, and
+   *  changes nothing, when the pass or the revoke can't complete. */
+  logOut: () => Promise<void>;
+  /** The name card has been seen. */
+  dismissIntro: () => void;
 }
 
 /* ------------------------------------------------------------------------- *
@@ -95,13 +134,19 @@ let applyingRemote = 0;
 /** Bumped on every local change; a push compares it to tell whether
  *  something changed while the request was in flight. */
 let generation = 0;
-/** The avatar was changed here since the last push. A pass that finds the
- *  server ahead keeps it instead of taking the server's. */
+/** The avatar / name was changed here since the last push. A pass that finds
+ *  the server ahead keeps it instead of taking the server's. */
 let avatarEdited = false;
-let running: Promise<void> | null = null;
-let queued: Promise<void> | null = null;
-/** The store's pass scheduler, set when the store is created. */
-let passRunner: () => Promise<void> = () => Promise.resolve();
+let handleEdited = false;
+let running: Promise<boolean> | null = null;
+let queued: Promise<boolean> | null = null;
+/** A ranked game is being played: a pass that finds the server ahead holds
+ *  what it brought instead of changing the rank mid-game. */
+let rankedGameActive = false;
+let heldRemote: RemoteState | null = null;
+/** Set when the store is created. */
+let passRunner: () => Promise<boolean> = () => Promise.resolve(false);
+let holdRelease: () => void = () => {};
 
 function asRemote(fn: () => void): void {
   applyingRemote++;
@@ -126,6 +171,9 @@ function pickPersisted(s: PersistedSync): PersistedSync {
     syncedGameIds: s.syncedGameIds,
     pendingGameDeletes: s.pendingGameDeletes,
     lastSyncAt: s.lastSyncAt,
+    pendingCreate: s.pendingCreate,
+    showIntro: s.showIntro,
+    refusedGameIds: s.refusedGameIds,
   };
 }
 
@@ -156,16 +204,22 @@ function parsePersisted(raw: string | null): PersistedSync {
   if (!raw) return { ...EMPTY };
   try {
     const p = JSON.parse(raw) as Partial<PersistedSync>;
-    if (typeof p.deviceToken !== 'string' || !p.deviceToken) return { ...EMPTY };
+    const token = typeof p.deviceToken === 'string' && p.deviceToken ? p.deviceToken : null;
+    const pendingCreate =
+      !token && (p.pendingCreate === 'existing' || p.pendingCreate === 'new') ? p.pendingCreate : null;
+    if (!token && !pendingCreate) return { ...EMPTY };
     return {
       playerId: typeof p.playerId === 'string' ? p.playerId : null,
-      deviceToken: p.deviceToken,
+      deviceToken: token,
       baseRev: typeof p.baseRev === 'number' ? p.baseRev : 0,
       dirty: p.dirty === true,
       pendingResults: Array.isArray(p.pendingResults) ? p.pendingResults.filter(isRankedResult) : [],
       syncedGameIds: stringArray(p.syncedGameIds),
       pendingGameDeletes: stringArray(p.pendingGameDeletes),
       lastSyncAt: typeof p.lastSyncAt === 'number' ? p.lastSyncAt : null,
+      pendingCreate,
+      showIntro: p.showIntro === true,
+      refusedGameIds: stringArray(p.refusedGameIds),
     };
   } catch {
     return { ...EMPTY };
@@ -176,17 +230,19 @@ function parsePersisted(raw: string | null): PersistedSync {
  * The state document.
  * ------------------------------------------------------------------------- */
 
-/** This device's state document. Built key by key so nothing else (the
- *  display name above all, or settings) can ride along. */
+/** This device's state document. Built key by key so nothing else (settings,
+ *  or anything typed) can ride along. */
 export function buildLocalDoc(): SyncStateDoc {
   const profile = useProfileStore.getState();
-  return {
+  const doc: SyncStateDoc = {
     schema: 1,
     ladder: useAutoPlayStore.getState().exportLadder(),
     lessons: [...useLearnStore.getState().completed],
     avatar: profile.avatar,
     avatarPicked: profile.avatarPicked,
   };
+  if (isHandle(profile.handle)) doc.handle = [profile.handle[0], profile.handle[1]];
+  return doc;
 }
 
 /** JSON with sorted keys, so two copies of one document compare equal
@@ -221,9 +277,35 @@ function checkRemote(r: RemoteState): RemoteState {
   return r;
 }
 
+function isGrant(g: DeviceGrant): boolean {
+  return !!g && typeof g.device_token === 'string' && !!g.device_token && typeof g.rev === 'number' && isStateDoc(g.state);
+}
+
+/** Case 2 test: ranked history on any board, a finished lesson, a saved
+ *  replay or a deliberately picked avatar. */
+export function deviceHoldsProgress(): boolean {
+  const auto = useAutoPlayStore.getState();
+  const ranked = auto.history.length > 0 || Object.values(auto.slots).some((s) => (s?.history?.length ?? 0) > 0);
+  return (
+    ranked ||
+    useLearnStore.getState().completed.size > 0 ||
+    useLibraryStore.getState().games.length > 0 ||
+    useProfileStore.getState().avatarPicked
+  );
+}
+
+/** Give the player a name if they have none. True when one was made. */
+function ensureHandle(): boolean {
+  if (isHandle(useProfileStore.getState().handle)) return false;
+  asRemote(() => useProfileStore.getState().setHandle(randomHandle()));
+  return true;
+}
+
 /* ------------------------------------------------------------------------- *
  * The store.
  * ------------------------------------------------------------------------- */
+
+type StateOutcome = 'ok' | 'gave-up' | 'held' | 'stopped';
 
 export const useSyncStore = create<SyncState>((set, get) => {
   /** Set persisted fields and write them through. */
@@ -235,32 +317,69 @@ export const useSyncStore = create<SyncState>((set, get) => {
   const linkedWith = (token: string) => get().deviceToken === token;
 
   /** Take the server's copy: its ladder with this device's queued results
-   *  re-applied in order, its avatar (unless changed here since the last
-   *  push), and the union of lessons. */
-  const adoptRemote = (remote: RemoteState) => {
+   *  re-applied in order, its avatar and name (unless changed here since the
+   *  last push), and the union of lessons. Returns true when that left this
+   *  device identical to the server (nothing to push). */
+  const adoptRemote = (remote: RemoteState): boolean => {
     const queue = get().pendingResults;
     const { ladder, applied } = reapplyRankedResults(remote.state.ladder, queue);
     asRemote(() => {
       useAutoPlayStore.getState().adoptLadder(ladder);
-      if (!avatarEdited && typeof remote.state.avatar === 'string') {
-        useProfileStore.getState().adoptAvatar(remote.state.avatar, remote.state.avatarPicked === true);
-      }
+      useProfileStore.getState().adoptProfile({
+        avatar: avatarEdited ? undefined : remote.state.avatar,
+        avatarPicked: avatarEdited ? undefined : remote.state.avatarPicked,
+        handle: handleEdited ? undefined : remote.state.handle,
+      });
       useLearnStore.getState().addCompleted(stringArray(remote.state.lessons));
     });
     // A queued result the server already held (an earlier push whose reply
-    // was lost) is done; the rest wait for this pass's push to land.
+    // was lost) is done; the rest wait for a push to land.
     const appliedTs = new Set(applied.map((r) => r.ts));
-    update({ baseRev: remote.rev, pendingResults: queue.filter((r) => appliedTs.has(r.ts)) });
+    const same = sameDoc(buildLocalDoc(), remote.state);
+    update({ baseRev: remote.rev, pendingResults: queue.filter((r) => appliedTs.has(r.ts)), dirty: !same });
+    return same;
   };
 
-  type PushOutcome = { kind: 'ok' } | { kind: 'conflict'; remote: RemoteState } | { kind: 'unlinked' };
+  holdRelease = () => {
+    rankedGameActive = false;
+    const held = heldRemote;
+    heldRemote = null;
+    if (held && get().deviceToken && held.rev !== get().baseRev) {
+      if (adoptRemote(held)) update({ lastSyncAt: Date.now() });
+    }
+  };
+
+  /** Log this device out locally: every piece of player data and all sync
+   *  state go; device settings stay. Back to the first-run choice. */
+  const signOutLocally = (notice: FirstRunNotice | null) => {
+    asRemote(() => {
+      useAutoPlayStore.getState().clearPlayer();
+      useLearnStore.getState().replaceCompleted([]);
+      useLibraryStore.getState().replaceGames([]);
+      useProfileStore.getState().clearPlayer();
+    });
+    heldRemote = null;
+    rankedGameActive = false;
+    avatarEdited = false;
+    handleEdited = false;
+    generation++;
+    update({ ...EMPTY });
+    set({ firstRun: true, firstRunNotice: notice });
+  };
+
+  /** A 401: the server no longer knows this device's token. */
+  const handleUnauthorized = (token: string) => {
+    if (linkedWith(token)) signOutLocally('logged-out');
+  };
+
+  type PushOutcome = { kind: 'ok' } | { kind: 'conflict'; remote: RemoteState } | { kind: 'stopped' };
 
   const push = async (token: string): Promise<PushOutcome> => {
     const doc = buildLocalDoc();
     const pushed = new Set(get().pendingResults.map((r) => r.ts));
     const gen = generation;
     const res = await syncApi.putState(token, get().baseRev, doc);
-    if (!linkedWith(token)) return { kind: 'unlinked' };
+    if (!linkedWith(token)) return { kind: 'stopped' };
     if (!res.ok) return { kind: 'conflict', remote: { rev: res.rev, state: res.state } };
     update({
       baseRev: res.rev,
@@ -268,40 +387,46 @@ export const useSyncStore = create<SyncState>((set, get) => {
       dirty: generation !== gen,
       lastSyncAt: Date.now(),
     });
-    if (useProfileStore.getState().avatar === doc.avatar) avatarEdited = false;
+    const p = useProfileStore.getState();
+    if (p.avatar === doc.avatar) avatarEdited = false;
+    if (p.handle && doc.handle && p.handle[0] === doc.handle[0] && p.handle[1] === doc.handle[1]) {
+      handleEdited = false;
+    }
     return { kind: 'ok' };
   };
 
-  /** Steps 1–4 of a pass. Returns false when the device was unlinked
-   *  mid-pass (stop quietly). */
-  const syncState = async (token: string): Promise<boolean> => {
+  /** Steps 1–4 of a pass. */
+  const syncState = async (token: string): Promise<StateOutcome> => {
     let remote = checkRemote(await syncApi.getState(token));
-    if (!linkedWith(token)) return false;
+    if (!linkedWith(token)) return 'stopped';
     let retries = 0;
     for (;;) {
       if (remote.rev !== get().baseRev) {
-        // Server ahead (or reset): rebase onto it, then push if that left
-        // anything the server lacks.
-        adoptRemote(remote);
-        if (sameDoc(buildLocalDoc(), remote.state)) {
-          update({ dirty: false, lastSyncAt: Date.now() });
-          return true;
+        // Server ahead. Mid ranked game, the rank must not move: hold the
+        // server's copy until the game ends.
+        if (rankedGameActive) {
+          heldRemote = remote;
+          return 'held';
         }
-        update({ dirty: true });
+        // Rebase onto it, then push if that left anything the server lacks.
+        if (adoptRemote(remote)) {
+          update({ lastSyncAt: Date.now() });
+          return 'ok';
+        }
       } else {
         // Level. Lessons only ever grow, so take any the server has.
         asRemote(() => useLearnStore.getState().addCompleted(stringArray(remote.state.lessons)));
         if (!get().dirty) {
           update({ lastSyncAt: Date.now() });
-          return true;
+          return 'ok';
         }
       }
       const out = await push(token);
-      if (out.kind === 'unlinked') return false;
-      if (out.kind === 'ok') return true;
+      if (out.kind === 'stopped') return 'stopped';
+      if (out.kind === 'ok') return 'ok';
       // 409: the server moved since we read it. Rebase onto its copy and
       // try again, a bounded number of times; the queue stays intact.
-      if (retries >= MAX_CONFLICT_RETRIES) return true;
+      if (retries >= MAX_CONFLICT_RETRIES) return 'gave-up';
       retries++;
       remote = checkRemote(out.remote);
     }
@@ -309,11 +434,11 @@ export const useSyncStore = create<SyncState>((set, get) => {
 
   /** Step 5 of a pass: send local replays the server lacks, fetch the ones
    *  this device lacks, drop the ones sent before that the server no longer
-   *  lists; keep the newest LIBRARY_CAP of the union. */
-  const syncGames = async (token: string): Promise<void> => {
+   *  lists; keep the newest LIBRARY_CAP of the union. False when stopped. */
+  const syncGames = async (token: string): Promise<boolean> => {
     for (const id of [...get().pendingGameDeletes]) {
       await syncApi.deleteGame(token, id);
-      if (!linkedWith(token)) return;
+      if (!linkedWith(token)) return false;
       update({
         pendingGameDeletes: get().pendingGameDeletes.filter((x) => x !== id),
         syncedGameIds: get().syncedGameIds.filter((x) => x !== id),
@@ -321,7 +446,7 @@ export const useSyncStore = create<SyncState>((set, get) => {
     }
 
     const listed = await syncApi.listGames(token);
-    if (!linkedWith(token)) return;
+    if (!linkedWith(token)) return false;
     const deleting = new Set(get().pendingGameDeletes);
     const remote = listed.filter(
       (g): g is RemoteGameEntry => !!g && typeof g.id === 'string' && typeof g.date === 'string' && !deleting.has(g.id),
@@ -360,18 +485,23 @@ export const useSyncStore = create<SyncState>((set, get) => {
         .map((g) => g.id),
     );
 
+    const refused = new Set(get().refusedGameIds);
     const notKept = new Set<string>();
-    for (const game of local.filter((g) => top.has(g.id) && !remoteIds.has(g.id))) {
+    for (const game of local.filter((g) => top.has(g.id) && !remoteIds.has(g.id) && !refused.has(g.id))) {
       let kept: boolean;
       try {
         kept = await syncApi.putGame(token, game);
       } catch (e) {
         // The server refuses this one replay (too big, or an id/date it
-        // won't take): it stays local-only and doesn't hold up the rest.
-        if (e instanceof ApiError && (e.status === 413 || e.status === 422)) continue;
+        // won't take): remember it so it's never sent again, and go on.
+        if (e instanceof ApiError && (e.status === 413 || e.status === 422)) {
+          if (!linkedWith(token)) return false;
+          update({ refusedGameIds: uniq([...get().refusedGameIds, game.id]) });
+          continue;
+        }
         throw e;
       }
-      if (!linkedWith(token)) return;
+      if (!linkedWith(token)) return false;
       if (!useLibraryStore.getState().games.some((g) => g.id === game.id)) {
         // Deleted here while it was on its way up: delete it there too.
         update({ pendingGameDeletes: uniq([...get().pendingGameDeletes, game.id]) });
@@ -386,7 +516,7 @@ export const useSyncStore = create<SyncState>((set, get) => {
     for (const entry of remote.filter((g) => top.has(g.id) && !localIds.has(g.id))) {
       try {
         const res = await syncApi.getGame(token, entry.id);
-        if (!linkedWith(token)) return;
+        if (!linkedWith(token)) return false;
         const game = toSavedGame(res?.payload, entry);
         if (game) fetched.push(game);
       } catch (e) {
@@ -395,39 +525,81 @@ export const useSyncStore = create<SyncState>((set, get) => {
       }
     }
 
-    if (fetched.length === 0 && notKept.size === 0) return;
-    asRemote(() => {
-      const byId = new Map<string, SavedGame>();
-      for (const g of [...useLibraryStore.getState().games, ...fetched]) {
-        if (!byId.has(g.id) && !notKept.has(g.id)) byId.set(g.id, g);
-      }
-      const merged = [...byId.values()].sort(newestFirst).slice(0, LIBRARY_CAP);
-      useLibraryStore.getState().replaceGames(merged);
-    });
-    const kept = new Set(useLibraryStore.getState().games.map((g) => g.id));
+    if (fetched.length > 0 || notKept.size > 0) {
+      asRemote(() => {
+        const byId = new Map<string, SavedGame>();
+        for (const g of [...useLibraryStore.getState().games, ...fetched]) {
+          if (!byId.has(g.id) && !notKept.has(g.id)) byId.set(g.id, g);
+        }
+        const merged = [...byId.values()].sort(newestFirst).slice(0, LIBRARY_CAP);
+        useLibraryStore.getState().replaceGames(merged);
+      });
+    }
+    const here = new Set(useLibraryStore.getState().games.map((g) => g.id));
     update({
-      syncedGameIds: uniq([...get().syncedGameIds, ...fetched.map((g) => g.id)]).filter((id) => kept.has(id)),
+      syncedGameIds: uniq([...get().syncedGameIds, ...fetched.map((g) => g.id)]).filter((id) => here.has(id)),
+      refusedGameIds: get().refusedGameIds.filter((id) => here.has(id)),
     });
+    return true;
   };
 
-  const runPass = async (): Promise<void> => {
-    const token = get().deviceToken;
-    if (!token) return;
+  /** Create the profile this device is waiting for, from what it holds now.
+   *  Returns the new token, or null when there was nothing to create. */
+  const createProfile = async (): Promise<string | null> => {
+    const kind = get().pendingCreate;
+    if (!kind || get().deviceToken) return null;
+    ensureHandle();
+    const doc = buildLocalDoc();
+    const grant = await syncApi.createPlayer(doc);
+    // Logged in, or out, while the request was out: this create is moot.
+    if (get().deviceToken || get().pendingCreate !== kind) return null;
+    if (!isGrant(grant)) throw new Error('sync: malformed create response');
+    update({
+      ...EMPTY,
+      playerId: grant.player_id,
+      deviceToken: grant.device_token,
+      baseRev: grant.rev,
+      // Anything that changed while the request was out still needs a push.
+      dirty: !sameDoc(buildLocalDoc(), doc),
+      lastSyncAt: Date.now(),
+      showIntro: kind === 'existing',
+    });
+    generation++;
+    avatarEdited = false;
+    handleEdited = false;
+    return grant.device_token;
+  };
+
+  const runPass = async (): Promise<boolean> => {
+    let token = get().deviceToken;
+    if (!token && !get().pendingCreate) return false;
     set({ syncing: true });
     try {
-      if (!(await syncState(token))) return;
-      await syncGames(token);
+      if (!token) {
+        token = await createProfile();
+        if (!token) return false;
+      }
+      const outcome = await syncState(token);
+      if (outcome === 'stopped') return false;
+      const reconciled = await syncGames(token);
+      return outcome === 'ok' && reconciled && linkedWith(token);
     } catch (e) {
-      // Silent by design: never blocks play, never surfaces to the player.
-      // The queue and the dirty flag are untouched, so the next pass retries.
+      if (token && e instanceof ApiError && e.status === 401) {
+        handleUnauthorized(token);
+        return false;
+      }
+      // Otherwise silent by design: never blocks play, never surfaces to the
+      // player. The queue and the dirty flag are untouched; the next pass
+      // (or create) retries.
       console.warn('[sync] pass failed:', e);
+      return false;
     } finally {
       set({ syncing: false });
     }
   };
 
-  const requestPass = (): Promise<void> => {
-    if (!get().deviceToken) return Promise.resolve();
+  const requestPass = (): Promise<boolean> => {
+    if (!get().deviceToken && !get().pendingCreate) return Promise.resolve(false);
     if (!running) {
       running = runPass().finally(() => {
         running = null;
@@ -446,28 +618,11 @@ export const useSyncStore = create<SyncState>((set, get) => {
   };
   passRunner = requestPass;
 
-  const turnOn = async (): Promise<void> => {
-    const doc = buildLocalDoc();
-    const grant = await syncApi.createPlayer(doc);
-    if (get().deviceToken) return;
-    update({
-      ...EMPTY,
-      playerId: grant.player_id,
-      deviceToken: grant.device_token,
-      baseRev: grant.rev,
-      // Anything that changed while the request was out still needs a push.
-      dirty: !sameDoc(buildLocalDoc(), doc),
-      lastSyncAt: Date.now(),
-    });
-    generation++;
-    avatarEdited = false;
-    // Sends every local replay.
-    void requestPass();
-  };
-
   return {
     ...EMPTY,
     syncing: false,
+    firstRun: false,
+    firstRunNotice: null,
 
     loadFromStorage: () => {
       let raw: string | null = null;
@@ -481,59 +636,89 @@ export const useSyncStore = create<SyncState>((set, get) => {
 
     sync: () => requestPass(),
 
-    addDevice: async () => {
-      if (!get().deviceToken) await turnOn();
-      const token = get().deviceToken;
-      if (!token) throw new Error('sync: not linked');
-      return syncApi.mintPairingCode(token);
+    startNewPlayer: () => {
+      if (get().deviceToken) return;
+      ensureHandle();
+      update({ ...EMPTY, pendingCreate: 'new' });
+      set({ firstRun: false, firstRunNotice: null });
+      void requestPass();
     },
 
-    link: async (code: string) => {
-      if (get().deviceToken) throw new Error('sync: already linked');
+    logIn: async (code: string) => {
+      if (get().deviceToken) throw new Error('sync: already logged in');
       const grant = await syncApi.redeemPairingCode(normalizePairingCode(code));
-      if (!grant || typeof grant.device_token !== 'string' || typeof grant.rev !== 'number' || !isStateDoc(grant.state)) {
-        throw new Error('sync: malformed link response');
-      }
+      if (!isGrant(grant)) throw new Error('sync: malformed log-in response');
+      if (get().deviceToken) throw new Error('sync: already logged in');
       const record = grant.state;
-      const localPicked = useProfileStore.getState().avatarPicked;
-      // The record's avatar wins, unless the record never had one picked
-      // and this device did.
-      const keepLocalAvatar = localPicked && record.avatarPicked !== true;
+      // Take the account whole. Nothing this device held is merged in.
       asRemote(() => {
         useAutoPlayStore.getState().adoptLadder(record.ladder);
-        if (!keepLocalAvatar && typeof record.avatar === 'string') {
-          useProfileStore.getState().adoptAvatar(record.avatar, record.avatarPicked === true);
-        }
-        useLearnStore.getState().addCompleted(stringArray(record.lessons));
+        useLearnStore.getState().replaceCompleted(stringArray(record.lessons));
+        useLibraryStore.getState().replaceGames([]);
+        useProfileStore.getState().clearPlayer();
+        useProfileStore.getState().adoptProfile({
+          avatar: record.avatar,
+          avatarPicked: record.avatarPicked === true,
+          handle: record.handle,
+        });
       });
+      // A profile made before names existed gets one now, and pushes it.
+      const named = isHandle(record.handle);
+      if (!named) ensureHandle();
+      heldRemote = null;
+      rankedGameActive = false;
+      avatarEdited = false;
+      handleEdited = !named;
+      generation++;
       update({
         ...EMPTY,
         playerId: grant.player_id,
         deviceToken: grant.device_token,
         baseRev: grant.rev,
-        // Push only if the union (or a kept avatar) changed anything.
-        dirty: !sameDoc(buildLocalDoc(), record),
+        dirty: !named,
         lastSyncAt: Date.now(),
       });
-      generation++;
-      avatarEdited = keepLocalAvatar;
-      // Pushes if dirty, then sends this device's replays and fetches the
-      // record's.
+      set({ firstRun: false, firstRunNotice: null });
+      // Fetches the account's replays.
       void requestPass();
     },
 
-    unlink: async () => {
+    addDevice: async () => {
+      if (!get().deviceToken) {
+        if (!get().pendingCreate) throw new Error('sync: no profile');
+        await requestPass();
+      }
       const token = get().deviceToken;
-      if (!token) return;
+      if (!token) throw new Error('sync: the profile could not be created');
+      try {
+        return await syncApi.mintPairingCode(token);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) handleUnauthorized(token);
+        throw e;
+      }
+    },
+
+    logOut: async () => {
+      const token = get().deviceToken;
+      if (!token) throw new Error('sync: not logged in');
+      holdRelease();
+      const passed = await requestPass();
+      if (!linkedWith(token)) return; // a 401 during the pass already signed out
+      const s = get();
+      if (!passed || s.dirty || s.pendingResults.length > 0 || s.pendingGameDeletes.length > 0) {
+        throw new Error('sync: could not save everything online');
+      }
       try {
         await syncApi.revokeDevice(token);
       } catch (e) {
-        // 401: the token is already dead, which is what we wanted.
+        // 401: the token is already dead, which is where we were going.
         if (!(e instanceof ApiError && e.status === 401)) throw e;
       }
-      avatarEdited = false;
-      update({ ...EMPTY });
+      if (!linkedWith(token)) return;
+      signOutLocally(null);
     },
+
+    dismissIntro: () => update({ showIntro: false }),
   };
 });
 
@@ -556,16 +741,20 @@ function toSavedGame(payload: unknown, entry: RemoteGameEntry): SavedGame | null
 }
 
 /* ------------------------------------------------------------------------- *
- * Triggers.
+ * Start-up, triggers and the ranked-game hold.
  * ------------------------------------------------------------------------- */
 
-function isLinked(): boolean {
-  return useSyncStore.getState().deviceToken !== null;
+/** Logged in (a token), waiting for a create, or neither (first run). */
+function syncMode(): 'logged-in' | 'pending' | null {
+  const s = useSyncStore.getState();
+  if (s.deviceToken) return 'logged-in';
+  if (s.pendingCreate) return 'pending';
+  return null;
 }
 
-/** True when this device is linked to a record. */
-export function isSyncLinked(): boolean {
-  return isLinked();
+/** True when this device holds a token for a profile. */
+export function isLoggedIn(): boolean {
+  return syncMode() === 'logged-in';
 }
 
 function markDirty() {
@@ -576,45 +765,90 @@ function markDirty() {
   }
 }
 
-/** Start a pass (no-op when not linked). Concurrent calls share passes. */
-export function requestSync(): Promise<void> {
-  if (!isLinked()) return Promise.resolve();
+/** Start a pass (or retry a pending create). Concurrent calls share passes.
+ *  On the first-run choice it does nothing. */
+export function requestSync(): Promise<boolean> {
+  if (!syncMode()) return Promise.resolve(false);
   return passRunner();
 }
 
 /** Resolves once no pass is running or queued. */
-export function syncIdle(): Promise<void> {
+export function syncIdle(): Promise<unknown> {
   return queued ?? running ?? Promise.resolve();
 }
 
-/** App open: load the link, then (if linked) run a pass. Call after the
- *  other stores have loaded from storage. */
-export function startSync(): Promise<void> {
+/**
+ * App open. Call after the other stores have loaded from storage. Decides,
+ * once, which first-launch case this device is in and acts on it.
+ */
+export function startSync(): StartupCase {
   useSyncStore.getState().loadFromStorage();
-  return requestSync();
+  const s = useSyncStore.getState();
+  if (s.deviceToken) {
+    // A profile made before names existed gets one, pushed by this pass.
+    if (ensureHandle()) {
+      handleEdited = true;
+      markDirty();
+    }
+    void requestSync();
+    return 'logged-in';
+  }
+  if (s.pendingCreate) {
+    void requestSync();
+    return 'pending';
+  }
+  if (deviceHoldsProgress()) {
+    ensureHandle();
+    useSyncStore.setState({ pendingCreate: 'existing' });
+    persist(useSyncStore.getState());
+    void requestSync();
+    return 'existing';
+  }
+  useSyncStore.setState({ firstRun: true });
+  return 'first-run';
 }
 
 /**
  * Play on a ranked game: pull before it starts, bounded. Resolves when the
  * pass finishes or after `timeoutMs`, whichever comes first; the game starts
- * either way. Not linked ⇒ resolves at once without a request.
+ * either way. Not logged in ⇒ resolves at once.
  */
 export function syncBeforePlay(timeoutMs = PLAY_SYNC_TIMEOUT_MS): Promise<void> {
-  if (!isLinked()) return Promise.resolve();
+  if (!isLoggedIn()) return Promise.resolve();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => {
     timer = setTimeout(resolve, timeoutMs);
   });
-  return Promise.race([requestSync(), timeout]).finally(() => clearTimeout(timer));
+  return Promise.race([requestSync().then(() => undefined), timeout]).finally(() => clearTimeout(timer));
 }
 
-// A finished ranked game: queue it until a push carries it, then sync.
+/** A ranked game has started: until it ends, a pass that finds the server
+ *  ahead holds what it brought instead of changing the rank. */
+export function beginRankedGame(): void {
+  holdRelease();
+  rankedGameActive = true;
+}
+
+/** The ranked game ended without a result (left for home), or a new one is
+ *  about to start: apply anything held back. `recordResult` does this
+ *  itself, before the game's result lands on top. */
+export function endRankedGame(): void {
+  holdRelease();
+}
+
+onBeforeRankedResult(() => holdRelease());
+
+// A finished ranked game: queue it until a push carries it, then sync. A
+// profile still to be created gets a retry; the result rides in the create.
 onRankedResult((r) => {
-  if (!isLinked()) return;
-  const s = useSyncStore.getState();
-  useSyncStore.setState({ pendingResults: [...s.pendingResults, r] });
-  markDirty();
-  persist(useSyncStore.getState());
+  const mode = syncMode();
+  if (!mode) return;
+  if (mode === 'logged-in') {
+    const s = useSyncStore.getState();
+    useSyncStore.setState({ pendingResults: [...s.pendingResults, r] });
+    markDirty();
+    persist(useSyncStore.getState());
+  }
   void requestSync();
 });
 
@@ -622,7 +856,7 @@ onRankedResult((r) => {
 // next pass. A board switch that only snapshots the slot it leaves is not a
 // change.
 useAutoPlayStore.subscribe((s, prev) => {
-  if (applyingRemote > 0 || !isLinked()) return;
+  if (applyingRemote > 0 || syncMode() !== 'logged-in') return;
   if (s.slots === prev.slots && s.undoBank === prev.undoBank) return;
   if (stableJson({ b: s.slots, u: s.undoBank }) === stableJson({ b: prev.slots, u: prev.undoBank })) return;
   markDirty();
@@ -631,39 +865,49 @@ useAutoPlayStore.subscribe((s, prev) => {
 // A lesson finished. Lessons only grow in the record, so a local wipe (the
 // Learn screen's fresh start) is not pushed.
 useLearnStore.subscribe((s, prev) => {
-  if (applyingRemote > 0 || !isLinked() || s.completed === prev.completed) return;
+  const mode = syncMode();
+  if (applyingRemote > 0 || !mode || s.completed === prev.completed) return;
   if (![...s.completed].some((id) => !prev.completed.has(id))) return;
-  markDirty();
+  if (mode === 'logged-in') markDirty();
   void requestSync();
 });
 
-// The avatar changed. (The display name is not watched: it never syncs.)
+// The avatar or the name changed.
 useProfileStore.subscribe((s, prev) => {
-  if (applyingRemote > 0 || !isLinked()) return;
-  if (s.avatar === prev.avatar && s.avatarPicked === prev.avatarPicked) return;
-  avatarEdited = true;
-  markDirty();
+  const mode = syncMode();
+  if (applyingRemote > 0 || !mode) return;
+  const avatarChanged = s.avatar !== prev.avatar || s.avatarPicked !== prev.avatarPicked;
+  const handleChanged = s.handle !== prev.handle;
+  if (!avatarChanged && !handleChanged) return;
+  if (mode === 'logged-in') {
+    if (avatarChanged) avatarEdited = true;
+    if (handleChanged) handleEdited = true;
+    markDirty();
+  }
   void requestSync();
 });
 
 // A replay was saved or deleted. A deleted game the server holds is queued
 // for deletion there.
 useLibraryStore.subscribe((s, prev) => {
-  if (applyingRemote > 0 || !isLinked() || s.games === prev.games) return;
+  const mode = syncMode();
+  if (applyingRemote > 0 || !mode || s.games === prev.games) return;
   const now = new Set(s.games.map((g) => g.id));
   const before = new Set(prev.games.map((g) => g.id));
   const removed = [...before].filter((id) => !now.has(id));
   const added = [...now].some((id) => !before.has(id));
   if (removed.length === 0 && !added) return;
-  const st = useSyncStore.getState();
-  const synced = new Set(st.syncedGameIds);
-  const toDelete = removed.filter((id) => synced.has(id));
-  if (toDelete.length > 0) {
-    useSyncStore.setState({
-      pendingGameDeletes: uniq([...st.pendingGameDeletes, ...toDelete]),
-      syncedGameIds: st.syncedGameIds.filter((id) => !toDelete.includes(id)),
-    });
-    persist(useSyncStore.getState());
+  if (mode === 'logged-in') {
+    const st = useSyncStore.getState();
+    const synced = new Set(st.syncedGameIds);
+    const toDelete = removed.filter((id) => synced.has(id));
+    if (toDelete.length > 0) {
+      useSyncStore.setState({
+        pendingGameDeletes: uniq([...st.pendingGameDeletes, ...toDelete]),
+        syncedGameIds: st.syncedGameIds.filter((id) => !toDelete.includes(id)),
+      });
+      persist(useSyncStore.getState());
+    }
   }
   void requestSync();
 });

@@ -3,7 +3,7 @@ import { useReplayStore } from '../store/replayStore';
 import { getKataGoBridge } from '../api/nativeKataGo';
 import { api } from '../api/client';
 import { useLibraryStore } from '../store/libraryStore';
-import { useProfileStore } from '../store/profileStore';
+import { currentPlayerName } from '../store/profileStore';
 import { useGameReviewStore } from '../store/gameReviewStore';
 import { ConceptLink } from './ConceptLink';
 import { getConcept } from '../learn/concepts';
@@ -51,7 +51,8 @@ function ShareGameButton() {
     try {
       const sizeMatch = libraryGame.sgf.match(/SZ\[(\d+)\]/);
       const { id } = await api.uploadGame(libraryGame, {
-        playerName: useProfileStore.getState().displayName || undefined,
+        // The generated name, rendered (feature 32): nothing typed is sent.
+        playerName: currentPlayerName() || undefined,
         boardSize: sizeMatch ? Number(sizeMatch[1]) : undefined,
       });
       setSharedId(libraryGame.id, id);
