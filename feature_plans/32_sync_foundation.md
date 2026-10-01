@@ -91,9 +91,14 @@ Rules the server enforces:
   player's newest 100 by `date` (ISO 8601 string, ties broken by id) and
   deletes the rest. A second `PUT` of the same id replaces the first.
 - **`selectorLog`** is removed from a replay payload before it is stored.
-- **Rate limits**, per client address, in memory: `POST /players` 10 an
-  hour, `POST /pairing-codes/redeem` 20 an hour. The clock is injectable
-  so tests do not sleep.
+- **Rate limits**, in memory: `POST /players` 10 an hour,
+  `POST /pairing-codes/redeem` 20 an hour, per client address. The key is
+  the client address as seen through `SYNC_TRUSTED_PROXY_HOPS` trusted
+  proxies: 0 (the default, no trusted proxy) ignores `X-Forwarded-For`
+  and uses the socket peer; N uses the Nth `X-Forwarded-For` entry from
+  the right, or the socket peer when the header is shorter. The value
+  must be set for the host's proxy before a deploy. The clock is
+  injectable so tests do not sleep.
 - One player's token never reads or writes another player's rows.
 
 ### Storage

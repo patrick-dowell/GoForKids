@@ -81,21 +81,84 @@ async def test_the_two_limits_are_counted_separately(client):
     assert (await _create(client)).status_code == 201
 
 
-async def test_limit_is_per_address_using_first_forwarded_hop(client):
-    for _ in range(10):
-        assert (await _create(client, _from("198.51.100.7, 10.0.0.1"))).status_code == 201
-    # Same first hop behind a different proxy: same bucket.
-    assert (await _create(client, _from("198.51.100.7, 10.0.0.2"))).status_code == 429
-    # A different first hop, or no header (the socket peer), has its own.
-    assert (await _create(client, _from("198.51.100.8, 10.0.0.1"))).status_code == 201
-    assert (await _create(client)).status_code == 201
+# ── Which address is the key (SYNC_TRUSTED_PROXY_HOPS) ───────────────
 
 
-async def test_without_forwarded_header_the_socket_peer_is_the_key(client):
-    for _ in range(10):
-        assert (await _create(client)).status_code == 201
+def _hops(monkeypatch, n):
+    monkeypatch.setenv("SYNC_TRUSTED_PROXY_HOPS", str(n))
+
+
+async def _redeem(client, headers):
+    return await client.post(
+        "/api/sync/pairing-codes/redeem", json={"code": "AAAAAAAA"}, headers=headers
+    )
+
+
+async def test_by_default_a_rotating_forwarded_header_does_not_dodge_create(client):
+    for i in range(10):
+        assert (await _create(client, _from(f"203.0.113.{i}"))).status_code == 201
+    assert (await _create(client, _from("203.0.113.99"))).status_code == 429
+    assert (await _create(client, _from("203.0.113.98, 198.51.100.1"))).status_code == 429
     assert (await _create(client)).status_code == 429
-    assert (await _create(client, _from("203.0.113.9"))).status_code == 201
+
+
+async def test_by_default_a_rotating_forwarded_header_does_not_dodge_redeem(client):
+    for i in range(20):
+        assert (await _redeem(client, _from(f"203.0.113.{i}"))).status_code == 404
+    assert (await _redeem(client, _from("203.0.113.99"))).status_code == 429
+
+
+async def test_malformed_hop_setting_trusts_no_proxy(client, monkeypatch):
+    monkeypatch.setenv("SYNC_TRUSTED_PROXY_HOPS", "one")
+    for i in range(10):
+        assert (await _create(client, _from(f"203.0.113.{i}"))).status_code == 201
+    assert (await _create(client, _from("203.0.113.99"))).status_code == 429
+
+
+async def test_one_hop_a_spoofed_prefix_does_not_dodge_either_limit(client, monkeypatch):
+    _hops(monkeypatch, 1)
+    for i in range(10):
+        r = await _create(client, _from(f"203.0.113.{i}, 198.51.100.7"))
+        assert r.status_code == 201
+    assert (await _create(client, _from("203.0.113.99, 198.51.100.7"))).status_code == 429
+    for i in range(20):
+        r = await _redeem(client, _from(f"203.0.113.{i}, 198.51.100.7"))
+        assert r.status_code == 404
+    assert (await _redeem(client, _from("203.0.113.99, 198.51.100.7"))).status_code == 429
+
+
+async def test_one_hop_different_rightmost_addresses_get_separate_buckets(client, monkeypatch):
+    _hops(monkeypatch, 1)
+    for _ in range(10):
+        assert (await _create(client, _from("198.51.100.7"))).status_code == 201
+    assert (await _create(client, _from("198.51.100.7"))).status_code == 429
+    assert (await _create(client, _from("198.51.100.7, 198.51.100.8"))).status_code == 201
+
+
+async def test_one_hop_reads_all_copies_of_the_header_as_one_list(client, monkeypatch):
+    _hops(monkeypatch, 1)
+    for i in range(10):
+        headers = [("X-Forwarded-For", f"203.0.113.{i}"), ("X-Forwarded-For", "198.51.100.7")]
+        assert (await _create(client, headers)).status_code == 201
+    assert (await _create(client, _from("198.51.100.7"))).status_code == 429
+
+
+async def test_two_hops_key_on_the_second_entry_from_the_right(client, monkeypatch):
+    _hops(monkeypatch, 2)
+    for i in range(10):
+        r = await _create(client, _from(f"203.0.113.{i}, 198.51.100.7, 10.0.0.{i}"))
+        assert r.status_code == 201
+    assert (await _create(client, _from("198.51.100.7, 10.0.0.50"))).status_code == 429
+    assert (await _create(client, _from("198.51.100.8, 10.0.0.1"))).status_code == 201
+
+
+async def test_header_shorter_than_the_hops_falls_back_to_the_peer(client, monkeypatch):
+    _hops(monkeypatch, 2)
+    for i in range(10):
+        assert (await _create(client, _from(f"203.0.113.{i}"))).status_code == 201
+    # All ten were keyed on the socket peer, as is a request with no header.
+    assert (await _create(client)).status_code == 429
+    assert (await _create(client, _from("198.51.100.7, 10.0.0.1"))).status_code == 201
 
 
 # ── The limiter on its own ───────────────────────────────────────────

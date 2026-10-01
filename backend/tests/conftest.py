@@ -23,9 +23,11 @@ async def sync_db(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-async def client(sync_db, clock):
-    """An HTTP client on the real app, with the sync clock faked and the
-    rate-limit counters cleared before and after."""
+async def client(sync_db, clock, monkeypatch):
+    """An HTTP client on the real app, with the sync clock faked, no trusted
+    proxy hops unless a test sets them, and the rate-limit counters cleared
+    before and after."""
+    monkeypatch.delenv("SYNC_TRUSTED_PROXY_HOPS", raising=False)
     sync_router.create_limiter.reset()
     sync_router.redeem_limiter.reset()
     app.dependency_overrides[sync_router.current_time] = clock

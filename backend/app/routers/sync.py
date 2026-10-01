@@ -19,7 +19,9 @@ token reaches is scoped to that token's player.
 from __future__ import annotations
 
 import json
+import logging
 import math
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
@@ -32,6 +34,7 @@ from app.sync import storage
 from app.sync.ratelimit import RateLimiter
 
 router = APIRouter()
+_log = logging.getLogger(__name__)
 
 # The state document is opaque except for its top-level keys: anything not
 # listed is refused, which is what keeps free text such as a display name
@@ -82,13 +85,40 @@ async def current_device(authorization: Optional[str] = Header(None)) -> Device:
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
+def trusted_proxy_hops() -> int:
+    """SYNC_TRUSTED_PROXY_HOPS: how many proxies in front of this server
+    append to X-Forwarded-For. Read per request so tests can change it. An
+    unset, malformed or negative value means none, which ignores the header."""
+    raw = os.environ.get("SYNC_TRUSTED_PROXY_HOPS", "").strip()
+    try:
+        hops = int(raw) if raw else 0
+    except ValueError:
+        _log.warning("SYNC_TRUSTED_PROXY_HOPS=%r is not an integer; trusting no proxy", raw)
+        return 0
+    return max(hops, 0)
+
+
 def client_address(request: Request) -> str:
-    """First hop of X-Forwarded-For when present, else the socket peer."""
-    forwarded = request.headers.get("x-forwarded-for", "")
-    first = forwarded.split(",")[0].strip()
-    if first:
-        return first
-    return request.client.host if request.client else "unknown"
+    """The rate-limit key: the client as seen through the trusted proxies.
+
+    Everything left of the entries our own proxies appended is written by
+    the caller, so with N trusted hops the key is the Nth entry from the
+    right of X-Forwarded-For (all copies of the header joined). With no
+    trusted hops, or a header shorter than N, it is the socket peer.
+    """
+    peer = request.client.host if request.client else "unknown"
+    hops = trusted_proxy_hops()
+    if hops == 0:
+        return peer
+    entries = [
+        entry.strip()
+        for value in request.headers.getlist("x-forwarded-for")
+        for entry in value.split(",")
+        if entry.strip()
+    ]
+    if len(entries) < hops:
+        return peer
+    return entries[-hops]
 
 
 def _enforce(limiter: RateLimiter, request: Request, now: float) -> None:
