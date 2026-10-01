@@ -5,8 +5,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import games, uploads
+from app.routers import games, sync, uploads
 from app.game.storage import init_db
+from app.sync.storage import init_sync_db
 from app.uploads.storage import init_uploads_db
 
 # Surface app logger output (logger.info / logger.warning in app.* modules) at
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI):
     # Startup: initialize SQLite database
     await init_db()
     await init_uploads_db()
+    await init_sync_db()
     yield
     # Shutdown: nothing to clean up for now
 
@@ -103,3 +105,4 @@ async def health():
 
 app.include_router(games.router, prefix="/api/games", tags=["games"])
 app.include_router(uploads.router, prefix="/api/uploads", tags=["uploads"])
+app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
