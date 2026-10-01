@@ -16,6 +16,7 @@ import {
   type RungState,
 } from '../autoplay/matchmaker';
 import { confidenceInterval, displayRating, toGoRank } from '../autoplay/glicko';
+import { DevicesSection } from './DevicesSection';
 import './ProfileView.css';
 
 interface ProfileViewProps {
@@ -77,6 +78,8 @@ export function ProfileView({ onExit }: ProfileViewProps) {
         <RankGraph history={history} boardSize={boardSize} />
 
         <AvatarPickerSection avatar={avatar} onSelect={setAvatar} />
+
+        <DevicesSection />
 
         <AdvancedSection
           open={advancedOpen}

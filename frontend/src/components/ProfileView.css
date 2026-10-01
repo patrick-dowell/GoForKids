@@ -670,3 +670,101 @@
   color: #e6a23c;
   opacity: 1;
 }
+
+/* Feature 32 — Devices (sync link, pairing code). Same two-tap confirm. */
+.profile-devices-text {
+  font-size: 14px;
+  line-height: 1.45;
+  color: #c0c8d4;
+  margin: 0 0 12px;
+}
+.profile-devices-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.profile-devices-btn {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+@media (hover: hover) {
+  .profile-devices-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+.profile-devices-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.profile-devices-btn-armed {
+  border-color: #e6a23c;
+  color: #e6a23c;
+}
+.profile-devices-btn-quiet {
+  background: none;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #8b949e;
+}
+.profile-devices-panel {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.profile-devices-panel .profile-devices-text {
+  margin: 0;
+}
+.profile-devices-code {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: 4px;
+  color: #ffd166;
+  white-space: nowrap;
+}
+.profile-devices-input {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 209, 102, 0.4);
+  border-radius: 8px;
+  padding: 8px 12px;
+  outline: none;
+  width: 100%;
+  max-width: 260px;
+  box-sizing: border-box;
+}
+.profile-devices-warning {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #e6a23c;
+  margin: 0;
+}
+.profile-devices-note {
+  font-size: 13px;
+  color: #8b949e;
+  margin: 8px 0 0;
+}
+.profile-devices-panel .profile-devices-note {
+  margin: 0;
+}
+.profile-devices-error {
+  font-size: 13px;
+  color: #e58a8a;
+  margin: 10px 0 0;
+}
