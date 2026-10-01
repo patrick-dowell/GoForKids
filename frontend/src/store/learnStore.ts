@@ -122,6 +122,9 @@ interface LearnState {
   /** Add lesson ids finished on another linked device (sync, feature 32).
    *  Union only, never removes; persists when anything was added. */
   addCompleted: (ids: ReadonlyArray<string>) => void;
+  /** Replace the finished-lesson set outright (log in takes the account's
+   *  lessons whole; log out clears them). Persists. */
+  replaceCompleted: (ids: ReadonlyArray<string>) => void;
   /** Quiz: record the player's answer to the current question and surface the
    *  feedback modal. Lesson advances on a separate `advanceQuiz` call. */
   answerQuiz: (answerIndex: number) => void;
@@ -912,6 +915,12 @@ export const useLearnStore = create<LearnState>((set, get) => ({
     if (missing.length === 0) return;
     const completed = new Set(get().completed);
     for (const id of missing) completed.add(id);
+    saveCompleted(completed);
+    set({ completed });
+  },
+
+  replaceCompleted: (ids: ReadonlyArray<string>) => {
+    const completed = new Set(ids.filter((id) => typeof id === 'string'));
     saveCompleted(completed);
     set({ completed });
   },

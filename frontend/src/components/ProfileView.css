@@ -125,53 +125,37 @@
   min-width: 0;
 }
 
-.profile-name-display {
-  background: transparent;
-  border: none;
+/* The generated name (feature 32) and its Shuffle button. */
+.profile-name-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 4px 0;
+}
+
+.profile-name-text {
   color: #e6edf3;
   font-size: 26px;
   font-weight: 700;
-  padding: 4px 0;
-  cursor: pointer;
-  text-align: left;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-@media (hover: hover) {
-  .profile-name-display:hover {
-    color: #f0d590;
-  }
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.profile-name-placeholder {
-  color: #555d68;
-  font-style: italic;
-  font-weight: 500;
-}
-
-.profile-name-edit-hint {
-  font-size: 14px;
-  color: #555d68;
-}
-@media (hover: hover) {
-  .profile-name-display:hover .profile-name-edit-hint {
-    color: #f0d590;
-  }
-}
-
-.profile-name-input {
-  font-size: 24px;
-  font-weight: 700;
+.profile-shuffle-btn {
+  font-size: 13px;
+  font-weight: 600;
   color: #e6edf3;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 209, 102, 0.4);
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-family: inherit;
-  outline: none;
-  width: 100%;
-  max-width: 320px;
+  border-radius: 999px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .profile-shuffle-btn:hover {
+    background: rgba(255, 209, 102, 0.12);
+  }
 }
 
 .profile-header-sub {
@@ -732,22 +716,6 @@
   letter-spacing: 4px;
   color: #ffd166;
   white-space: nowrap;
-}
-.profile-devices-input {
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  color: #e6edf3;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 209, 102, 0.4);
-  border-radius: 8px;
-  padding: 8px 12px;
-  outline: none;
-  width: 100%;
-  max-width: 260px;
-  box-sizing: border-box;
 }
 .profile-devices-warning {
   font-size: 13px;

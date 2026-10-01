@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAutoPlayStore } from '../store/autoPlayStore';
-import { isSyncLinked, syncBeforePlay } from '../store/syncStore';
+import { isLoggedIn } from '../store/syncStore';
+import { playRanked } from '../autoplay/rankedPlay';
 import { Avatar, BOT_AVATARS } from './Avatar';
 import { ConceptLink } from './ConceptLink';
 import {
@@ -70,9 +71,9 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
       ? `Win ${winsNeeded} games to promote to ${next ?? 'the next rung'}.`
       : `Win ${winsRemaining} more to promote to ${next ?? 'the next rung'}.`;
 
-  // Sync (feature 32): a linked device pulls before a ranked game, bounded
-  // at 2 s, then starts whatever the outcome — re-reading the matchup, since
-  // the pull may have moved the rung. Not linked ⇒ starts at once, as before.
+  // Sync (feature 32): the wiring lives in autoplay/rankedPlay.ts. Logged in,
+  // Play pulls first (at most 2 s) and the button waits; otherwise the game
+  // starts at once.
   const [starting, setStarting] = useState(false);
   const mounted = useRef(true);
   useEffect(() => {
@@ -83,19 +84,14 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
   }, []);
 
   const handleStart = () => {
-    if (!isSyncLinked()) {
-      onStart(matchup);
+    if (starting) return;
+    if (!isLoggedIn()) {
+      void playRanked({ start: onStart });
       return;
     }
-    if (starting) return;
     setStarting(true);
-    void syncBeforePlay().then(() => {
-      if (!mounted.current) return; // left the picker while waiting
-      setStarting(false);
-      const s = useAutoPlayStore.getState();
-      const played = s.history.filter((h) => h.rung === s.rungState.currentRung).length;
-      const fresh = gameMatchup(s.rungState.currentRung, s.rungState.lossStreak, played, s.boardSize);
-      if (fresh.validated) onStart(fresh);
+    void playRanked({ start: onStart, stillHere: () => mounted.current }).finally(() => {
+      if (mounted.current) setStarting(false);
     });
   };
 

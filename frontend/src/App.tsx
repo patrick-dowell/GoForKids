@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { GoBoard } from './board/GoBoard';
 import { GameControls } from './components/GameControls';
 import { NewGameDialog } from './components/NewGameDialog';
@@ -27,7 +27,9 @@ import { useSettingsStore } from './store/settingsStore';
 import { useAutoPlayStore } from './store/autoPlayStore';
 import { type Matchup, type BoardSize } from './autoplay/matchmaker';
 import { useProfileStore } from './store/profileStore';
-import { startSync } from './store/syncStore';
+import { endRankedGame, startSync, useSyncStore } from './store/syncStore';
+import { FirstRunScreen } from './components/FirstRunScreen';
+import { NameIntroCard } from './components/NameIntroCard';
 import { LESSONS } from './learn/lessons';
 import { BOT_AVATARS } from './components/Avatar';
 import { AutoPlayView } from './components/AutoPlayView';
@@ -147,15 +149,21 @@ function App() {
 
   useGameIdInUrl();
 
-  useEffect(() => {
+  // A layout effect, so the first-launch decision below lands before the
+  // first paint: a new install sees the first-run choice, never a flash of
+  // the home screen.
+  useLayoutEffect(() => {
     useLibraryStore.getState().loadFromStorage();
     useAutoPlayStore.getState().loadFromStorage();
     useProfileStore.getState().loadFromStorage();
-    // Sync (feature 32) loads last so the loads above aren't read as local
-    // changes; a linked device then runs its app-open pass. Not linked ⇒
-    // no request.
-    void startSync();
+    // Sync (feature 32) goes last: it decides which first-launch case this
+    // is from what the loads above found (logged in → pass; progress but no
+    // profile → create one; nothing → the first-run choice).
+    startSync();
   }, []);
+
+  const firstRun = useSyncStore((s) => s.firstRun);
+  const showNameIntro = useSyncStore((s) => s.showIntro);
 
   // Auto-play game-end recording. Two guards needed beyond gamePending:
   //
@@ -206,6 +214,8 @@ function App() {
    *  a flag was left in a bad combination (e.g. the replay-close bug #4). */
   const goHome = () => {
     abortPendingRequests();
+    // Leaving a ranked game unfinished: a sync it held back lands now.
+    endRankedGame();
     useReplayStore.getState().close();
     useLearnStore.getState().exit();
     useGlossaryStore.getState().close();
@@ -402,6 +412,17 @@ function App() {
   const isPlayerTurn = phase === 'playing' && currentColor === playerColor && !isBotVsBot;
   const isOpponentTurn = phase === 'playing' && currentColor === opponentColor && !isBotVsBot;
 
+  // First-run choice (feature 32) — before anything else: a new install,
+  // after logging out, or after this device was logged out elsewhere.
+  if (firstRun) {
+    return (
+      <div className="app">
+        <FirstRunScreen onShowPrivacy={() => setShowPrivacy(true)} />
+        {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
+      </div>
+    );
+  }
+
   // Lesson mode — full-screen, replaces all other views. The settings gear is
   // intentionally hidden here so the lesson UI stays focused; it returns once
   // the user is in a real game.
@@ -439,6 +460,7 @@ function App() {
         <FeedbackButton />
         <GlossaryView />
         <GameReview />
+        {showNameIntro && <NameIntroCard />}
         {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       </div>
     );

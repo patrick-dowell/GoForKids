@@ -147,6 +147,10 @@ interface AutoPlayState {
    *  feature 32), keep the active board, and persist. Stale rungs migrate
    *  exactly as on load. Celebration state is left alone. */
   adoptLadder: (payload: PersistedState) => void;
+
+  /** Log out (feature 32): every board back to a fresh start, a full undo
+   *  bank, nothing pending or celebrating. Persists. */
+  clearPlayer: () => void;
 }
 
 const STORAGE_KEY = 'goforkids.autoplay.v1';
@@ -318,6 +322,17 @@ export function reapplyRankedResults(
 
 type RankedResultListener = (r: RankedResult) => void;
 const rankedResultListeners = new Set<RankedResultListener>();
+const beforeRankedResultListeners = new Set<() => void>();
+
+/** Be called at the very start of `recordResult`, before it reads the
+ *  ladder — sync applies a ladder it held back during the game here, so the
+ *  game's result lands on top of it. Returns an unsubscribe function. */
+export function onBeforeRankedResult(fn: () => void): () => void {
+  beforeRankedResultListeners.add(fn);
+  return () => {
+    beforeRankedResultListeners.delete(fn);
+  };
+}
 
 /** Be told about every ranked result `recordResult` applies (sync queues them).
  *  Returns an unsubscribe function. */
@@ -375,6 +390,7 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
   },
 
   recordResult: (result: 'win' | 'loss', undosUsed = 0) => {
+    for (const fn of beforeRankedResultListeners) fn();
     const s = get();
     const r: RankedResult = { boardSize: s.boardSize, result, undosUsed, ts: Date.now() };
     const out = applyRankedResult(activeSlot(s), s.undoBank, r);
@@ -501,6 +517,23 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
       undoBank,
     });
     persistState(slots, undoBank);
+  },
+
+  clearPlayer: () => {
+    const { boardSize } = get();
+    const fresh = emptySlot(boardSize);
+    set({
+      rungState: fresh.rungState,
+      history: fresh.history,
+      promotionEvents: fresh.promotionEvents,
+      shadowRating: fresh.shadowRating ?? freshRating(),
+      slots: {},
+      undoBank: UNDO_BANK_MAX,
+      gamePending: false,
+      showRankUp: false,
+      pendingFromRung: null,
+    });
+    persistState({}, UNDO_BANK_MAX);
   },
 }));
 

@@ -17,6 +17,7 @@ import {
 } from '../autoplay/matchmaker';
 import { confidenceInterval, displayRating, toGoRank } from '../autoplay/glicko';
 import { DevicesSection } from './DevicesSection';
+import { renderName, type Handle } from '../profile/names';
 import './ProfileView.css';
 
 interface ProfileViewProps {
@@ -25,9 +26,9 @@ interface ProfileViewProps {
 
 export function ProfileView({ onExit }: ProfileViewProps) {
   const avatar = useProfileStore((s) => s.avatar);
-  const displayName = useProfileStore((s) => s.displayName);
+  const handle = useProfileStore((s) => s.handle);
   const setAvatar = useProfileStore((s) => s.setAvatar);
-  const setDisplayName = useProfileStore((s) => s.setDisplayName);
+  const shuffleHandle = useProfileStore((s) => s.shuffleHandle);
 
   // The active board's slot — set by the home-screen chip that opened this view.
   const boardSize = useAutoPlayStore((s) => s.boardSize);
@@ -67,11 +68,7 @@ export function ProfileView({ onExit }: ProfileViewProps) {
       </header>
 
       <main className="profile-main">
-        <ProfileHeader
-          avatar={avatar}
-          displayName={displayName}
-          onSetDisplayName={setDisplayName}
-        />
+        <ProfileHeader avatar={avatar} handle={handle} onShuffle={shuffleHandle} />
 
         <CurrentRankCard rungState={rungState} history={history} boardSize={boardSize} onDerank={derank} />
 
@@ -99,50 +96,26 @@ export function ProfileView({ onExit }: ProfileViewProps) {
 
 /* ---------- Header ---------- */
 
+/** The generated name (feature 32): no text box — Shuffle picks a new one. */
 function ProfileHeader({
   avatar,
-  displayName,
-  onSetDisplayName,
+  handle,
+  onShuffle,
 }: {
   avatar: PlayerAvatarType;
-  displayName: string;
-  onSetDisplayName: (s: string) => void;
+  handle: Handle | null;
+  onShuffle: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(displayName);
-
-  const commit = () => {
-    onSetDisplayName(draft.trim());
-    setEditing(false);
-  };
-
   return (
     <section className="profile-section profile-header-card">
       <Avatar type={avatar} size={96} />
       <div className="profile-header-text">
-        {editing ? (
-          <input
-            type="text"
-            className="profile-name-input"
-            value={draft}
-            placeholder="Your name"
-            autoFocus
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(displayName); setEditing(false); } }}
-            maxLength={40}
-          />
-        ) : (
-          <button
-            type="button"
-            className="profile-name-display"
-            onClick={() => { setDraft(displayName); setEditing(true); }}
-            aria-label="Edit name"
-          >
-            {displayName || <span className="profile-name-placeholder">Tap to set your name</span>}
-            <span className="profile-name-edit-hint" aria-hidden>✎</span>
+        <div className="profile-name-row">
+          <span className="profile-name-text">{renderName(handle) || 'Player'}</span>
+          <button type="button" className="profile-shuffle-btn" onClick={onShuffle}>
+            Shuffle
           </button>
-        )}
+        </div>
         <div className="profile-header-sub">Player Profile</div>
       </div>
     </section>
