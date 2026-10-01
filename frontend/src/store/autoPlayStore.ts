@@ -296,12 +296,18 @@ export function reapplyRankedResults(
   const norm = normalizeLadder(base);
   let slots = norm.slots;
   let undoBank = norm.undoBank;
+  // Only the base's own history counts as "already there" — not entries
+  // this loop adds.
+  const held = new Set<string>();
+  for (const [key, slot] of Object.entries(slots)) {
+    for (const h of slot?.history ?? []) held.add(`${key}|${h.ts}|${h.result}`);
+  }
   const applied: RankedResult[] = [];
   for (const r of queued) {
     if (!hasLadder(r.boardSize)) continue;
     const key = boardKey(r.boardSize);
     const slot = slots[key] ?? emptySlot(r.boardSize);
-    if (slot.history.some((h) => h.ts === r.ts && h.result === r.result)) continue;
+    if (held.has(`${key}|${r.ts}|${r.result}`)) continue;
     const out = applyRankedResult(slot, undoBank, r);
     slots = { ...slots, [key]: out.slot };
     undoBank = out.undoBank;
