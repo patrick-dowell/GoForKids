@@ -37,9 +37,13 @@ router = APIRouter()
 _log = logging.getLogger(__name__)
 
 # The state document is opaque except for its top-level keys: anything not
-# listed is refused, which is what keeps free text such as a display name
-# out of the record.
-ALLOWED_STATE_KEYS = frozenset({"schema", "ladder", "lessons", "avatar", "avatarPicked"})
+# listed is refused, which is what keeps free text such as a typed name out
+# of the record. The one key the server also checks inside is `handle`.
+ALLOWED_STATE_KEYS = frozenset(
+    {"schema", "ladder", "lessons", "avatar", "avatarPicked", "handle"}
+)
+# A generated name: one position in each of two 64-word lists.
+HANDLE_WORDS = 64
 MAX_STATE_BYTES = 512 * 1024
 MAX_GAME_BYTES = 1024 * 1024
 MAX_GAME_ID_LENGTH = 128
@@ -167,12 +171,26 @@ async def finite_body(request: Request) -> None:
         raise HTTPException(status_code=422, detail="Request body contains a non-finite number")
 
 
+def _valid_handle(value: Any) -> bool:
+    # type() rather than isinstance(): a bool is an int to Python, not to JSON.
+    return (
+        isinstance(value, list)
+        and len(value) == 2
+        and all(type(v) is int and 0 <= v < HANDLE_WORDS for v in value)
+    )
+
+
 def _checked_state_json(state: Dict[str, Any]) -> str:
     extra = sorted(set(state) - ALLOWED_STATE_KEYS)
     if extra:
         raise HTTPException(
             status_code=422,
             detail=f"State has top-level keys outside the allowlist: {extra}",
+        )
+    if "handle" in state and not _valid_handle(state["handle"]):
+        raise HTTPException(
+            status_code=422,
+            detail=f"handle must be an array of two integers from 0 to {HANDLE_WORDS - 1}",
         )
     state_json = _compact_json(state)
     if len(state_json.encode("utf-8")) > MAX_STATE_BYTES:
