@@ -22,6 +22,18 @@ class RateLimiter:
         self.window_s = window_s
         self._hits: Dict[str, Deque[float]] = {}
 
+    def check(self, key: str, now: float) -> Optional[float]:
+        """Whether `key` may make a request at `now`, counting nothing: None
+        when it may, otherwise the seconds until the oldest counted request
+        leaves the window."""
+        cutoff = now - self.window_s
+        hits = self._hits.setdefault(key, deque())
+        while hits and hits[0] <= cutoff:
+            hits.popleft()
+        if len(hits) >= self.limit:
+            return hits[0] + self.window_s - now
+        return None
+
     def hit(self, key: str, now: float) -> Optional[float]:
         """Count one request for `key` at time `now`.
 
@@ -29,15 +41,12 @@ class RateLimiter:
         the seconds until the oldest counted request leaves the window. A
         refused request is not counted, so waiting out the window recovers.
         """
-        cutoff = now - self.window_s
-        hits = self._hits.setdefault(key, deque())
-        while hits and hits[0] <= cutoff:
-            hits.popleft()
-        if len(hits) >= self.limit:
-            return hits[0] + self.window_s - now
-        hits.append(now)
+        retry_after = self.check(key, now)
+        if retry_after is not None:
+            return retry_after
+        self._hits[key].append(now)
         if len(self._hits) > _SWEEP_THRESHOLD:
-            self._sweep(cutoff)
+            self._sweep(now - self.window_s)
         return None
 
     def _sweep(self, cutoff: float) -> None:

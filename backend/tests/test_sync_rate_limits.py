@@ -187,3 +187,11 @@ def test_limiter_forgets_idle_addresses_once_many_are_tracked():
     rl.hit("late", 50)
     assert len(rl._hits) < 5000
     assert rl.hit("late", 51) is not None
+
+
+def test_limiter_never_forgets_an_address_inside_its_window():
+    rl = RateLimiter(limit=1, window_s=10)
+    for i in range(5000):
+        assert rl.hit(f"addr-{i}", 0) is None
+    assert len(rl._hits) == 5000
+    assert all(rl.hit(f"addr-{i}", 9) is not None for i in range(5000))

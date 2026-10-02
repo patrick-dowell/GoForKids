@@ -6,7 +6,15 @@ import pytest
 import app.sync.storage as sync_storage
 from app.main import app
 from app.routers import sync as sync_router
+from app.routers import sync_friends
 from tests.sync_helpers import FakeClock
+
+LIMITERS = (
+    sync_router.create_limiter,
+    sync_router.redeem_limiter,
+    sync_friends.request_player_limiter,
+    sync_friends.request_address_limiter,
+)
 
 
 @pytest.fixture
@@ -28,12 +36,12 @@ async def client(sync_db, clock, monkeypatch):
     proxy hops unless a test sets them, and the rate-limit counters cleared
     before and after."""
     monkeypatch.delenv("SYNC_TRUSTED_PROXY_HOPS", raising=False)
-    sync_router.create_limiter.reset()
-    sync_router.redeem_limiter.reset()
+    for limiter in LIMITERS:
+        limiter.reset()
     app.dependency_overrides[sync_router.current_time] = clock
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
     app.dependency_overrides.pop(sync_router.current_time, None)
-    sync_router.create_limiter.reset()
-    sync_router.redeem_limiter.reset()
+    for limiter in LIMITERS:
+        limiter.reset()

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import games, sync, sync_admin, uploads
+from app.routers import games, sync, sync_admin, sync_friends, uploads
 from app.game.storage import init_db
 from app.sync import retention
 from app.sync.storage import init_sync_db
@@ -123,3 +123,4 @@ app.include_router(games.router, prefix="/api/games", tags=["games"])
 app.include_router(uploads.router, prefix="/api/uploads", tags=["uploads"])
 app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
 app.include_router(sync_admin.router, prefix="/api/sync/admin", tags=["sync-admin"])
+app.include_router(sync_friends.router, prefix="/api/sync", tags=["sync-friends"])

@@ -17,6 +17,11 @@ Retention (plan 32, Revision 3): nothing a device does deletes a profile. A
 profile whose last device row goes gets `no_device_since`; a login clears
 it; `delete_abandoned_players` removes a profile only once that timestamp is
 RETENTION_S old and the profile still has no device.
+
+Friends (plan 32, Revision 4): every profile holds a unique friend code, and
+`sync_friendships` holds at most one row per ordered pair of profiles, with
+a status of pending, accepted or declined. Accepting deletes the other row
+between the two, so a friendship is exactly one accepted row.
 """
 
 from __future__ import annotations
@@ -37,6 +42,7 @@ from app.uploads.storage import SHARE_ID_ALPHABET
 
 PAIRING_CODE_LENGTH = 8
 PAIRING_CODE_TTL_S = 10 * 60
+FRIEND_CODE_LENGTH = 8
 REPLAY_CAP = 100
 # A profile with no device for this long is deleted by the cleanup.
 RETENTION_S = 30 * 24 * 3600
@@ -64,6 +70,10 @@ def new_device_token() -> str:
 
 def new_pairing_code() -> str:
     return "".join(secrets.choice(SHARE_ID_ALPHABET) for _ in range(PAIRING_CODE_LENGTH))
+
+
+def new_friend_code() -> str:
+    return "".join(secrets.choice(SHARE_ID_ALPHABET) for _ in range(FRIEND_CODE_LENGTH))
 
 
 def new_device_id() -> str:
@@ -98,23 +108,26 @@ async def _write_txn() -> AsyncIterator[aiosqlite.Connection]:
 # same way. Each create key is stored only as its SHA-256: on the player it
 # names (unique), and on every device token a create with that key issued.
 # Revision 3 adds a player's `no_device_since` and a device's public id and
-# last-seen time (both epoch seconds; null until set).
+# last-seen time (both epoch seconds; null until set). Revision 4 adds the
+# player's friend code (unique; given to older rows at start-up).
 _ADDED_COLUMNS = (
     ("sync_players", "create_key_hash", "TEXT"),
     ("sync_devices", "create_key_hash", "TEXT"),
     ("sync_players", "no_device_since", "REAL"),
     ("sync_devices", "device_id", "TEXT"),
     ("sync_devices", "last_seen_at", "REAL"),
+    ("sync_players", "friend_code", "TEXT"),
 )
 
 
 async def init_sync_db(now: Optional[float] = None) -> None:
-    """Create the four sync_ tables and bring an older file up to date.
+    """Create the five sync_ tables and bring an older file up to date.
     Called from the app lifespan with the start-up time.
 
     Device rows written before Revision 3 get a device id. A profile that
     already has no device and no `no_device_since` gets `now`, so it has the
-    full retention period from this start-up.
+    full retention period from this start-up. A profile written before
+    Revision 4 gets a friend code.
     """
     now = time.time() if now is None else now
     async with _write_txn() as db:
@@ -156,6 +169,23 @@ async def init_sync_db(now: Optional[float] = None) -> None:
                 used INTEGER NOT NULL DEFAULT 0
             )
         """)
+        # Times are epoch seconds. `created_at` is when the request was first
+        # sent; `updated_at` when its status last changed, which for an
+        # accepted row is when the two became friends.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS sync_friendships (
+                requester_id TEXT NOT NULL,
+                addressee_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (requester_id, addressee_id)
+            )
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS sync_friendships_by_addressee
+            ON sync_friendships (addressee_id, status)
+        """)
         for table, column, decl in _ADDED_COLUMNS:
             async with db.execute(f"PRAGMA table_info({table})") as cur:
                 existing = {row[1] for row in await cur.fetchall()}
@@ -187,6 +217,29 @@ async def init_sync_db(now: Optional[float] = None) -> None:
                 WHERE no_device_since IS NULL AND {_HAS_NO_DEVICE}""",
             (now,),
         )
+        await db.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS sync_players_by_friend_code
+            ON sync_players (friend_code)
+        """)
+        async with db.execute("SELECT id FROM sync_players WHERE friend_code IS NULL") as cur:
+            codeless = [row[0] for row in await cur.fetchall()]
+        for player_id in codeless:
+            await db.execute(
+                "UPDATE sync_players SET friend_code = ? WHERE id = ?",
+                (await _free_friend_code(db), player_id),
+            )
+
+
+async def _free_friend_code(db: aiosqlite.Connection) -> str:
+    """A friend code no profile holds. Called inside a write transaction, so
+    nothing takes the code before the caller writes it; a code already held
+    is retried with a new one."""
+    for _ in range(5):
+        code = new_friend_code()
+        async with db.execute("SELECT 1 FROM sync_players WHERE friend_code = ?", (code,)) as cur:
+            if await cur.fetchone() is None:
+                return code
+    raise RuntimeError("could not allocate a unique friend code")
 
 
 # True of a sync_players row with no device row left.
@@ -268,9 +321,10 @@ async def create_player(
                 return CreatedPlayer(player_id, token, rev, current_json, created=False)
         player_id = str(uuid.uuid4())
         await db.execute(
-            """INSERT INTO sync_players (id, rev, state, created_at, updated_at, create_key_hash)
-               VALUES (?, 1, ?, ?, ?, ?)""",
-            (player_id, state_json, stamp, stamp, key_hash),
+            """INSERT INTO sync_players
+               (id, rev, state, created_at, updated_at, create_key_hash, friend_code)
+               VALUES (?, 1, ?, ?, ?, ?, ?)""",
+            (player_id, state_json, stamp, stamp, key_hash, await _free_friend_code(db)),
         )
         token = await _add_device(db, player_id, now, key_hash)
     return CreatedPlayer(player_id, token, 1, state_json, created=True)
@@ -495,9 +549,10 @@ async def admin_create_player(state_json: str, now: float) -> str:
     stamp = iso_utc(now)
     async with _write_txn() as db:
         await db.execute(
-            """INSERT INTO sync_players (id, rev, state, created_at, updated_at, no_device_since)
-               VALUES (?, 1, ?, ?, ?, ?)""",
-            (player_id, state_json, stamp, stamp, now),
+            """INSERT INTO sync_players
+               (id, rev, state, created_at, updated_at, no_device_since, friend_code)
+               VALUES (?, 1, ?, ?, ?, ?, ?)""",
+            (player_id, state_json, stamp, stamp, now, await _free_friend_code(db)),
         )
     return player_id
 
@@ -598,10 +653,11 @@ async def abandoned_player_ids(now: float) -> list[str]:
 
 
 async def delete_abandoned_players(now: float) -> int:
-    """Delete each abandoned profile with its replays and codes. The deleting
-    transaction re-checks both conditions per profile, so a login (or any
-    new device row) that lands after the candidates were chosen keeps its
-    profile. Returns the count deleted."""
+    """Delete each abandoned profile with its replays, codes and friendship
+    rows (in both directions). The deleting transaction re-checks both
+    conditions per profile, so a login (or any new device row) that lands
+    after the candidates were chosen keeps its profile. Returns the count
+    deleted."""
     cutoff = now - RETENTION_S
     candidates = await abandoned_player_ids(now)
     deleted = 0
@@ -615,5 +671,193 @@ async def delete_abandoned_players(now: float) -> int:
                 continue
             await db.execute("DELETE FROM sync_games WHERE player_id = ?", (player_id,))
             await db.execute("DELETE FROM sync_pairing_codes WHERE player_id = ?", (player_id,))
+            await db.execute(
+                "DELETE FROM sync_friendships WHERE requester_id = ? OR addressee_id = ?",
+                (player_id, player_id),
+            )
             deleted += 1
     return deleted
+
+
+# ── Friends ──────────────────────────────────────────────────────────
+
+PENDING, ACCEPTED, DECLINED = "pending", "accepted", "declined"
+
+# What send_friend_request found. The route answers the same 202 for every
+# outcome but the two refusals, so the caller cannot tell the rest apart.
+REQUEST_SENT = "sent"
+NO_SUCH_CODE = "no-such-code"
+OWN_CODE = "own-code"
+
+
+async def get_friend_code(player_id: str) -> Optional[str]:
+    """The player's friend code, or None when there is no such player."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT friend_code FROM sync_players WHERE id = ?", (player_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def replace_friend_code(player_id: str) -> Optional[str]:
+    """Give the player a new friend code; the old one stops finding it at
+    once. Requests and friendships are untouched. None when there is no such
+    player."""
+    async with _write_txn() as db:
+        code = await _free_friend_code(db)
+        cur = await db.execute(
+            "UPDATE sync_players SET friend_code = ? WHERE id = ?", (code, player_id)
+        )
+    return code if cur.rowcount == 1 else None
+
+
+async def _statuses_between(
+    db: aiosqlite.Connection, a: str, b: str
+) -> dict[tuple[str, str], str]:
+    """{(requester_id, addressee_id): status} for the rows between a and b."""
+    async with db.execute(
+        """SELECT requester_id, addressee_id, status FROM sync_friendships
+           WHERE (requester_id = ? AND addressee_id = ?)
+              OR (requester_id = ? AND addressee_id = ?)""",
+        (a, b, b, a),
+    ) as cur:
+        return {(row[0], row[1]): row[2] for row in await cur.fetchall()}
+
+
+async def _make_friends(
+    db: aiosqlite.Connection, requester_id: str, addressee_id: str, now: float
+) -> None:
+    """Accept requester's pending request to addressee, and delete the other
+    row between them, so the friendship is exactly one accepted row."""
+    await db.execute(
+        """UPDATE sync_friendships SET status = ?, updated_at = ?
+           WHERE requester_id = ? AND addressee_id = ?""",
+        (ACCEPTED, now, requester_id, addressee_id),
+    )
+    await db.execute(
+        "DELETE FROM sync_friendships WHERE requester_id = ? AND addressee_id = ?",
+        (addressee_id, requester_id),
+    )
+
+
+async def send_friend_request(requester_id: str, code: str, now: float) -> str:
+    """Ask the profile holding `code` (already normalised) to be friends.
+
+    Returns NO_SUCH_CODE, OWN_CODE, or REQUEST_SENT for every other case:
+    a new request; a repeat of a pending one or of one the other side
+    declined (both left as they are); two players already friends; or the
+    other player's pending request to the requester, which makes the two
+    friends at once.
+    """
+    async with _write_txn() as db:
+        async with db.execute(
+            "SELECT id FROM sync_players WHERE friend_code = ?", (code,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return NO_SUCH_CODE
+        addressee_id = row[0]
+        if addressee_id == requester_id:
+            return OWN_CODE
+        statuses = await _statuses_between(db, requester_id, addressee_id)
+        if ACCEPTED in statuses.values():
+            return REQUEST_SENT
+        if statuses.get((addressee_id, requester_id)) == PENDING:
+            await _make_friends(db, addressee_id, requester_id, now)
+        elif (requester_id, addressee_id) not in statuses:
+            await db.execute(
+                """INSERT INTO sync_friendships
+                   (requester_id, addressee_id, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (requester_id, addressee_id, PENDING, now, now),
+            )
+    return REQUEST_SENT
+
+
+async def accept_friend_request(player_id: str, requester_id: str, now: float) -> bool:
+    """Accept requester's pending request to the player. True also when the
+    two are already friends; False when there is neither."""
+    async with _write_txn() as db:
+        statuses = await _statuses_between(db, player_id, requester_id)
+        if ACCEPTED in statuses.values():
+            return True
+        if statuses.get((requester_id, player_id)) != PENDING:
+            return False
+        await _make_friends(db, requester_id, player_id, now)
+    return True
+
+
+async def decline_friend_request(player_id: str, requester_id: str, now: float) -> bool:
+    """Mark requester's pending request to the player declined. True also
+    when it is already declined; False when there is no such request."""
+    async with _write_txn() as db:
+        status = (await _statuses_between(db, player_id, requester_id)).get(
+            (requester_id, player_id)
+        )
+        if status == PENDING:
+            await db.execute(
+                """UPDATE sync_friendships SET status = ?, updated_at = ?
+                   WHERE requester_id = ? AND addressee_id = ?""",
+                (DECLINED, now, requester_id, player_id),
+            )
+    return status in (PENDING, DECLINED)
+
+
+async def remove_friend(player_id: str, other_id: str) -> None:
+    """Delete the accepted friendship between the two, if any, and nothing
+    else: a pending or declined request stays as it is."""
+    async with _connect() as db:
+        await db.execute(
+            """DELETE FROM sync_friendships WHERE status = ? AND (
+                   (requester_id = ? AND addressee_id = ?)
+                OR (requester_id = ? AND addressee_id = ?))""",
+            (ACCEPTED, player_id, other_id, other_id, player_id),
+        )
+
+
+@dataclass
+class FriendRow:
+    player_id: str
+    state_json: str
+    at: float  # since (a friend) or sent_at (an incoming request)
+
+
+async def list_friends(player_id: str) -> tuple[list[FriendRow], list[FriendRow]]:
+    """(friends, incoming): the player's accepted friends, newest friendship
+    first, and the pending requests sent to the player, newest first. The
+    requests the player sent are not listed."""
+    async with _connect() as db:
+        async with db.execute(
+            """SELECT p.id, p.state, f.updated_at FROM sync_friendships f
+               JOIN sync_players p ON p.id = CASE WHEN f.requester_id = ?
+                   THEN f.addressee_id ELSE f.requester_id END
+               WHERE f.status = ? AND (f.requester_id = ? OR f.addressee_id = ?)
+               ORDER BY f.updated_at DESC""",
+            (player_id, ACCEPTED, player_id, player_id),
+        ) as cur:
+            friends = [FriendRow(*row) for row in await cur.fetchall()]
+        async with db.execute(
+            """SELECT p.id, p.state, f.created_at FROM sync_friendships f
+               JOIN sync_players p ON p.id = f.requester_id
+               WHERE f.addressee_id = ? AND f.status = ?
+               ORDER BY f.created_at DESC""",
+            (player_id, PENDING),
+        ) as cur:
+            incoming = [FriendRow(*row) for row in await cur.fetchall()]
+    return friends, incoming
+
+
+async def friend_state(player_id: str, other_id: str) -> Optional[str]:
+    """The other player's state JSON when the two are friends, else None
+    (whatever else lies between them)."""
+    async with _connect() as db:
+        async with db.execute(
+            """SELECT state FROM sync_players WHERE id = ? AND EXISTS (
+                   SELECT 1 FROM sync_friendships WHERE status = ? AND (
+                       (requester_id = ? AND addressee_id = ?)
+                    OR (requester_id = ? AND addressee_id = ?)))""",
+            (other_id, ACCEPTED, player_id, other_id, other_id, player_id),
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else None
