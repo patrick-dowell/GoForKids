@@ -28,6 +28,7 @@ import { useAutoPlayStore } from './store/autoPlayStore';
 import { type Matchup, type BoardSize } from './autoplay/matchmaker';
 import { useProfileStore } from './store/profileStore';
 import { endRankedGame, startSync, useSyncStore } from './store/syncStore';
+import { watchRankedGameExit } from './autoplay/rankedGameExit';
 import { FirstRunScreen } from './components/FirstRunScreen';
 import { NameIntroCard } from './components/NameIntroCard';
 import { LESSONS } from './learn/lessons';
@@ -161,6 +162,10 @@ function App() {
     // profile → create one; nothing → the first-run choice).
     startSync();
   }, []);
+
+  // However a ranked game stops being played (finished, New Game, a lesson
+  // game, a replay from the Library), the sync hold it started ends with it.
+  useEffect(() => watchRankedGameExit(), []);
 
   const firstRun = useSyncStore((s) => s.firstRun);
   const showNameIntro = useSyncStore((s) => s.showIntro);

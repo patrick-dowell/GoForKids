@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { ApiError } from '../api/client';
 import {
+  isCreateKey,
+  makeCreateKey,
   normalizePairingCode,
   syncApi,
   type DeviceGrant,
@@ -78,6 +80,10 @@ interface PersistedSync {
   showIntro: boolean;
   /** Replays the server refused (413 / 422): never sent again. */
   refusedGameIds: string[];
+  /** Made when the device first decides to create a profile, sent with
+   *  every create attempt, cleared once one succeeds (revision 2.1): a
+   *  repeated create returns the same profile instead of a second one. */
+  createKey: string | null;
 }
 
 const EMPTY: PersistedSync = {
@@ -92,6 +98,7 @@ const EMPTY: PersistedSync = {
   pendingCreate: null,
   showIntro: false,
   refusedGameIds: [],
+  createKey: null,
 };
 
 interface SyncState extends PersistedSync {
@@ -174,6 +181,7 @@ function pickPersisted(s: PersistedSync): PersistedSync {
     pendingCreate: s.pendingCreate,
     showIntro: s.showIntro,
     refusedGameIds: s.refusedGameIds,
+    createKey: s.createKey,
   };
 }
 
@@ -220,6 +228,7 @@ function parsePersisted(raw: string | null): PersistedSync {
       pendingCreate,
       showIntro: p.showIntro === true,
       refusedGameIds: stringArray(p.refusedGameIds),
+      createKey: pendingCreate && isCreateKey(p.createKey) ? p.createKey : null,
     };
   } catch {
     return { ...EMPTY };
@@ -549,8 +558,15 @@ export const useSyncStore = create<SyncState>((set, get) => {
     const kind = get().pendingCreate;
     if (!kind || get().deviceToken) return null;
     ensureHandle();
+    // One key for every attempt until one succeeds. A pending create from a
+    // build before keys existed gets its key now, kept from here on.
+    let key = get().createKey;
+    if (!isCreateKey(key)) {
+      key = makeCreateKey();
+      update({ createKey: key });
+    }
     const doc = buildLocalDoc();
-    const grant = await syncApi.createPlayer(doc);
+    const { repeated, grant } = await syncApi.createPlayer(doc, key);
     // Logged in, or out, while the request was out: this create is moot.
     if (get().deviceToken || get().pendingCreate !== kind) return null;
     if (!isGrant(grant)) throw new Error('sync: malformed create response');
@@ -559,8 +575,11 @@ export const useSyncStore = create<SyncState>((set, get) => {
       playerId: grant.player_id,
       deviceToken: grant.device_token,
       baseRev: grant.rev,
-      // Anything that changed while the request was out still needs a push.
-      dirty: !sameDoc(buildLocalDoc(), doc),
+      // 201: anything that changed while the request was out still needs a
+      // push. 200: the server already had this profile (an earlier attempt's
+      // reply was lost) and its state is whatever that attempt sent; this
+      // device's state is the newer one, so push it from the returned rev.
+      dirty: repeated || !sameDoc(buildLocalDoc(), doc),
       lastSyncAt: Date.now(),
       showIntro: kind === 'existing',
     });
@@ -639,7 +658,7 @@ export const useSyncStore = create<SyncState>((set, get) => {
     startNewPlayer: () => {
       if (get().deviceToken) return;
       ensureHandle();
-      update({ ...EMPTY, pendingCreate: 'new' });
+      update({ ...EMPTY, pendingCreate: 'new', createKey: makeCreateKey() });
       set({ firstRun: false, firstRunNotice: null });
       void requestPass();
     },
@@ -799,7 +818,7 @@ export function startSync(): StartupCase {
   }
   if (deviceHoldsProgress()) {
     ensureHandle();
-    useSyncStore.setState({ pendingCreate: 'existing' });
+    useSyncStore.setState({ pendingCreate: 'existing', createKey: makeCreateKey() });
     persist(useSyncStore.getState());
     void requestSync();
     return 'existing';
@@ -822,11 +841,15 @@ export function syncBeforePlay(timeoutMs = PLAY_SYNC_TIMEOUT_MS): Promise<void> 
   return Promise.race([requestSync().then(() => undefined), timeout]).finally(() => clearTimeout(timer));
 }
 
+/** The ranked game started for this hold has been seen on the board. */
+let rankedGameSeenPlaying = false;
+
 /** A ranked game has started: until it ends, a pass that finds the server
  *  ahead holds what it brought instead of changing the rank. */
 export function beginRankedGame(): void {
   holdRelease();
   rankedGameActive = true;
+  rankedGameSeenPlaying = false;
 }
 
 /** The ranked game ended without a result (left for home), or a new one is
@@ -834,6 +857,27 @@ export function beginRankedGame(): void {
  *  itself, before the game's result lands on top. */
 export function endRankedGame(): void {
   holdRelease();
+}
+
+/** True while a hold is on (a ranked game is being played). */
+export function isRankedGameHeld(): boolean {
+  return rankedGameActive;
+}
+
+/**
+ * Told, on every change of the game on the board, whether that game is a
+ * ranked game still being played. Once the held-for game has been seen
+ * playing, the first moment it no longer is — finished, or replaced by a
+ * casual, lesson or other game — ends the hold and applies what was held.
+ * (Until it has been seen, the board still shows the previous game.)
+ */
+export function noteRankedGameOnBoard(playingRanked: boolean): void {
+  if (!rankedGameActive) return;
+  if (playingRanked) {
+    rankedGameSeenPlaying = true;
+    return;
+  }
+  if (rankedGameSeenPlaying) holdRelease();
 }
 
 onBeforeRankedResult(() => holdRelease());

@@ -8,7 +8,7 @@
  * Nothing in this module is called for a device that is not linked.
  */
 
-import { ApiError, request } from './client';
+import { ApiError, request, requestWithStatus } from './client';
 import type { PersistedState } from '../store/autoPlayStore';
 import type { SavedGame } from '../store/libraryStore';
 
@@ -87,11 +87,20 @@ export function replayPayload(game: SavedGame): SavedGame {
 }
 
 export const syncApi = {
-  createPlayer: (state: SyncStateDoc): Promise<DeviceGrant> =>
-    request<DeviceGrant>(`${BASE}/players`, {
+  /** Create the profile. `createKey` makes a repeat safe (revision 2.1): the
+   *  server answers 201 for a new profile, or 200 with the profile an earlier
+   *  attempt with the same key already made (its current rev and state, and
+   *  a fresh token; the `state` sent this time is ignored). */
+  createPlayer: async (
+    state: SyncStateDoc,
+    createKey: string,
+  ): Promise<{ repeated: boolean; grant: DeviceGrant }> => {
+    const res = await requestWithStatus<DeviceGrant>(`${BASE}/players`, {
       method: 'POST',
-      body: JSON.stringify({ state }),
-    }),
+      body: JSON.stringify({ state, create_key: createKey }),
+    });
+    return { repeated: res.status === 200, grant: res.body };
+  },
 
   mintPairingCode: (token: string): Promise<PairingCode> =>
     request<PairingCode>(`${BASE}/pairing-codes`, authed(token, { method: 'POST' })),
@@ -148,6 +157,26 @@ export const syncApi = {
   revokeDevice: (token: string): Promise<void> =>
     request<void>(`${BASE}/devices/current`, authed(token, { method: 'DELETE' })),
 };
+
+/** The create key's alphabet (64 symbols, so a random byte's low six bits
+ *  pick one uniformly). */
+const CREATE_KEY_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+export const CREATE_KEY_LENGTH = 32;
+
+/** A fresh create key: 32 characters from `A-Z a-z 0-9 - _`, from the
+ *  platform's cryptographic random source. */
+export function makeCreateKey(): string {
+  const bytes = new Uint8Array(CREATE_KEY_LENGTH);
+  crypto.getRandomValues(bytes);
+  let key = '';
+  for (const b of bytes) key += CREATE_KEY_ALPHABET[b & 63];
+  return key;
+}
+
+/** True for a key the server would accept (16–64 of the alphabet). */
+export function isCreateKey(v: unknown): v is string {
+  return typeof v === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(v);
+}
 
 /** The share-code alphabet pairing codes are drawn from (no 0/O, 1/I/L, …). */
 export const PAIRING_CODE_ALPHABET = '23456789ACDEFGHJKMNPQRTVWXY';
