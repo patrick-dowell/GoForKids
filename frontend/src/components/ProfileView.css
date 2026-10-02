@@ -850,3 +850,179 @@
   font-weight: 800;
   color: #ffd166;
 }
+
+/* Feature 32, revision 4 — Friends (a logged-in device). Reuses the Devices
+   section's buttons, panels, code style and the Admin section's rank line. */
+.profile-friends-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.profile-friends-block + .profile-friends-block {
+  margin-top: 18px;
+}
+.profile-friends-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #c0c8d4;
+}
+.profile-friends-code-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+.profile-friends-code-row .profile-devices-note,
+.profile-friends-block > .profile-devices-note {
+  margin: 0;
+}
+.profile-friends-newcode {
+  margin-top: 4px;
+}
+.profile-friends-add-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+.profile-friends-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 260px;
+  box-sizing: border-box;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #ffd166;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+.profile-friends-input::placeholder {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: #6e7681;
+}
+.profile-friends-outcome {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+.profile-friends-outcome-ok {
+  color: #7ee2a8;
+}
+.profile-friends-outcome-no {
+  color: #e6a23c;
+}
+.profile-friends-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.profile-friends-request {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+}
+.profile-friends-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #e6edf3;
+  text-align: left;
+}
+.profile-friends-actions {
+  display: flex;
+  gap: 8px;
+}
+.profile-friends-friend {
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  min-width: 0;
+}
+.profile-friends-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  border-radius: 12px;
+  color: inherit;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .profile-friends-person:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+}
+.profile-friends-chevron {
+  color: #8b949e;
+  font-size: 14px;
+}
+.profile-friends-empty {
+  font-size: 14px;
+  color: #8b949e;
+  margin: 0;
+}
+.profile-friends-card {
+  margin: 0 12px 12px;
+}
+.profile-friends-card-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.profile-friends-card-title {
+  min-width: 0;
+}
+.profile-friends-card-name {
+  font-size: 20px;
+  font-weight: 800;
+  color: #e6edf3;
+}
+.profile-friends-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.profile-friends-result {
+  display: grid;
+  grid-template-columns: 56px 56px 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #c0c8d4;
+}
+.profile-friends-result-board {
+  color: #8b949e;
+}
+.profile-friends-result-chip {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 0;
+}
+.profile-friends-result-date {
+  color: #8b949e;
+}
