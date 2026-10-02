@@ -692,9 +692,11 @@
   color: #e6a23c;
 }
 .profile-devices-btn-quiet {
+  /* A secondary action: no fill, but readable text and a visible border, so
+     only :disabled (45% opacity) reads as greyed out. */
   background: none;
-  border-color: rgba(255, 255, 255, 0.1);
-  color: #8b949e;
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #c9d1d9;
 }
 .profile-devices-panel {
   margin-top: 14px;
