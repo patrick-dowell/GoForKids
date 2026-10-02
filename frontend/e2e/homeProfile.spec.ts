@@ -172,8 +172,27 @@ test('Friends button: a badge only while requests wait', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Friends, 2 requests' })).toBeVisible();
   await setIncoming(1);
   await expect(page.getByRole('button', { name: 'Friends, 1 request' })).toBeVisible();
+  // The badge caps at "9+"; the accessible name keeps the count.
+  await setIncoming(12);
+  await expect(friends.locator('.home-btn-badge')).toHaveText('9+');
+  await expect(page.getByRole('button', { name: 'Friends, 12 requests' })).toBeVisible();
   await setIncoming(0);
   await expect(friends.locator('.home-btn-badge')).toHaveCount(0);
+});
+
+test('the avatar opens the profile on the active board when that board is 9×9', async ({ page }) => {
+  await seedPlayer(page);
+  await page.goto('/');
+  // Pick 9×9 on Play's match-picker, which is what sets the board Play plays.
+  await page.getByRole('button', { name: /^▶/ }).click();
+  await page.locator('.autoplay-board-pill', { hasText: '9×9' }).click();
+  await expect(page.locator('.autoplay-board-pill-active')).toHaveText('9×9');
+  expect(await activeBoard(page)).toBe(9);
+  await page.getByRole('button', { name: 'Back to home' }).click();
+
+  await profileButton(page).click();
+  await expect(tab(page, '9×9')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.profile-rank-big')).toHaveText('15k');
 });
 
 test('Friends page, not logged in: says so, offers nothing else, and the home button goes back', async ({ page }) => {
