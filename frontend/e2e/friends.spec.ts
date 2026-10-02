@@ -916,7 +916,7 @@ test('the feed comes first: who is online, then what friends did, in sentences',
   await page.clock.setFixedTime(NOW);
   await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   // First in the section, before the code.
   const blocks = await section(page).locator('.profile-friends-label').allTextContents();
   expect(blocks.slice(0, 2)).toEqual(['What your friends are up to', 'Your friend code']);
@@ -957,7 +957,7 @@ test('a long feed shows eight lines, then Show more', async ({ page }) => {
   }));
   await fakeSync(page, { events, online: [] });
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await expect(feedText(page)).toHaveCount(8);
   await section(page).getByRole('button', { name: 'Show more' }).click();
   await expect(feedText(page)).toHaveCount(12);
@@ -968,14 +968,14 @@ test('a long feed shows eight lines, then Show more', async ({ page }) => {
 test('an empty feed says why: no friends yet, or friends with no games yet', async ({ page }) => {
   await fakeSync(page, { friends: [], incoming: [], events: [], online: [] });
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await expect(section(page).locator('.profile-friends-feed-empty')).toHaveText("When you have friends, you'll see their games here.");
 });
 
 test('friends with no games yet', async ({ page }) => {
   await fakeSync(page, { events: [], online: [] });
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await expect(section(page).locator('.profile-friends-feed-empty')).toHaveText("Your friends haven't played any ranked games yet.");
   await expect(section(page).locator('.profile-friends-feed-item')).toHaveCount(0);
 });
@@ -983,7 +983,7 @@ test('friends with no games yet', async ({ page }) => {
 test("offline: the feed stays as it was and the section says it couldn't load", async ({ page }) => {
   const { state } = await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await expect(feedText(page)).toHaveCount(3);
   state.down = true;
   await section(page).getByRole('button', { name: 'Refresh' }).click();
@@ -999,7 +999,7 @@ test("a friend's recent games open in the replay viewer", async ({ page }) => {
   await page.clock.setFixedTime(NOW);
   const { count } = await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await friend(page, FALCON).locator('.profile-friends-person').click();
   const card = friend(page, FALCON).locator('.profile-friends-card');
   await expect(card.locator('.profile-friends-game')).toHaveText([/^Beat the 12k bot on 9×9Today/, /^Lost to the 18k bot on 19×19Yesterday/]);
@@ -1027,7 +1027,7 @@ test("a friend's recent games open in the replay viewer", async ({ page }) => {
 test('a friend with no games yet, and games that will not load', async ({ page }) => {
   const { once } = await fakeSync(page, { replays: {} });
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await friend(page, OWL).locator('.profile-friends-person').click();
   await expect(friend(page, OWL).locator('.profile-friends-games-note')).toHaveText('No saved games yet.');
   once.set(`GET /sync/friends/${OTTER}/games`, 503);
@@ -1040,7 +1040,7 @@ test('a game that is gone says so; the list of games catches up', async ({ page 
   await page.clock.setFixedTime(NOW);
   const { state } = await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await friend(page, FALCON).locator('.profile-friends-person').click();
   const card = friend(page, FALCON).locator('.profile-friends-card');
   await expect(card.locator('.profile-friends-game')).toHaveCount(2);
@@ -1055,7 +1055,7 @@ test('a friend removed while their card is open: a game tapped says so, and the 
   await page.clock.setFixedTime(NOW);
   const { state } = await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await friend(page, FALCON).locator('.profile-friends-person').click();
   const card = friend(page, FALCON).locator('.profile-friends-card');
   await expect(card.locator('.profile-friends-game')).toHaveCount(2);
@@ -1073,7 +1073,7 @@ test('a friend removed while their card is open: the next 30-second refresh clos
   await page.clock.install({ time: NOW });
   const { state } = await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await friend(page, OWL).locator('.profile-friends-person').click();
   await expect(friend(page, OWL).locator('.profile-friends-card-name')).toHaveText('Lucky Owl');
   state.friends = state.friends.filter((f) => f.player_id !== OWL);

@@ -2,7 +2,7 @@ import { Avatar, BOT_AVATARS } from './Avatar';
 import { useAutoPlayStore } from '../store/autoPlayStore';
 import { useGlossaryStore } from '../store/glossaryStore';
 import { useProfileStore } from '../store/profileStore';
-import { useFriendsStore } from '../store/friendsStore';
+import { useFriendsStore, useFriendsWatch } from '../store/friendsStore';
 import { STARTING_RUNG, type BoardSize } from '../autoplay/matchmaker';
 import './HomePage.css';
 
@@ -20,7 +20,9 @@ const BOTS = Object.entries(BOT_AVATARS); // Show all bots
 
 export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onProfile, onFriends, onShowPrivacy }: HomePageProps) {
   const avatar = useProfileStore((s) => s.avatar);
-  // Requests waiting for this player (revision 7's badge).
+  // Requests waiting for this player (revision 7's badge), kept fresh while
+  // the home screen is up (revision 5's watch, the lists only).
+  useFriendsWatch(['list']);
   const requests = useFriendsStore((s) => s.incoming?.length ?? 0);
   // Each ladder's rank is read independently of which board is "active" — the
   // active board's rung lives on `rungState`, the other's on its `slots` entry.

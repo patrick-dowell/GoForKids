@@ -55,6 +55,8 @@ function actionError(e: unknown, expiry?: Date): string {
     return expiry && expiry.getTime() > Date.now() ? REFUSED_TIME : PASSED;
   }
   if (e instanceof ApiError && e.status === 409) return 'This device signs out with Log out, above.';
+  // New player drew eight taken names in a row (revision 6): not a connection problem.
+  if (e instanceof Error && e.message.includes('every name tried was taken')) return 'Every name it tried was taken. Try New player again.';
   return "Couldn't connect. Try again in a minute.";
 }
 
