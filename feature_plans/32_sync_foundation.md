@@ -296,6 +296,26 @@ choice, with one line explaining why.
   again.
 - The Play wiring is covered by a test.
 
+### Revision 2.1 — a create that can be repeated safely
+
+A create whose reply is lost must not leave a second profile behind.
+
+- `POST /players` accepts an optional `create_key`: a string of 16 to 64
+  characters from `A-Z a-z 0-9 - _`, made up by the device. Any other
+  shape answers **422**.
+- The first create with a key stores a SHA-256 of it with the new player
+  and answers **201** as before.
+- A later create with the same key makes no new player. It revokes every
+  device token that earlier creates with that key issued, issues a fresh
+  one for the same player, and answers **200** with
+  `{ "player_id", "device_token", "rev", "state" }`, where `rev` and
+  `state` are the player's current ones. The `state` in the repeated
+  request is ignored.
+- The device makes one key when it first decides to create a profile,
+  keeps it in its sync state until a create succeeds, and sends it with
+  every attempt. After a 200 it treats the returned `rev` as its base and
+  marks its state dirty, so the next pass pushes what the device holds.
+
 ### Privacy text
 
 The in-app privacy text says there are no accounts. Rewrite it to say
