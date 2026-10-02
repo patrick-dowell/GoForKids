@@ -201,23 +201,132 @@ async def test_an_admin_created_profile_is_deleted_after_30_unused_days(client, 
     assert not exists(sync_db, pid)
 
 
-async def test_a_login_racing_the_cleanup_never_leaves_a_device_without_a_profile(sync_db):
-    for _ in range(10):
-        pid = await sync_storage.admin_create_player("{}", 0)
-        code, _ = await sync_storage.mint_admin_pairing_code(pid, 0, 10**12)
-        linked, deleted = await asyncio.gather(
-            sync_storage.redeem_pairing_code(code, 31 * DAY),
-            sync_storage.delete_abandoned_players(31 * DAY),
-        )
-        # Whichever ran first, the other saw its result whole.
-        assert (linked is None) == (deleted == 1)
+# ── A login landing between the cleanup's choice and its delete ──────
+
+
+def orphan_devices(db_path) -> int:
+    with sqlite3.connect(db_path) as db:
+        return db.execute(
+            """SELECT COUNT(*) FROM sync_devices d WHERE NOT EXISTS
+               (SELECT 1 FROM sync_players p WHERE p.id = d.player_id)"""
+        ).fetchone()[0]
+
+
+async def abandoned_profile(client, clock):
+    """A profile whose only device logged out 30 days ago, holding one
+    replay and a live admin code; the clock is left at the 30 days."""
+    t0 = clock.t
+    created, auth = await new_player(client)
+    pid = created["player_id"]
+    await client.put("/api/sync/games/g1", json={"date": iso(1), "payload": replay()},
+                     headers=auth)
+    await log_out(client, auth)
+    clock.t = t0 + 30 * DAY
+    code, _ = await sync_storage.mint_admin_pairing_code(pid, clock.t, clock.t + 3600)
+    return pid, code
+
+
+async def cleanup_with_a_step_between(monkeypatch, now, step):
+    """Run the real cleanup, doing `step` after it has chosen its candidates
+    and before its deleting transaction begins."""
+    choose = sync_storage.abandoned_player_ids
+
+    async def choose_then_step(now):
+        chosen = await choose(now)
+        await step(chosen)
+        return chosen
+
+    monkeypatch.setattr(sync_storage, "abandoned_player_ids", choose_then_step)
+    return await retention.run_cleanup(now)
+
+
+async def redeem_for_auth(client, code):
+    r = await client.post("/api/sync/pairing-codes/redeem", json={"code": code})
+    assert r.status_code == 200, r.text
+    return bearer(r.json()["device_token"])
+
+
+async def test_a_redeem_after_the_cleanup_chose_the_profile_keeps_it(
+    client, clock, sync_db, monkeypatch
+):
+    pid, code = await abandoned_profile(client, clock)
+    linked = []
+
+    async def redeem(chosen):
+        assert chosen == [pid]
+        linked.append(await redeem_for_auth(client, code))
+
+    assert await cleanup_with_a_step_between(monkeypatch, clock.t, redeem) == 0
+    assert exists(sync_db, pid)
+    assert no_device_since(sync_db, pid) is None
+    assert count(sync_db, "sync_games", pid) == 1
+    assert (await client.get("/api/sync/state", headers=linked[0])).status_code == 200
+    assert orphan_devices(sync_db) == 0
+
+
+async def test_a_log_in_and_out_after_the_cleanup_chose_the_profile_restarts_its_clock(
+    client, clock, sync_db, monkeypatch
+):
+    # The profile again has no device, but its last one went just now: only
+    # the timestamp re-check keeps it.
+    pid, code = await abandoned_profile(client, clock)
+
+    async def in_and_out(chosen):
+        assert chosen == [pid]
+        await log_out(client, await redeem_for_auth(client, code))
+
+    assert await cleanup_with_a_step_between(monkeypatch, clock.t, in_and_out) == 0
+    assert exists(sync_db, pid)
+    assert no_device_since(sync_db, pid) == clock.t
+    assert count(sync_db, "sync_games", pid) == 1
+
+
+async def test_a_device_row_after_the_cleanup_chose_the_profile_keeps_it(
+    client, clock, sync_db, monkeypatch
+):
+    # A device row that arrives without clearing the timestamp (this build's
+    # logins always clear it in the same transaction; a row written another
+    # way, by an older build or a hand repair, may not): only the device-row
+    # re-check keeps the profile.
+    pid, _ = await abandoned_profile(client, clock)
+    token = "token-written-outside-the-routes"
+
+    async def add_device_row(chosen):
+        assert chosen == [pid]
         with sqlite3.connect(sync_db) as db:
-            orphans = db.execute(
-                """SELECT COUNT(*) FROM sync_devices d WHERE NOT EXISTS
-                   (SELECT 1 FROM sync_players p WHERE p.id = d.player_id)"""
-            ).fetchone()[0]
-        assert orphans == 0
-        assert exists(sync_db, pid) == (linked is not None)
+            db.execute(
+                """INSERT INTO sync_devices (token_hash, player_id, created_at, device_id)
+                   VALUES (?, ?, 't', 'device-written-outside-the-routes')""",
+                (hashlib.sha256(token.encode()).hexdigest(), pid),
+            )
+
+    assert await cleanup_with_a_step_between(monkeypatch, clock.t, add_device_row) == 0
+    assert exists(sync_db, pid)
+    assert count(sync_db, "sync_games", pid) == 1
+    assert (await client.get("/api/sync/state", headers=bearer(token))).status_code == 200
+    assert orphan_devices(sync_db) == 0
+
+
+async def test_candidates_are_profiles_past_the_cutoff_without_a_device(sync_db):
+    old = await sync_storage.admin_create_player("{}", 0)
+    await sync_storage.admin_create_player("{}", 3600)  # 29 days 23 hours at 30 days
+    reachable = (await sync_storage.create_player("{}", 0)).player_id
+    with sqlite3.connect(sync_db) as db:
+        db.execute("UPDATE sync_players SET no_device_since = 0 WHERE id = ?", (reachable,))
+    assert await sync_storage.abandoned_player_ids(30 * DAY) == [old]
+
+
+async def test_with_nothing_in_between_the_chosen_profile_is_deleted(
+    client, clock, sync_db, monkeypatch
+):
+    pid, _ = await abandoned_profile(client, clock)
+
+    async def nothing(chosen):
+        assert chosen == [pid]
+
+    assert await cleanup_with_a_step_between(monkeypatch, clock.t, nothing) == 1
+    assert not exists(sync_db, pid)
+    assert count(sync_db, "sync_games", pid) == 0
 
 
 # ── Start-up: the migration and the stamp ────────────────────────────
