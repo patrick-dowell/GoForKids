@@ -694,3 +694,76 @@ logged in:
   logged in, and friends data dropped on log out and on a 401.
 - Together: two browser origins against a local backend become friends
   by code and each reads the other's card; a third cannot.
+
+## Revision 7 — one profile, a Friends page
+
+The owner's layout sketch of 2026-10-02: the player's icon with the two
+rank buttons; the icon opens one profile for both boards; a Friends button
+where Profile was. (The alternative he floated, a Friends tab inside the
+profile, was not built.) Where this section and an earlier one disagree,
+this section wins; it moves Revision 4's Friends section off the Profile
+page.
+
+### What changed
+
+- **Home.** The player's avatar sits first in the row with the 9×9 and
+  19×19 rank chips, under the title. The avatar opens the profile on the
+  active board's tab; a chip opens it on that board's tab. The Profile
+  button is gone; in its place a **Friends** button, with a red badge
+  showing the number of incoming requests while there are any ("9+" above
+  nine; read as `incoming?.length ?? 0`, so it shows once the list has
+  loaded).
+- **Profile.** One page: the header (avatar, name, Shuffle), then a 9×9 and
+  a 19×19 tab, each holding that board's rank card (with derank), rank
+  graph and Advanced blocks (Glicko, matchmaker, recent games and
+  promotions, manual rank set, Reset to 30k). Below the tabs, once: avatar
+  picker, Devices, Admin (an admin device only), and, while Advanced is
+  open, "Advanced · all boards" with Export and Import JSON (they cover the
+  whole ladder). One open/closed setting for Advanced, as before. The tab
+  opens on the board asked for, else the active board, else 19×19.
+- **The active board.** Play (the match-picker and the game it starts)
+  plays and records on the auto-play store's active board, which the
+  match-picker's board pills choose; the app resets it to 19×19 at every
+  launch. The old profile read only the active board, so the home chips
+  switched it. The tabs now read each board from the store's per-board
+  slots and never switch it, and the chips no longer do either. Derank,
+  Set rung and Reset on the non-active tab switch to that board, act and
+  switch back (the store's actions act on the active board; a switch that
+  only snapshots is not pushed by sync).
+- **Friends page.** Its own page from the Friends button, with the app's
+  Home button, mounting the Friends section unchanged (its styles stay in
+  the Profile page's stylesheet, which the page imports). It refreshes when
+  the Friends page opens, where Revision 4 said the Profile page. A device
+  not logged in sees one line: "Friends need your player saved online
+  first. That will happen next time this device is connected." (the
+  Devices section's wording), and nothing else.
+- **Layout.** The Friends page is a third sanctioned scroll screen, built
+  like the Library list: the header stays, the content scrolls in its own
+  container, never the body. The layout suite sweeps it logged in (the
+  Revision 4 worst case: code, send answered, two requests, a card open,
+  Remove armed) and logged out; the home sweep includes the avatar, both
+  chips, Friends and the badge; the profile sweep covers both tabs, the
+  second with Advanced open.
+
+### Tests
+
+`profileBoards.test.ts` (tab choice, slot reads, actions on the other
+board, the active board handed back even on a throw); `homeProfile.spec.ts`
+(the row, which tab opens, tabs never switch Play's board, derank on the
+other tab, the Advanced split, the badge, the Friends page in and out, the
+deep links); `layout.spec.ts` as above. `friends.spec.ts` reaches the
+section through the Friends button; two of its checks changed because the
+section moved: the "after Devices, before Admin" test now checks the
+section is on the Friends page and the Profile page holds Devices then
+Admin, and the not-logged-in test checks for the page's note instead of
+Devices. `admin.spec.ts` is unchanged (the avatar's accessible name is
+"Profile").
+
+### Open (the owner's call)
+
+- Whether a home chip should also make its board the one Play plays next,
+  as it did before (built: it doesn't; the match-picker's pills do).
+- The design doc's layout policy still says "exactly two places" scroll;
+  the Friends page makes three (not edited here).
+- Whether the avatar should carry the player's name on the home screen
+  (built: the icon alone).
