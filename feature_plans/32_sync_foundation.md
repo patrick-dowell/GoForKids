@@ -694,3 +694,158 @@ logged in:
   logged in, and friends data dropped on log out and on a 401.
 - Together: two browser origins against a local backend become friends
   by code and each reads the other's card; a third cannot.
+
+## Revision 5 — friends: refresh, requests known from launch, a feed, a friend's games
+
+Asked for after Revision 4 was tested on two devices: nothing showed that a
+friend had accepted, nothing told the other side a request had come, the
+section read as formal, and a friend's games could not be watched. Where
+this section and an earlier one disagree, this section wins.
+
+### Refresh
+
+The Friends section loads the code, the lists and the feed when it opens,
+after each action, from a **Refresh** button in its header, **every 30
+seconds** while it is open, and when the app comes back to the screen
+(`visibilitychange`). The timer stops when the section closes. Nothing is
+asked while the device is logged out. Revision 4's "it does not poll" no
+longer holds.
+
+### Requests known from launch
+
+`friendsStore` loads the lists (only the lists) after **every sync pass
+that ends logged in**: the sync store's `syncing` going from true to false,
+subscribed to from `friendsStore`. That covers launch, a log in, a create,
+and every later pass (a result, a lesson, an avatar change). It also loads
+them when the app comes back to the screen. `incoming` stays the array it
+was, so a badge reads `useFriendsStore((s) => s.incoming?.length ?? 0)`.
+
+`useFriendsWatch(['list'])` refreshes the lists every 30 seconds while the
+calling component is mounted. This lane does not call it from the home
+screen (another lane owns that file). Without it, a home screen left idle
+shows a new request at the next sync pass or the next return to the app,
+not within 30 seconds. **Open:** whether the home screen watches.
+
+### `GET /api/sync/friends/feed`
+
+Same token and 401 as the list. **200**:
+
+```json
+{
+  "friends": [{ "player_id": "…", "handle": [4, 2], "avatar": "nova",
+                "active_recently": true, "boards": { "9x9": { "rung": "9k", "games": 30 } } }],
+  "events": [
+    { "kind": "promotion", "player_id": "…", "handle": [4, 2], "avatar": "nova",
+      "board": "9x9", "from": "10k", "to": "9k", "ts": 1759363200000 },
+    { "kind": "game", "player_id": "…", "handle": [4, 2], "avatar": "nova",
+      "board": "9x9", "result": "win", "rung": "10k", "bot": "12k", "ts": 1759363200000 }
+  ]
+}
+```
+
+- `friends`: every accepted friend, newest friendship first (as in
+  `GET /friends`), with the card's `boards`. `active_recently` is true when
+  one of the friend's devices has `last_seen_at` no more than 10 minutes
+  before the request; false with no device, or none seen.
+- `events`: ranked results from each board's ladder history and promotions
+  from each board's `promotionEvents`, across all accepted friends, newest
+  first by `ts`, a promotion before the game that earned it (same `ts`),
+  at most **50**. Checked as the card is; also `bot` a rung or null, and a
+  promotion needs a `to` rung and a valid `ts` (`from` a rung or null).
+  Nobody but an accepted friend contributes anything.
+
+### A friend's replays
+
+| Method and path | Success | Errors |
+|---|---|---|
+| `GET /friends/{player_id}/games` | **200** `{ "games": [{ "id", "date", "board", "outcome", "opponent" }] }`, newest 20 | 401, 404, 429 |
+| `GET /friends/{player_id}/games/{game_id}` | **200** `{ "id", "date", "payload" }` | 401, 404, 429 |
+
+- Both use the card's friends-only check, inside the same query, and the
+  card's 404 body for a stranger, a pending or declined request either
+  way, a removed friend, an unknown id, the requester's own id, an unknown
+  game, a game id outside `[A-Za-z0-9_-]{1,128}`, and a replay that fails
+  its check.
+- The list's `board`, `outcome` (`win`, `loss`, `watched` for a bot game
+  they watched, or null) and `opponent` (the bot's rung or null) go beyond
+  the asked-for id and date, so a child reads "Beat the 12k bot on 9×9"
+  rather than a column of dates. An entry whose date is not in
+  `toISOString()` form, or whose SGF fails the check, is left out.
+- **What a SavedGame holds, checked:** no field holds text a player typed.
+  The app's SGF (`Game.toSGF`) carries only GM, FF, CA, SZ, KM, RU, HA, AB,
+  RE and the moves (no names, no comments); `result`, `opponentRank`,
+  `blackRank` and `whiteRank` are built from fixed values; `selectorLog` is
+  never stored. A tampered client can still store anything, so the server
+  rebuilds the payload from checked values (`app/sync/friend_replays.py`):
+  the SGF from what the app's reader takes (size, komi, handicap stones,
+  moves) plus the result, and not served at all with a stone off the board
+  or more than 1000 moves; every other field only in its shape. Always
+  dropped: `selectorLog`, `sharedId` (the owner's share code), `gameId`,
+  the payload's own `id` and `date`, and any other key. The client checks
+  the rebuilt SGF's shape again before opening it.
+
+### Read limit
+
+The feed and both replay routes share a per-player limit of **600 an
+hour** (a new instance of the request limits' in-memory limiter), 429 with
+`Retry-After` over it. It is apart from the request limits: reading never
+uses up requests, and requests never use up reads. `GET /friends` and
+`GET /friends/code` stay uncounted. **Open:** the number.
+
+### The client's Friends section
+
+- **Header:** "Friends" and Refresh. Then the feed, then the code, Add a
+  friend, Requests and Friends as in Revision 4.
+- **Feed** ("What your friends are up to"): first a line for each friend
+  online now ("Swift Raven is online now", a green dot), then the events:
+  "Swift Raven beat the 12k bot on 9×9", "… lost to the 18k bot on 19×19",
+  "… won a game on 9×9" (no bot), "Quiet Volcano was promoted to 9k on
+  9×9". Each shows Today, Yesterday or the date, never a time (Revision 4's
+  rule for results, kept). A name that fails its check reads "A friend".
+  Eight lines, then Show more. Empty: "When you have friends, you'll see
+  their games here." or "Your friends haven't played any ranked games
+  yet." Offline: the last feed stays, with the section's couldn't-load
+  line.
+- **Friends list:** an online dot on the avatar, and under the name
+  "Online now · 9×9 15k · 19×19 20k".
+- **Card:** "Recent games" after the recent results, each a button ("Beat
+  the 12k bot on 9×9 · Today ▶"). Tapping one opens it in the Library's
+  replay viewer through the same `loadGame` (result, colour, opponent,
+  score history, dead stones), with no library id and no share code: no
+  Share button, and nothing lands in this device's Library. The Profile
+  page gives way to the viewer and Close goes home, as from the Library.
+- **A friend removed while their card is open:** the next refresh closes
+  the card; tapping one of their games answers 404, the section refreshes,
+  the card closes, and the line says "That player isn't your friend any
+  more." A game deleted meanwhile says "That game isn't there any more."
+  and the list of games reloads; a replay in another shape says "That game
+  can't be shown."
+- Friends data stays in memory only and is dropped on a log out and a 401.
+
+**Open, beyond the two above:** whether "Online now" is the right word for
+"a device seen in the last 10 minutes" (a device is seen only when it
+makes a request, so an idle app reads as offline after 10 minutes); whether
+Close on a friend's replay should return to Friends rather than home; and
+that the viewer's highlight lines say "you", which in a friend's game means
+the friend.
+
+### Verification for Revision 5
+
+- Backend (`tests/test_sync_friends_feed.py`): the feed's shape, order, cap
+  and tie order; only accepted friends; `active_recently` at 0, 9, 10 and
+  10 minutes 1 second, with no stamp, with no device, and across two
+  devices; injected text in every field the feed reads; malformed ladders;
+  the replay list's order, cap and summaries; a replay as the app writes
+  it served whole but for the dropped keys; injected text in every
+  SavedGame field and in the SGF; SGFs the app could not have written; ids
+  and dates out of shape; the card's 404 across all non-friend cases (27
+  replies, one body); removal from the other side; the read limit shared
+  by the three routes, apart from the request limits both ways.
+- Frontend: `npm run build`, `npm test` (the feed's sentences, days and
+  checks; loads after a sync pass, logged in and not; the 30-second watch
+  starting and stopping; a friend's replays and opening one, a game gone, a
+  friend gone, a replay that can't be shown, a log out mid-open),
+  `npm run test:layout` (the feed first, online dots and ranks, Show more,
+  both empty feeds, offline, opening a game in the viewer, the error
+  cases, the launch load, every refresh path and the timer stopping, and
+  the layout sweep with the feed and twenty games on an open card).
