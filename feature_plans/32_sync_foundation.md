@@ -355,15 +355,20 @@ earlier one disagree, this section wins.
   devices) gets a timestamp, `no_device_since`. A login to it (a redeemed
   code, a repeated create under Revision 2.1) clears the timestamp.
 - **A cleanup deletes a profile 30 days after its last device went**, when
-  no device has logged in since: the player row with its replays, its
-  codes and any device rows, in one transaction that re-checks the
-  timestamp so a login racing the cleanup wins. The cleanup runs once at
-  start-up and then every 24 hours while the server runs. The clock is
-  injectable so tests do not wait; a profile at 29 days 23 hours is kept,
-  one at 30 days is deleted.
+  no device has logged in since: the player row with its replays and its
+  codes. It deletes only a profile whose `no_device_since` is at least 30
+  days old **and** that has no device row, and it re-checks both inside
+  the one transaction that deletes, so a login racing the cleanup wins.
+  The cleanup runs once at start-up and then every 24 hours while the
+  server runs. The clock is injectable so tests do not wait; a profile at
+  29 days 23 hours is kept, one at 30 days is deleted.
 - A device whose app was deleted without logging out keeps its device row,
   so its profile is kept indefinitely. This is accepted: the rule deletes
   only a profile nobody can reach.
+- A profile used only on shared devices that log out after each use has
+  no device between uses, so a gap of more than 30 days between uses (a
+  long school break) deletes it. That follows the rule as set; whether
+  such profiles need a longer clock is left open.
 - At start-up, a profile that already has no device row and no timestamp
   gets the start-up time as its timestamp, so existing profiles get the
   full 30 days.
@@ -375,9 +380,14 @@ earlier one disagree, this section wins.
   `SYNC_ADMIN_PLAYER_IDS` (comma-separated, spaces ignored). Every device
   logged into such a profile may call the admin routes. Unset or empty
   means there are no admins.
-- `GET /state` answers `{ "rev", "state", "admin" }`; `admin` is `true`
-  only for a device of an admin profile. The client shows the Admin
-  section only when its latest pass said `true`.
+- `GET /state` answers `{ "rev", "state", "admin", "device_id" }`;
+  `admin` is `true` only for a device of an admin profile, and
+  `device_id` is the requesting device's own id (below). The client shows
+  the Admin section only when its latest pass said `true`. A 403 from an
+  admin route hides the section and never signs the device out (only a
+  401 does that).
+- The rule that one player's token never reads or writes another player's
+  rows holds everywhere except the admin routes below, for an admin.
 
 ### Devices gain an id and a last-seen time
 
@@ -387,6 +397,19 @@ earlier one disagree, this section wins.
   written at most once a minute per device. Rows from before this
   revision show `last_seen_at` as `null` until the device is next seen.
 - A token hash is never sent in any response.
+- Times in admin replies use the format the server already writes,
+  `YYYY-MM-DDTHH:MM:SSZ`. A time the server accepts is ISO 8601 with an
+  offset; `Z` counts as one, with or without milliseconds (what
+  `Date.prototype.toISOString()` sends). A time with no offset is refused.
+
+### The redeem limit
+
+`POST /pairing-codes/redeem` is limited to **60 an hour** per client
+address (was 20), because a class logs in with codes at the start of a
+lesson behind one school address. A code is 8 characters of a
+27-character alphabet (about 2.8 × 10^11 values) and only a profile's
+newest unused code is live, so 60 guesses an hour from one address
+leaves guessing a live code out of reach.
 
 ### Admin routes
 
@@ -399,8 +422,8 @@ limited.
 | Method and path | Request | Success | Errors |
 |---|---|---|---|
 | `GET /admin/players` | — | **200** `{ "players": [...] }`, most recently updated first | 401, 403 |
-| `POST /admin/players` | `{ "state": State }` with a `handle` | **201** `{ "player_id", "rev": 1 }` | 401, 403, 413, **422** for a bad state or no `handle` |
-| `POST /admin/players/{player_id}/pairing-codes` | `{ "expires_at" }` | **201** `{ "code", "expires_at" }` | 401, 403, 404 unknown player, **422** for an expiry that is not after now, more than 24 hours after now, or not an ISO 8601 time with an offset |
+| `POST /admin/players` | `{ "state": State }` | **201** `{ "player_id", "rev": 1 }` | 401, 403, 413, **422** for a state the allowlist refuses, or one without a `handle`, a `ladder` object or a `lessons` array |
+| `POST /admin/players/{player_id}/pairing-codes` | `{ "expires_at" }` | **201** `{ "code", "expires_at" }` | 401, 403, 404 unknown player, **422** for an expiry that is not after now, more than 24 hours and one minute after now (the minute is slack for clock skew), or not an ISO 8601 time with an offset |
 | `DELETE /admin/devices/{device_id}` | — | **204** | 401, 403, 404 unknown device, **409** when it is the device making the request |
 | `DELETE /admin/players/{player_id}/devices` | — | **204**, also when the profile has no device | 401, 403, 404 unknown player, **409** when the profile is the requester's own |
 
@@ -409,7 +432,7 @@ Each entry of `players`:
 ```json
 {
   "player_id": "…",
-  "handle": [1, 48],
+  "handle": [4, 2],
   "boards": { "9x9": { "rung": "…", "games": 12 } },
   "devices": [{ "device_id": "…", "created_at": "…", "last_seen_at": "…" }],
   "replays": 7,
@@ -421,9 +444,11 @@ Each entry of `players`:
 ```
 
 - `handle` is the state's `handle`, or `null` when absent.
-- `boards` holds, for each board in the state's ladder, the slot's
-  `rungState.currentRung` as stored and the length of its `history`. The
-  client renders the rank the way the Profile page does.
+- `boards` holds, for each key of the state's `ladder.byBoardSize`, the
+  slot's `rungState.currentRung` as stored and the length of its
+  `history`; a missing or malformed field gives `"rung": null` or
+  `"games": 0`, so one odd state never makes the list fail. The client
+  renders the rank the way the Profile page does.
 - `days_left` is `null` while the profile has a device; otherwise the whole
   days left before the cleanup deletes it, rounded up, never below 0.
 - An admin-created profile has no device, so it gets `no_device_since` at
@@ -437,7 +462,9 @@ Each entry of `players`:
 - Removing devices revokes their tokens exactly as a log out does; a
   removal that leaves the profile with no device sets `no_device_since`.
   A device cannot be signed out through the admin routes by itself; that
-  is what Log out is for.
+  is what Log out is for. A removed device learns of it by a 401 and
+  takes the 401 path (Revision 2), so results it had not pushed are lost,
+  where a log out pushes first.
 
 ### The client's Admin section
 
@@ -451,16 +478,22 @@ On the Profile page, below Devices, shown only to an admin:
   belongs to. It is stored on this device only, under
   `goforkids.admin.labels.v1`, and is never sent anywhere: no request
   body, URL or header carries it, and a test proves this across every
-  admin action and a sync pass. It survives a log out, like the device's
-  settings.
+  admin action and a sync pass. The labels are cleared with the rest of
+  the player data on a log out and on a 401, so they never stay on a
+  device that leaves the admin profile.
 - **"Code for this player"**: the admin picks an expiry time (the default
-  is 4:30 pm today on this device's clock when that is still ahead,
+  is 4:30 pm today in this device's time zone when that is still ahead,
   otherwise one hour from now; nothing past 24 hours is offered), and the
   code is shown in two groups of four with its expiry.
 - **"Sign out this player's devices"**, after one confirm, and **"Remove"**
-  beside each device. Neither is offered for this device itself.
+  beside each device. Neither is offered for this device itself (the
+  device knows its own `device_id` from `GET /state`), nor is the first
+  offered for this device's own profile.
 - **"New player"**: a generated name with Shuffle, then the profile is
-  created with a fresh state and appears in the list, ready for a code.
+  created and appears in the list, ready for a code. Its state is the
+  fresh document `{ "schema": 1, "ladder": { "byBoardSize": {} },
+  "lessons": [], "avatar": "blackhole", "avatarPicked": false,
+  "handle": [a, n] }`.
 - Getting a device onto a profile uses the existing **"I already play on
   another device"** screen with the code. A device that logs into a
   profile created by an admin starts with a fresh ladder, no lessons and
@@ -476,11 +509,13 @@ On the Profile page, below Devices, shown only to an admin:
   unset; each admin route's success and errors; an expiry past 24 hours,
   in the past and without an offset refused; an admin code redeemed by a
   new device; minting cancelling earlier codes both ways; the 409s; no
-  token hash in any response; `admin` in `GET /state`.
+  token hash in any response; `admin` and `device_id` in `GET /state`;
+  a malformed ladder in the list; the redeem limit at 60.
 - Frontend: `npm run build`, `npm test`, `npm run test:layout`. Tests for
-  the section hidden from a non-admin, the list rendering, the label
-  never leaving the device, the expiry default and the 24-hour bound, the
-  confirm before signing out, New player, and logging into an
-  admin-created profile.
+  the section hidden from a non-admin and on a 403, the list rendering,
+  the label never leaving the device and cleared on log out and on a
+  401, the expiry default and the 24-hour bound, the confirm before
+  signing out, no sign-out offered for this device, New player, and
+  logging into an admin-created profile.
 - Together: two browser origins against a local backend with one of them
   made an admin.
