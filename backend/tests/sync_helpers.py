@@ -39,3 +39,10 @@ def iso(n: int) -> str:
     day, minute = divmod(n, 24 * 60)
     hour, minute = divmod(minute, 60)
     return f"2026-{1 + day // 28:02d}-{1 + day % 28:02d}T{hour:02d}:{minute:02d}:00.000Z"
+
+
+def rev_and_state(response) -> dict:
+    """The revision and state of a GET /state reply, without the per-device
+    fields (`admin`, `device_id`) that Revision 3 added."""
+    body = response.json()
+    return {"rev": body["rev"], "state": body["state"]}

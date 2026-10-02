@@ -7,7 +7,7 @@ raw bytes, since a well-behaved JSON encoder would refuse to write them.
 
 import pytest
 
-from tests.sync_helpers import DEFAULT_STATE, iso, new_player
+from tests.sync_helpers import DEFAULT_STATE, iso, new_player, rev_and_state
 
 JSON = {"Content-Type": "application/json"}
 
@@ -39,7 +39,7 @@ async def test_put_state_refuses_non_finite_number(client, bad):
 
     r = await client.get("/api/sync/state", headers=auth)
     assert r.status_code == 200
-    assert r.json() == {"rev": 1, "state": DEFAULT_STATE}
+    assert rev_and_state(r) == {"rev": 1, "state": DEFAULT_STATE}
 
 
 @pytest.mark.parametrize("bad", NON_FINITE)
@@ -108,7 +108,7 @@ async def test_base_rev_must_be_a_json_integer_in_range(client, raw_rev):
     assert r.status_code == 422
 
     r = await client.get("/api/sync/state", headers=auth)
-    assert r.json() == {"rev": 1, "state": DEFAULT_STATE}
+    assert rev_and_state(r) == {"rev": 1, "state": DEFAULT_STATE}
 
 
 @pytest.mark.parametrize("raw_rev,status", [("0", 409), ("1", 200), (str(2**53), 409)])

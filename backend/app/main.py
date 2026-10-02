@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -5,8 +7,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import games, sync, uploads
+from app.routers import games, sync, sync_admin, uploads
 from app.game.storage import init_db
+from app.sync import retention
 from app.sync.storage import init_sync_db
 from app.uploads.storage import init_uploads_db
 
@@ -18,12 +21,25 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # The sync routes' clock, so a test that fakes it moves the start-up
+    # stamp and the retention cleanup too.
+    def sync_now() -> float:
+        return app.dependency_overrides.get(sync.current_time, sync.current_time)()
+
     # Startup: initialize SQLite database
     await init_db()
     await init_uploads_db()
-    await init_sync_db()
-    yield
-    # Shutdown: nothing to clean up for now
+    started = sync_now()
+    await init_sync_db(started)
+    # The retention cleanup: once now, then every 24 hours while serving.
+    await retention.run_cleanup(started)
+    cleanup = asyncio.create_task(retention.cleanup_daily(sync_now))
+    try:
+        yield
+    finally:
+        cleanup.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await cleanup
 
 
 app = FastAPI(
@@ -106,3 +122,4 @@ async def health():
 app.include_router(games.router, prefix="/api/games", tags=["games"])
 app.include_router(uploads.router, prefix="/api/uploads", tags=["uploads"])
 app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
+app.include_router(sync_admin.router, prefix="/api/sync/admin", tags=["sync-admin"])
