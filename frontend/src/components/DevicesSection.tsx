@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
 import { formatPairingCode, type PairingCode } from '../api/sync';
+import { useLibraryStore } from '../store/libraryStore';
 import { useSyncStore } from '../store/syncStore';
+import { logOutConfirmText, unsavedGameCount } from './logOutCopy';
 
 /**
  * Profile → Devices (feature 32, revision 2). Every player has a profile;
@@ -45,6 +47,12 @@ export function DevicesSection() {
   const syncing = useSyncStore((s) => s.syncing);
   const addDevice = useSyncStore((s) => s.addDevice);
   const logOut = useSyncStore((s) => s.logOut);
+  const refusedGameIds = useSyncStore((s) => s.refusedGameIds);
+  const games = useLibraryStore((s) => s.games);
+  const unsavedGames = unsavedGameCount(
+    refusedGameIds,
+    games.map((g) => g.id),
+  );
 
   const [panel, setPanel] = useState<Panel>('none');
   const [code, setCode] = useState<PairingCode | null>(null);
@@ -145,11 +153,7 @@ export function DevicesSection() {
 
       {panel === 'logout' && loggedIn && (
         <div className="profile-devices-panel">
-          <p className="profile-devices-warning">
-            Log out of this device? Your rank, lessons, games, avatar and name will be saved online, then
-            removed from this device. To get them back here you'll need a code from another device where
-            you're logged in. If this is your only device, you won't be able to get them back.
-          </p>
+          <p className="profile-devices-warning">{logOutConfirmText(unsavedGames)}</p>
           <div className="profile-devices-row">
             <button
               className="profile-devices-btn profile-devices-btn-armed"

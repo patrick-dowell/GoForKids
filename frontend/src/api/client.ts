@@ -88,6 +88,16 @@ export function abortPendingRequests(): void {
 }
 
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  return (await requestWithStatus<T>(path, options)).body;
+}
+
+/** `request`, keeping the success status too (sync's create tells a new
+ *  profile, 201, from one the server already had, 200). Same retries: a
+ *  retried attempt sends the identical body. */
+export async function requestWithStatus<T>(
+  path: string,
+  options?: RequestInit,
+): Promise<{ status: number; body: T }> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
@@ -104,8 +114,8 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
         throw new ApiError(res.status, error, error?.detail || `API error: ${res.status}`);
       }
       // 204 No Content (sync's DELETE routes) has no body to parse.
-      if (res.status === 204) return undefined as T;
-      return res.json();
+      if (res.status === 204) return { status: 204, body: undefined as T };
+      return { status: res.status, body: (await res.json()) as T };
     } catch (e) {
       lastError = e;
       // Only TypeErrors retry (network leg failed, request didn't land).
