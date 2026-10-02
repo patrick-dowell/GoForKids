@@ -1033,3 +1033,55 @@
 .profile-friends-result-date {
   color: #8b949e;
 }
+
+/* Feature 32, revision 7 — one profile, a tab per board. The tabs look like
+   the match-picker's board pills; the panel stacks its sections like main. */
+.profile-board-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: -6px;
+}
+.profile-board-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 12px;
+  font-weight: 600;
+  color: #c0c8d4;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+@media (hover: hover) {
+  .profile-board-tab:hover:not(.profile-board-tab-active) {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e6edf3;
+  }
+}
+.profile-board-tab-label {
+  font-size: 15px;
+}
+.profile-board-tab-rank {
+  font-size: 13px;
+  opacity: 0.8;
+}
+.profile-board-tab-active {
+  color: #0d1117;
+  background: linear-gradient(135deg, #ffd166, #d4a045);
+  border-color: rgba(255, 209, 102, 0.6);
+}
+.profile-board-tab-active .profile-board-tab-rank {
+  opacity: 1;
+}
+.profile-board-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 209, 102, 0.18);
+}

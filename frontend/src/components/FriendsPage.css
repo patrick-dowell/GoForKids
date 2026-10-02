@@ -1,0 +1,65 @@
+/* Friends page — feature 32, revision 7. The section inside keeps the
+   Profile page's styles (ProfileView.css); this file is the page frame. */
+
+.friends-page {
+  position: relative;
+  /* A fixed frame: the header stays, the content scrolls in its own
+     container (body scroll is unreliable in WKWebView — S17). */
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+.friends-page-header {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 18px 28px;
+  padding-top: calc(18px + var(--safe-top));
+}
+
+.friends-page-home {
+  justify-self: start;
+}
+
+.friends-page-title {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #8b949e;
+  font-weight: 600;
+}
+
+.friends-page-scroll {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.friends-page-main {
+  /* Clear the floating settings gear and the home indicator. */
+  padding-bottom: calc(60px + var(--safe-bottom));
+}
+
+.friends-page-offline .profile-devices-text {
+  margin: 0;
+}
+
+@media (max-width: 699px) {
+  .friends-page-header {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}

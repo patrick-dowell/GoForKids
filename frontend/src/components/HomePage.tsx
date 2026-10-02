@@ -1,6 +1,8 @@
 import { Avatar, BOT_AVATARS } from './Avatar';
 import { useAutoPlayStore } from '../store/autoPlayStore';
 import { useGlossaryStore } from '../store/glossaryStore';
+import { useProfileStore } from '../store/profileStore';
+import { useFriendsStore } from '../store/friendsStore';
 import { STARTING_RUNG, type BoardSize } from '../autoplay/matchmaker';
 import './HomePage.css';
 
@@ -10,12 +12,16 @@ interface HomePageProps {
   onLibrary: () => void;
   onLearn: () => void;
   onProfile: (boardSize?: BoardSize) => void;
+  onFriends: () => void;
   onShowPrivacy?: () => void;
 }
 
 const BOTS = Object.entries(BOT_AVATARS); // Show all bots
 
-export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onProfile, onShowPrivacy }: HomePageProps) {
+export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onProfile, onFriends, onShowPrivacy }: HomePageProps) {
+  const avatar = useProfileStore((s) => s.avatar);
+  // Requests waiting for this player (revision 7's badge).
+  const requests = useFriendsStore((s) => s.incoming?.length ?? 0);
   // Each ladder's rank is read independently of which board is "active" — the
   // active board's rung lives on `rungState`, the other's on its `slots` entry.
   const rank9 = useAutoPlayStore((s) =>
@@ -43,8 +49,17 @@ export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onProf
           <p className="home-tagline">Learn Go. Play the universe.</p>
         </div>
 
-        {/* Per-ladder rank chips — each opens that ladder's Profile (feature 23/24). */}
+        {/* The player, then a chip per ladder (revision 7): the avatar opens the
+            profile; a chip opens it on that board's tab. */}
         <div className="home-rank-chips">
+          <button
+            type="button"
+            className="home-player-btn"
+            onClick={() => onProfile()}
+            aria-label="Profile"
+          >
+            <Avatar type={avatar} size={44} />
+          </button>
           <button
             type="button"
             className="home-rank-chip"
@@ -87,9 +102,18 @@ export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onProf
             <span className="home-btn-icon">📖</span>
             Glossary
           </button>
-          <button onClick={() => onProfile()} className="home-btn home-btn-secondary">
-            <span className="home-btn-icon">👤</span>
-            Profile
+          <button
+            onClick={onFriends}
+            className="home-btn home-btn-secondary home-btn-friends"
+            aria-label={requests > 0 ? `Friends, ${requests} ${requests === 1 ? 'request' : 'requests'}` : undefined}
+          >
+            <span className="home-btn-icon">👥</span>
+            Friends
+            {requests > 0 && (
+              <span className="home-btn-badge" aria-hidden="true">
+                {requests > 9 ? '9+' : requests}
+              </span>
+            )}
           </button>
         </div>
 

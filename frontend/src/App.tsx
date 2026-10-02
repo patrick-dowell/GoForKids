@@ -37,6 +37,7 @@ import { AutoPlayView } from './components/AutoPlayView';
 import { AutoPlayGameEndModal } from './components/AutoPlayGameEndModal';
 import { RankUpOverlay } from './components/RankUpOverlay';
 import { ProfileView } from './components/ProfileView';
+import { FriendsPage } from './components/FriendsPage';
 import { GlossaryView } from './components/GlossaryView';
 import { GameReview } from './components/GameReview';
 import { useGlossaryStore } from './store/glossaryStore';
@@ -60,6 +61,10 @@ function App() {
   const [showNewGame, setShowNewGame] = useState(false);
   const [showAutoPlay, setShowAutoPlay] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  /** The board tab the profile opens on (a home rank chip); null = the
+   *  active board's. */
+  const [profileBoard, setProfileBoard] = useState<BoardSize | null>(null);
+  const [showFriends, setShowFriends] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   /** Tracks which lesson kicked off the currently-active game (for the
@@ -230,6 +235,7 @@ function App() {
     setShowNewGame(false);
     setShowAutoPlay(false);
     setShowProfile(false);
+    setShowFriends(false);
     setShowLibrary(false);
     setShowPrivacy(false);
     setShowHome(true);
@@ -339,12 +345,12 @@ function App() {
   };
 
   const handleStartProfile = (boardSize?: BoardSize) => {
-    // A board chip on the home screen opens THAT ladder's profile — switch the
-    // active board so ProfileView (which reads the active board) shows it. The
-    // typeof guard ignores a leaked click-event from the generic Profile button.
-    if (typeof boardSize === 'number') {
-      useAutoPlayStore.getState().setBoardSize(boardSize);
-    }
+    // A rank chip on the home screen opens the profile on THAT board's tab;
+    // the avatar (or any other caller) opens it on the active board's. The
+    // tab only shows a board: the active board — the one Play plays next,
+    // chosen on the match-picker — is left alone (revision 7). The typeof
+    // guard ignores a leaked click event.
+    setProfileBoard(typeof boardSize === 'number' ? boardSize : null);
     setShowHome(false);
     setShowAutoPlay(false);
     setShowNewGame(false);
@@ -352,6 +358,13 @@ function App() {
   };
 
   const handleExitProfile = () => goHome();
+
+  const handleStartFriends = () => {
+    setShowHome(false);
+    setShowAutoPlay(false);
+    setShowNewGame(false);
+    setShowFriends(true);
+  };
 
   const handleStartAutoPlay = () => {
     setShowHome(false);
@@ -454,6 +467,7 @@ function App() {
           onLibrary={() => setShowLibrary(true)}
           onLearn={handleStartLearn}
           onProfile={handleStartProfile}
+          onFriends={handleStartFriends}
           onShowPrivacy={() => setShowPrivacy(true)}
         />
         {showNewGame && (
@@ -491,7 +505,21 @@ function App() {
     return (
       <div className="app">
         <SettingsButton />
-        <ProfileView onExit={handleExitProfile} />
+        <ProfileView onExit={handleExitProfile} initialBoard={profileBoard} />
+        <FeedbackButton />
+        <GlossaryView />
+        <GameReview />
+        {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
+      </div>
+    );
+  }
+
+  // Friends page — revision 7: the home screen's Friends button.
+  if (showFriends && !replayActive) {
+    return (
+      <div className="app">
+        <SettingsButton />
+        <FriendsPage onExit={goHome} />
         <FeedbackButton />
         <GlossaryView />
         <GameReview />

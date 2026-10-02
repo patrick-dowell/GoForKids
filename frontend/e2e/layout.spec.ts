@@ -9,8 +9,9 @@ import { test, expect, type Page } from '@playwright/test';
  * places — the Profile page and the Library's replay list. Every other
  * screen must fit the viewport entirely, at every supported viewport.
  * So STRICT is the default probe; REACHABLE (scrollable-ancestor allowed;
- * body scroll never counts — WKWebView, S17 lesson) exists only for the two
- * sanctioned screens.
+ * body scroll never counts — WKWebView, S17 lesson) exists only for the
+ * sanctioned screens. Feature 32 revision 7 adds a third: the Friends page,
+ * which scrolls like the Library list (fixed header, scrolling content).
  *
  * Viewports resize WITHOUT reloading, so each test navigates once and then
  * sweeps the whole matrix — fast, and exactly how the manual sweep worked.
@@ -324,8 +325,25 @@ test('home: primary navigation reachable at every viewport', async ({ page }) =>
   await seedPickedProfile(page);
   await page.goto('/');
   await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+  // Revision 7: the avatar and the two rank chips on one row; Friends where
+  // Profile was. The badge is the worst case (requests waiting).
+  await page.evaluate(() => {
+    const req = (n: number) => ({ player_id: `0a0a0a0a-0000-4000-8000-00000000000${n}`, handle: [n, n], avatar: 'nova', sent_at: '2026-10-02T15:00:00Z' });
+    (window as unknown as { __friendsStore: { setState: (s: object) => void } }).__friendsStore.setState({
+      incoming: [req(1), req(2), req(3)],
+    });
+  });
+  await page.locator('.home-btn-badge').waitFor();
   await sweep(page, 'home', {
-    strict: ['btn:✨Learn to Play', 'btn:▶Play', 'btn:👤Profile'],
+    strict: [
+      '.home-player-btn',
+      'button[aria-label^="Open 9×9"]',
+      'button[aria-label^="Open 19×19"]',
+      'btn:✨Learn to Play',
+      'btn:▶Play',
+      '.home-btn-friends',
+      '.home-btn-badge',
+    ],
   });
 });
 
@@ -338,14 +356,47 @@ test('advanced-lessons menu: cards and title fit at every viewport', async ({ pa
   });
 });
 
-test('profile: sanctioned scroll screen — everything reachable', async ({ page }) => {
+test('profile: sanctioned scroll screen — everything reachable, both tabs', async ({ page }) => {
   await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    // Both ladders with games, so each tab draws its graph and results.
+    const hist = (rung: string) =>
+      Array.from({ length: 30 }, (_, i) => ({ rung, bot: rung, handicap: 0, result: i % 3 ? 'win' : 'loss', ts: 1_759_000_000_000 + i * 60_000 }));
+    localStorage.setItem(
+      'goforkids.autoplay.v1',
+      JSON.stringify({
+        byBoardSize: {
+          '9x9': { rungState: { currentRung: '15k', winsAtCurrentRung: 1, lossStreak: 0 }, history: hist('15k'), promotionEvents: [] },
+          '19x19': { rungState: { currentRung: '20k', winsAtCurrentRung: 2, lossStreak: 0 }, history: hist('20k'), promotionEvents: [] },
+        },
+        undoBank: 3,
+      }),
+    );
+  });
   await page.goto('/');
-  await page.getByRole('button', { name: /Profile/ }).click();
+  await page.getByRole('button', { name: 'Profile', exact: true }).click();
   await page.locator('.profile-avatar-grid').waitFor();
   await sweep(page, 'profile', {
-    reachable: ['.profile-avatar-grid', '.profile-devices'],
+    reachable: ['.profile-board-tabs', '.profile-rank-card', '.profile-graph', '.profile-avatar-grid', '.profile-devices'],
     noBodyScroll: true, // WKWebView: must be an explicit container (S17 fix)
+  });
+  // The other tab, with Advanced open: the per-board blocks in the tab and
+  // the all-boards tools below.
+  await page.getByRole('tab', { name: /9×9/ }).click();
+  await page.locator('.profile-advanced-toggle').click();
+  await page.locator('.profile-advanced-all').waitFor();
+  await sweep(page, 'profile-9x9-advanced', {
+    reachable: [
+      '.profile-board-tabs',
+      '.profile-derank-btn',
+      '.profile-graph',
+      '.profile-results-list',
+      'btn:Set rung',
+      'btn:Reset to 30k…',
+      '.profile-devices',
+      'btn:Import JSON',
+    ],
+    noBodyScroll: true,
   });
 });
 
@@ -418,10 +469,12 @@ test('profile with the Admin section (an admin device): everything reachable, no
   });
 });
 
-test('profile with the Friends section (a logged-in device): everything reachable, nothing wider than the screen', async ({ page }) => {
+test('friends page (a logged-in device): sanctioned scroll screen — everything reachable, nothing wider than the screen', async ({ page }) => {
   // Feature 32, revision 4: a code, two requests and four friends with the
   // longest generated names, a send answered and a card open. Answered
-  // here; nothing leaves the browser.
+  // here; nothing leaves the browser. Revision 7 moved the section from the
+  // Profile page to its own page, which scrolls like the Library list: the
+  // home button stays on screen, the content scrolls in its container.
   const person = (n: number, handle: [number, number], avatar: string) => ({
     player_id: `0a0a0a0a-0000-4000-8000-00000000000${n}`,
     handle,
@@ -476,7 +529,7 @@ test('profile with the Friends section (a logged-in device): everything reachabl
     localStorage.setItem('goforkids.sync.v1', JSON.stringify({ playerId: 'p-own', deviceToken: 'layout-probe', baseRev: 1 }));
   });
   await page.goto('/');
-  await page.getByRole('button', { name: /Profile/ }).click();
+  await page.getByRole('button', { name: /Friends/ }).click();
   await page.locator('.profile-friends-friend').nth(3).waitFor();
   await page.locator('.profile-friends-input').fill('ra3v-8ygf');
   await page.locator('.profile-friends').getByRole('button', { name: 'Send' }).click();
@@ -484,9 +537,9 @@ test('profile with the Friends section (a logged-in device): everything reachabl
   await page.locator('.profile-friends-person').first().click();
   await page.locator('.profile-friends-result').nth(9).waitFor();
   await page.locator('.profile-friends-card').getByRole('button', { name: 'Remove friend' }).click();
-  await sweep(page, 'profile-friends', {
+  await sweep(page, 'friends-page', {
+    strict: ['.friends-page-home .home-button', '.friends-page-title'],
     reachable: [
-      '.profile-devices',
       '.profile-friends-code',
       'btn:New code',
       '.profile-friends-input',
@@ -498,6 +551,18 @@ test('profile with the Friends section (a logged-in device): everything reachabl
       'btn:Yes, remove',
       '.profile-friends-friend:last-child',
     ],
+    noBodyScroll: true,
+  });
+});
+
+test('friends page, not logged in: the note and the home button fit at every viewport', async ({ page }) => {
+  // A player whose profile isn't saved online yet (sync aborted above).
+  await seedPickedProfile(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: /Friends/ }).click();
+  await page.locator('.friends-page-offline').waitFor();
+  await sweep(page, 'friends-offline', {
+    strict: ['.friends-page-home .home-button', '.friends-page-title', '.friends-page-offline'],
     noBodyScroll: true,
   });
 });

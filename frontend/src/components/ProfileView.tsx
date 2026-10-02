@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Avatar, PLAYER_AVATARS, type PlayerAvatarType } from './Avatar';
 import { useProfileStore } from '../store/profileStore';
 import { useAutoPlayStore, type HistoryEntry } from '../store/autoPlayStore';
@@ -18,34 +19,43 @@ import {
 import { confidenceInterval, displayRating, toGoRank } from '../autoplay/glicko';
 import { DevicesSection } from './DevicesSection';
 import { AdminSection } from './AdminSection';
-import { FriendsSection } from './FriendsSection';
 import { useSyncStore } from '../store/syncStore';
 import { renderName, type Handle } from '../profile/names';
+import { boardSlot, initialProfileTab, onBoard, PROFILE_BOARDS, type ProfileBoard } from './profileBoards';
 import './ProfileView.css';
 
 interface ProfileViewProps {
   onExit: () => void;
+  /** The board tab to open on (a home rank chip); else the active board. */
+  initialBoard?: BoardSize | null;
 }
 
-export function ProfileView({ onExit }: ProfileViewProps) {
+/**
+ * One profile for every board (feature 32, revision 7). The header, then a
+ * tab per ladder (9×9, 19×19) holding that board's rank card, graph, derank
+ * and Advanced blocks; below the tabs, once, what belongs to the player
+ * rather than a board: avatar, Devices, Admin (an admin device only) and
+ * the all-boards Advanced tools. Friends has its own page.
+ *
+ * A tab only shows its board: it never changes which board Play plays next
+ * (the auto-play store's active board, set on the match-picker).
+ */
+export function ProfileView({ onExit, initialBoard }: ProfileViewProps) {
   const avatar = useProfileStore((s) => s.avatar);
   const handle = useProfileStore((s) => s.handle);
   const setAvatar = useProfileStore((s) => s.setAvatar);
   const shuffleHandle = useProfileStore((s) => s.shuffleHandle);
   // Revision 3: only when the latest sync pass said this profile is an admin.
   const isAdmin = useSyncStore((s) => s.admin);
-  // Revision 4: friends need a profile this device is logged into.
-  const loggedIn = useSyncStore((s) => s.deviceToken !== null);
 
-  // The active board's slot — set by the home-screen chip that opened this view.
-  const boardSize = useAutoPlayStore((s) => s.boardSize);
-  const rungState = useAutoPlayStore((s) => s.rungState);
-  const history = useAutoPlayStore((s) => s.history);
-  const promotionEvents = useAutoPlayStore((s) => s.promotionEvents);
-  const shadowRating = useAutoPlayStore((s) => s.shadowRating);
-  const resetAutoPlay = useAutoPlayStore((s) => s.reset);
-  const setRung = useAutoPlayStore((s) => s.setRung);
-  const derank = useAutoPlayStore((s) => s.derank);
+  const [tab, setTab] = useState<ProfileBoard>(() =>
+    initialProfileTab(initialBoard, useAutoPlayStore.getState().boardSize),
+  );
+  const slot = useAutoPlayStore(useShallow((s) => boardSlot(s, tab)));
+  // The tab labels carry each board's rank, read the same way.
+  const rank9 = useAutoPlayStore((s) => boardSlot(s, 9).rungState.currentRung);
+  const rank19 = useAutoPlayStore((s) => boardSlot(s, 19).rungState.currentRung);
+  const tabRank: Record<ProfileBoard, Rung> = { 9: rank9, 19: rank19 };
 
   const [advancedOpen, setAdvancedOpen] = useState<boolean>(() => {
     try {
@@ -77,29 +87,62 @@ export function ProfileView({ onExit }: ProfileViewProps) {
       <main className="profile-main">
         <ProfileHeader avatar={avatar} handle={handle} onShuffle={shuffleHandle} />
 
-        <CurrentRankCard rungState={rungState} history={history} boardSize={boardSize} onDerank={derank} />
+        <div className="profile-board-tabs" role="tablist" aria-label="Board">
+          {PROFILE_BOARDS.map((b) => (
+            <button
+              key={b}
+              type="button"
+              role="tab"
+              id={`profile-tab-${b}`}
+              aria-selected={tab === b}
+              aria-controls="profile-board-panel"
+              className={'profile-board-tab' + (tab === b ? ' profile-board-tab-active' : '')}
+              onClick={() => setTab(b)}
+            >
+              <span className="profile-board-tab-label">{b}×{b}</span>
+              <span className="profile-board-tab-rank">{tabRank[b]}</span>
+            </button>
+          ))}
+        </div>
 
-        <RankGraph history={history} boardSize={boardSize} />
+        {/* Keyed by board: a tab switch starts its inline confirms and the
+            rung picker afresh, on that board's ladder. */}
+        <div
+          key={tab}
+          id="profile-board-panel"
+          className="profile-board-panel"
+          role="tabpanel"
+          aria-labelledby={`profile-tab-${tab}`}
+        >
+          <CurrentRankCard
+            rungState={slot.rungState}
+            history={slot.history}
+            boardSize={tab}
+            onDerank={() => onBoard(tab, (s) => s.derank())}
+          />
+
+          <RankGraph history={slot.history} boardSize={tab} />
+
+          <AdvancedSection
+            open={advancedOpen}
+            onToggle={toggleAdvanced}
+            rungState={slot.rungState}
+            boardSize={tab}
+            shadowRating={slot.shadowRating}
+            history={slot.history}
+            promotionEvents={slot.promotionEvents}
+            onReset={() => onBoard(tab, (s) => s.reset())}
+            onSetRung={(rung) => onBoard(tab, (s) => s.setRung(rung))}
+          />
+        </div>
 
         <AvatarPickerSection avatar={avatar} onSelect={setAvatar} />
 
         <DevicesSection />
 
-        {loggedIn && <FriendsSection />}
-
         {isAdmin && <AdminSection />}
 
-        <AdvancedSection
-          open={advancedOpen}
-          onToggle={toggleAdvanced}
-          rungState={rungState}
-          boardSize={boardSize}
-          shadowRating={shadowRating}
-          history={history}
-          promotionEvents={promotionEvents}
-          onReset={resetAutoPlay}
-          onSetRung={setRung}
-        />
+        {advancedOpen && <AllBoardsToolsSection />}
       </main>
     </div>
   );
@@ -387,9 +430,9 @@ function AdvancedSection({
 }) {
   return (
     <section className="profile-section profile-advanced">
-      <button className="profile-advanced-toggle" onClick={onToggle}>
+      <button className="profile-advanced-toggle" onClick={onToggle} aria-expanded={open}>
         <span>{open ? '▼' : '▶'}</span>
-        Advanced
+        Advanced · {boardSize}×{boardSize}
       </button>
       {open && (
         <div className="profile-advanced-body">
@@ -503,6 +546,63 @@ function DevToolsBlock({
   const [selectedRung, setSelectedRung] = useState<Rung>(rungState.currentRung);
   const [resetArmed, setResetArmed] = useState(false);
 
+  // window.confirm/prompt silently no-op in WKWebView (no native JS-panel
+  // delegate), so confirmation is inline: Set rung acts directly (reversible,
+  // dev-only); Reset arms on the first tap and fires on the second.
+  const handleReset = () => {
+    if (!resetArmed) {
+      setResetArmed(true);
+      return;
+    }
+    setResetArmed(false);
+    onReset();
+  };
+
+  const handleSetRung = () => {
+    if (selectedRung === rungState.currentRung) return;
+    onSetRung(selectedRung);
+  };
+
+  return (
+    <div className="profile-advanced-block">
+      <div className="profile-advanced-block-title">Dev tools (beta only) · {boardSize}×{boardSize}</div>
+
+      <div className="profile-dev-row">
+        <label className="profile-dev-label" htmlFor="profile-manual-rank">Manual rank set</label>
+        <select
+          id="profile-manual-rank"
+          className="profile-dev-select"
+          value={selectedRung}
+          onChange={(e) => setSelectedRung(e.target.value)}
+        >
+          {ladderRungs(boardSize).map((r) => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
+        <button className="profile-dev-btn" onClick={handleSetRung} disabled={selectedRung === rungState.currentRung}>
+          Set rung
+        </button>
+      </div>
+
+      <div className="profile-dev-row">
+        <span className="profile-dev-label">This board</span>
+        <button
+          className="profile-dev-btn profile-dev-btn-danger"
+          onClick={handleReset}
+          onBlur={() => setResetArmed(false)}
+        >
+          {resetArmed ? 'Tap again to confirm' : 'Reset to 30k…'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Advanced, all boards ---------- */
+
+/** The Advanced tools that act on every board at once (shown below the
+ *  tabs while Advanced is open): export and import the whole ladder. */
+function AllBoardsToolsSection() {
   const exportPayload = () => {
     const raw = localStorage.getItem('goforkids.autoplay.v1') || '{}';
     const blob = new Blob([raw], { type: 'application/json' });
@@ -534,56 +634,17 @@ function DevToolsBlock({
     input.click();
   };
 
-  // window.confirm/prompt silently no-op in WKWebView (no native JS-panel
-  // delegate), so confirmation is inline: Set rung acts directly (reversible,
-  // dev-only); Reset arms on the first tap and fires on the second.
-  const handleReset = () => {
-    if (!resetArmed) {
-      setResetArmed(true);
-      return;
-    }
-    setResetArmed(false);
-    onReset();
-  };
-
-  const handleSetRung = () => {
-    if (selectedRung === rungState.currentRung) return;
-    onSetRung(selectedRung);
-  };
-
   return (
-    <div className="profile-advanced-block">
-      <div className="profile-advanced-block-title">Dev tools (beta only)</div>
-
-      <div className="profile-dev-row">
-        <label className="profile-dev-label" htmlFor="profile-manual-rank">Manual rank set</label>
-        <select
-          id="profile-manual-rank"
-          className="profile-dev-select"
-          value={selectedRung}
-          onChange={(e) => setSelectedRung(e.target.value)}
-        >
-          {ladderRungs(boardSize).map((r) => (
-            <option key={r} value={r}>{r}</option>
-          ))}
-        </select>
-        <button className="profile-dev-btn" onClick={handleSetRung} disabled={selectedRung === rungState.currentRung}>
-          Set rung
-        </button>
+    <section className="profile-section profile-advanced profile-advanced-all">
+      <div className="profile-section-eyebrow">Advanced · all boards</div>
+      <div className="profile-advanced-block">
+        <div className="profile-advanced-block-title">Dev tools (beta only)</div>
+        <div className="profile-dev-row">
+          <span className="profile-dev-label">Storage</span>
+          <button className="profile-dev-btn" onClick={exportPayload}>Export JSON</button>
+          <button className="profile-dev-btn" onClick={importPayload}>Import JSON</button>
+        </div>
       </div>
-
-      <div className="profile-dev-row">
-        <span className="profile-dev-label">Storage</span>
-        <button className="profile-dev-btn" onClick={exportPayload}>Export JSON</button>
-        <button className="profile-dev-btn" onClick={importPayload}>Import JSON</button>
-        <button
-          className="profile-dev-btn profile-dev-btn-danger"
-          onClick={handleReset}
-          onBlur={() => setResetArmed(false)}
-        >
-          {resetArmed ? 'Tap again to confirm' : 'Reset to 30k…'}
-        </button>
-      </div>
-    </div>
+    </section>
   );
 }

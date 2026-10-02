@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 
 /**
- * The Profile page's Friends section (feature 32, revision 4), driven
+ * The Friends section (feature 32, revision 4; on its own Friends page,
+ * reached from the home screen's Friends button, since revision 7), driven
  * through the real UI against a fake of the `/api/sync` contract answered
  * by route interception (no backend runs): shown only on a logged-in
  * device, after Devices and before Admin; the friend code and New code with
@@ -206,9 +207,18 @@ async function seedLoggedIn(page: Page) {
   });
 }
 
-async function openProfile(page: Page) {
+/** Revision 7: the section lives on the Friends page, behind the home
+ *  screen's Friends button. */
+async function openFriends(page: Page) {
   await page.goto('/');
-  await page.getByRole('button', { name: /Profile/ }).click();
+  await page.getByRole('button', { name: /Friends/ }).click();
+  await page.locator('.friends-page').waitFor();
+}
+
+/** From the Friends page to the Profile page (Devices, Admin, Log out). */
+async function friendsToProfile(page: Page) {
+  await page.getByRole('button', { name: 'Go to the home screen' }).click();
+  await page.getByRole('button', { name: 'Profile', exact: true }).click();
   await page.locator('.profile-devices').waitFor();
 }
 
@@ -232,32 +242,35 @@ test('not logged in: no Friends section, and no friends request', async ({ page 
   await page.addInitScript(() => {
     localStorage.setItem('goforkids.profile.v1', JSON.stringify({ avatar: 'tide', avatarPicked: true, handle: [2, 9] }));
   });
-  await openProfile(page);
+  await openFriends(page);
   await expect.poll(() => log.some((l) => l.method === 'POST' && l.path === '/sync/players')).toBe(true);
   await page.waitForTimeout(300);
-  await expect(page.locator('.profile-devices')).toBeVisible();
+  await expect(page.locator('.friends-page-offline')).toBeVisible();
   await expect(section(page)).toHaveCount(0);
   expect(log.filter((l) => l.path.startsWith('/sync/friends'))).toEqual([]);
 });
 
-test('logged in: the section sits after Devices and before Admin', async ({ page }) => {
+test('logged in: the section is on the Friends page, and the Profile page keeps Devices then Admin', async ({ page }) => {
+  // Revision 7 moved the section off the Profile page.
   await fakeSync(page, { admin: true });
   await seedLoggedIn(page);
-  await openProfile(page);
-  await expect(page.locator('.profile-admin')).toBeVisible();
+  await openFriends(page);
   await expect(section(page)).toBeVisible();
+  await friendsToProfile(page);
+  await expect(page.locator('.profile-admin')).toBeVisible();
+  await expect(section(page)).toHaveCount(0);
   const order = await page.evaluate(() =>
     [...document.querySelectorAll('.profile-main > section')].map((el) =>
       ['profile-devices', 'profile-friends', 'profile-admin'].find((c) => el.classList.contains(c)) ?? '',
     ).filter(Boolean),
   );
-  expect(order).toEqual(['profile-devices', 'profile-friends', 'profile-admin']);
+  expect(order).toEqual(['profile-devices', 'profile-admin']);
 });
 
 test('the code in two groups of four, a request with name and avatar, the friends with theirs', async ({ page }) => {
   await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await expect(section(page).locator('.profile-friends-code')).toHaveText('K7QX 2MPD');
   await expect(section(page).locator('.profile-friends-code')).toHaveAttribute('aria-label', 'Friend code K 7 Q X 2 M P D');
 
@@ -283,7 +296,7 @@ test('the code in two groups of four, a request with name and avatar, the friend
 test('no friends and no requests yet', async ({ page }) => {
   await fakeSync(page, { friends: [], incoming: [] });
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await expect(section(page)).toContainText('No friends yet. Give a friend your code, or add theirs.');
   await expect(section(page).locator('.profile-friends-request')).toHaveCount(0);
   await expect(section(page).getByText('Requests', { exact: true })).toHaveCount(0);
@@ -292,7 +305,7 @@ test('no friends and no requests yet', async ({ page }) => {
 test("Add a friend: each answer in the plan's words, the code sent normalised", async ({ page }) => {
   const { log } = await fakeSync(page, { sendStatuses: [] });
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   const field = section(page).locator('.profile-friends-input');
   const sendBtn = section(page).getByRole('button', { name: 'Send' });
   const line = section(page).locator('.profile-friends-outcome');
@@ -336,7 +349,7 @@ test("Add a friend: each answer in the plan's words, the code sent normalised", 
 test('Add a friend: 429 says try later; a server that is down says so', async ({ page }) => {
   await fakeSync(page, { sendStatuses: [429, 503] });
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   const field = section(page).locator('.profile-friends-input');
   const line = section(page).locator('.profile-friends-outcome');
   await field.fill('RA3V8YGF');
@@ -354,7 +367,7 @@ test('Accept makes a friend; Decline removes the request', async ({ page }) => {
     ],
   });
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await expect(section(page).locator('.profile-friends-request')).toHaveCount(2);
   const lists = count('GET', '/sync/friends');
 
@@ -381,7 +394,7 @@ test('a failed Accept or Decline says why; a request that is gone says so, and t
     ],
   });
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   const alert = section(page).getByRole('alert');
 
   // The server is down for one decline.
@@ -405,7 +418,7 @@ test('a failed Accept or Decline says why; a request that is gone says so, and t
 test("a friend's card: name, avatar, rank per board, games, recent results with board, win or loss and the date", async ({ page }) => {
   const { count } = await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await friend(page, FALCON).locator('.profile-friends-person').click();
   const card = friend(page, FALCON).locator('.profile-friends-card');
   await expect(card.locator('.profile-friends-card-name')).toHaveText('Swift Falcon');
@@ -455,7 +468,7 @@ test("a friend's card: name, avatar, rank per board, games, recent results with 
 test('a card for someone who is no longer a friend says so, and the list catches up', async ({ page }) => {
   const { state } = await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await expect(friend(page, OWL)).toBeVisible();
   state.friends = state.friends.filter((f) => f.player_id !== OWL);
   await friend(page, OWL).locator('.profile-friends-person').click();
@@ -472,7 +485,7 @@ test('a card for someone who is no longer a friend says so, and the list catches
 test('Remove friend takes one confirm', async ({ page }) => {
   const { count } = await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   const falcon = friend(page, FALCON);
   await falcon.locator('.profile-friends-person').click();
   await falcon.getByRole('button', { name: 'Remove friend' }).click();
@@ -512,7 +525,7 @@ test('Remove friend takes one confirm', async ({ page }) => {
 test('New code takes one confirm that says the old code stops working', async ({ page }) => {
   const { count } = await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   const code = section(page).locator('.profile-friends-code');
   await expect(code).toHaveText('K7QX 2MPD');
 
@@ -537,7 +550,7 @@ test('New code takes one confirm that says the old code stops working', async ({
 test('a New code that fails says so, keeps the old code, and asking again clears the line', async ({ page }) => {
   const { once } = await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   const code = section(page).locator('.profile-friends-code');
   const confirm = section(page).locator('.profile-friends-newcode');
   once.set('POST /sync/friends/code', 503);
@@ -558,7 +571,7 @@ test('while anything is on its way: loading lines, and nothing can be pressed tw
   const releaseCode = hold('GET /sync/friends/code');
   const releaseList = hold('GET /sync/friends');
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   const s = section(page);
   // Opening: the lists and the code are on their way.
   await expect(s.locator('.profile-friends-empty')).toHaveText('Loading…');
@@ -625,24 +638,24 @@ test('while anything is on its way: loading lines, and nothing can be pressed tw
 test("a section that won't load says so", async ({ page }) => {
   await fakeSync(page, { friendsStatus: 503 });
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await expect(section(page)).toContainText("Couldn't load your friends. They'll show next time you're connected.");
   await expect(page.locator('.first-run')).toHaveCount(0);
 });
 
-test('refreshes when the Profile page opens and after each action, and never polls', async ({ page }) => {
+test('refreshes when the Friends page opens and after each action, and never polls', async ({ page }) => {
   await page.clock.install();
   const { count } = await fakeSync(page);
   await seedLoggedIn(page);
-  // Nothing is asked before the Profile page opens.
+  // Nothing is asked before the Friends page opens.
   await page.goto('/');
-  await page.getByRole('button', { name: /Profile/ }).waitFor();
+  await page.getByRole('button', { name: /Friends/ }).waitFor();
   await page.waitForTimeout(300);
   expect(count('GET', '/sync/friends')).toBe(0);
 
   // Opening it loads the section. (The dev build's StrictMode runs the
   // opening effect twice; a production build asks once. Counted, not assumed.)
-  await page.getByRole('button', { name: /Profile/ }).click();
+  await page.getByRole('button', { name: /Friends/ }).click();
   await expect(friend(page, OTTER)).toBeVisible();
   await page.waitForTimeout(300);
   const onOpen = count('GET', '/sync/friends');
@@ -667,10 +680,10 @@ test('refreshes when the Profile page opens and after each action, and never pol
   expect(count('GET', '/sync/friends')).toBe(onOpen + 1);
 
   // Leaving the page and coming back: loaded again.
-  await page.getByRole('button', { name: 'Back to home' }).click();
+  await page.getByRole('button', { name: 'Go to the home screen' }).click();
   await page.waitForTimeout(300);
   expect(count('GET', '/sync/friends')).toBe(onOpen + 1);
-  await page.getByRole('button', { name: /Profile/ }).click();
+  await page.getByRole('button', { name: /Friends/ }).click();
   await expect.poll(() => count('GET', '/sync/friends')).toBe(2 * onOpen + 1);
   // It opens on the list, not on the card left open.
   await expect(section(page).locator('.profile-friends-card')).toHaveCount(0);
@@ -701,7 +714,7 @@ test('nothing another player typed is shown: text in the list and the card never
     },
   });
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await friend(page, FALCON).locator('.profile-friends-person').click();
   const card = friend(page, FALCON).locator('.profile-friends-card');
   await expect(card.locator('.profile-friends-card-name')).toHaveText('No name');
@@ -721,7 +734,7 @@ test('a 401 from a friends route: the first-run choice with its line, and the fr
   await fakeSync(page, { friendsStatus: 401 });
   await seedLoggedIn(page);
   await page.goto('/');
-  await page.getByRole('button', { name: /Profile/ }).click();
+  await page.getByRole('button', { name: /Friends/ }).click();
   await expect(page.locator('.first-run')).toBeVisible();
   await expect(page.locator('.first-run-notice')).toBeVisible();
   expect(await heldData(page)).toEqual(DROPPED);
@@ -732,7 +745,7 @@ test('a 401 from a friends route: the first-run choice with its line, and the fr
 test('Log out drops the friends data, and nothing of it was ever stored', async ({ page }) => {
   await fakeSync(page);
   await seedLoggedIn(page);
-  await openProfile(page);
+  await openFriends(page);
   await friend(page, FALCON).locator('.profile-friends-person').click();
   await expect(friend(page, FALCON).locator('.profile-friends-card-name')).toHaveText('Swift Falcon');
   const held = await heldData(page);
@@ -742,6 +755,7 @@ test('Log out drops the friends data, and nothing of it was ever stored', async 
   const storage = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }));
   for (const v of [MY_CODE, OTTER, FALCON, OWL, FOX]) expect(storage).not.toContain(v);
 
+  await friendsToProfile(page);
   await page.getByRole('button', { name: 'Log out' }).click();
   await page.getByRole('button', { name: 'Yes, log out' }).click();
   await expect(page.locator('.first-run')).toBeVisible();
