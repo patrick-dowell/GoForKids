@@ -44,7 +44,8 @@ APP_BOARDS = (9, 13, 19)
 
 # The app's reader (Game.fromSGF) takes the first SZ, KM and AB it finds and
 # every move; these match exactly what it matches.
-_SIZE = re.compile(r"SZ\[(\d+)\]")
+_SIZE = re.compile(r"SZ\[([^\]]*)\]")
+_SIZE_DIGITS = re.compile(r"\d{1,2}")  # the app writes two digits at most; int() on thousands raises on 3.11+
 _KOMI = re.compile(r"KM\[([^\]]+)\]")
 _SETUP = re.compile(r"AB((?:\[[a-z]{2}\])+)")
 _SETUP_POINT = re.compile(r"\[([a-z]{2})\]")
@@ -78,6 +79,8 @@ def rebuild_sgf(sgf: Any) -> Optional[str]:
     if not isinstance(sgf, str) or not sgf:
         return None
     m = _SIZE.search(sgf)
+    if m and not _SIZE_DIGITS.fullmatch(m.group(1)):
+        return None
     size = int(m.group(1)) if m else MAX_BOARD
     if not 2 <= size <= MAX_BOARD:
         return None
@@ -111,7 +114,7 @@ def rebuild_sgf(sgf: Any) -> Optional[str]:
 
 def _board_size(sgf: str) -> int:
     m = _SIZE.search(sgf)
-    return int(m.group(1)) if m else MAX_BOARD
+    return int(m.group(1)) if m and _SIZE_DIGITS.fullmatch(m.group(1)) else MAX_BOARD
 
 
 def _score_history(value: Any) -> Optional[List[Dict[str, Any]]]:
