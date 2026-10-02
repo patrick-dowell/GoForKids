@@ -42,6 +42,7 @@ interface CallBody {
   date?: string;
   payload?: Record<string, unknown>;
   player_name?: string | null;
+  create_key?: string;
 }
 
 interface Call {
@@ -89,6 +90,10 @@ class FakeServer {
   gate?: Promise<void>;
   inFlight = 0;
   maxInFlight = 0;
+  /** create_key → the tokens creates with it have issued. */
+  createKeys = new Map<string, string[]>();
+  /** Players actually made (201s). */
+  playersCreated = 0;
 
   constructor(state: SyncStateDoc) {
     this.state = clone(state);
@@ -139,14 +144,32 @@ class FakeServer {
     return 'handle' in state && !validHandle(state.handle);
   }
 
-  private handle(c: Call): Response {
+  /** The contract's default answer (public so an intercept can let a request
+   *  land and still lose its reply). */
+  handle(c: Call): Response {
     const token = c.auth?.replace(/^Bearer /, '') ?? null;
     if (c.method === 'POST' && c.path === '/uploads') return json(200, { id: 'SHARE123' });
     if (c.method === 'POST' && c.path === '/sync/players') {
+      const key = c.body?.create_key;
+      if (key !== undefined && !(typeof key === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(key))) {
+        return json(422, { detail: 'bad create_key' });
+      }
+      // Revision 2.1: a repeat of a key makes no new player. It revokes the
+      // tokens earlier creates with the key issued and answers 200 with a
+      // fresh one and the player's current rev and state.
+      if (typeof key === 'string' && this.createKeys.has(key)) {
+        for (const t of this.createKeys.get(key)!) this.tokens.delete(t);
+        const fresh = `tok-again-${this.createKeys.get(key)!.length}`;
+        this.createKeys.get(key)!.push(fresh);
+        this.tokens.add(fresh);
+        return json(200, { player_id: 'p-1', device_token: fresh, rev: this.rev, state: clone(this.state) });
+      }
       if (this.badState(c.body?.state)) return json(422, { detail: 'bad state' });
       this.rev = 1;
       this.state = clone(c.body!.state!);
       this.tokens.add('tok-new');
+      this.playersCreated++;
+      if (typeof key === 'string') this.createKeys.set(key, ['tok-new']);
       return json(201, { player_id: 'p-1', device_token: 'tok-new', rev: 1, state: this.state });
     }
     if (c.method === 'POST' && c.path === '/sync/pairing-codes/redeem') {
@@ -413,7 +436,9 @@ describe('first launch', () => {
     const create = server.find('POST', '/sync/players');
     expect(create).toHaveLength(1);
     expect(create[0].body!.state!.handle).toEqual([5, 7]);
+    expect(create[0].body!.create_key).toMatch(/^[A-Za-z0-9_-]{32}$/);
     expect(m.sync.useSyncStore.getState().deviceToken).toBe('tok-new');
+    expect(m.sync.useSyncStore.getState().createKey).toBeNull();
     expect(m.sync.useSyncStore.getState().showIntro).toBe(false); // the card is for case 2 only
   });
 
@@ -1150,6 +1175,150 @@ describe('replays', () => {
       expect(server.count('PUT', `/sync/games/L${s}`)).toBe(0);
     }
     expect(server.games.size).toBe(100);
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * Revision 2.1: a create that can be repeated safely.
+ * ------------------------------------------------------------------------- */
+
+describe('the create key', () => {
+  const storedKey = () =>
+    (JSON.parse(localStorage.getItem('goforkids.sync.v1') ?? '{}') as { createKey?: string | null }).createKey;
+
+  it('is made once, persisted, and the same across a failed create, a retry, an app restart and the success', async () => {
+    seedExistingPlayer();
+    const m = await load();
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    server.tokens.clear();
+    vi.stubGlobal('fetch', server.fetch);
+    server.intercept = down;
+
+    expect(boot(m)).toBe('existing');
+    const key = storedKey()!;
+    expect(key).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    await m.sync.syncIdle();
+    m.auto.useAutoPlayStore.getState().recordResult('win'); // a trigger: the create is retried
+    await m.sync.syncIdle();
+    expect(storedKey()).toBe(key);
+
+    // App restart, back online — but the first attempt's network leg fails,
+    // so the request helper retries the same body.
+    let first = true;
+    server.intercept = (c) => {
+      if (first && c.path === '/sync/players') {
+        first = false;
+        throw new TypeError('Load failed');
+      }
+      return undefined;
+    };
+    const m2 = await load();
+    expect(boot(m2)).toBe('pending');
+    expect(m2.sync.useSyncStore.getState().createKey).toBe(key);
+    await m2.sync.syncIdle();
+
+    const posts = server.find('POST', '/sync/players');
+    expect(posts).toHaveLength(4);
+    expect(posts.map((p) => p.body!.create_key)).toEqual([key, key, key, key]);
+    expect(server.playersCreated).toBe(1);
+    expect(m2.sync.useSyncStore.getState().deviceToken).toBe('tok-new');
+    // Gone once a create has succeeded.
+    expect(m2.sync.useSyncStore.getState().createKey).toBeNull();
+    expect(storedKey()).toBeNull();
+  });
+
+  it('a 200 (the server already had the profile) leaves one logged-in device that pushes its state on the returned rev', async () => {
+    seedExistingPlayer();
+    const m = await load();
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    server.tokens.clear();
+    vi.stubGlobal('fetch', server.fetch);
+    // The first create lands, but its reply is lost on the way back; by the
+    // time the repeat arrives, the profile is at rev 3.
+    let lost = true;
+    server.intercept = (c) => {
+      if (lost && c.method === 'POST' && c.path === '/sync/players') {
+        lost = false;
+        server.handle(c);
+        server.rev = 3;
+        throw new TypeError('Load failed');
+      }
+      return undefined;
+    };
+    // Something played here since the lost create, so local is ahead.
+    m.learn.useLearnStore.getState().addCompleted(['played-since']);
+
+    boot(m);
+    await m.sync.syncIdle();
+
+    const posts = server.find('POST', '/sync/players');
+    expect(posts).toHaveLength(2);
+    expect(posts[1].body!.create_key).toBe(posts[0].body!.create_key);
+    expect(server.playersCreated).toBe(1); // one profile, not two
+    expect(server.tokens.has('tok-new')).toBe(false); // the lost reply's token is dead
+
+    const s = m.sync.useSyncStore.getState();
+    expect(s.deviceToken).toBe('tok-again-1');
+    expect(s.createKey).toBeNull();
+    const puts = server.find('PUT', '/sync/state');
+    expect(puts).toHaveLength(1);
+    expect(puts[0].auth).toBe('Bearer tok-again-1');
+    expect(puts[0].body!.base_rev).toBe(3);
+    expect(puts[0].body!.state!.lessons).toContain('played-since');
+    expect(server.state.ladder.byBoardSize['19x19']!.history).toHaveLength(1);
+    expect(s.baseRev).toBe(4);
+    expect(s.dirty).toBe(false);
+    expect(server.count('PUT', '/sync/games/old-1')).toBe(1); // replays sent as after any create
+  });
+});
+
+describe('the ranked-game hold ends on every exit route', () => {
+  type Ctx = {
+    m: Mods;
+    game: typeof import('../gameStore');
+    replay: typeof import('../replayStore');
+  };
+  const routes: Array<[string, (c: Ctx) => void]> = [
+    ['New Game: a casual game replaces it', (c) =>
+      c.game.useGameStore.setState({ autoplayContext: false, phase: 'playing', gameId: 'casual-1' })],
+    ['a lesson game replaces it', (c) =>
+      c.game.useGameStore.setState({ autoplayContext: false, lessonContext: true, phase: 'playing', gameId: 'lesson-1' })],
+    ['Library: a replay takes the screen', (c) => c.replay.useReplayStore.setState({ active: true })],
+    ['Home (what goHome calls)', (c) => c.m.sync.endRankedGame()],
+    ['the game finishes', (c) => c.game.useGameStore.setState({ phase: 'finished' })],
+    ['its result is recorded', (c) => c.m.auto.useAutoPlayStore.getState().recordResult('loss')],
+  ];
+
+  it.each(routes)('%s', async (_name, leave) => {
+    const m = await load();
+    const game = await import('../gameStore');
+    const replay = await import('../replayStore');
+    const exit = await import('../../autoplay/rankedGameExit');
+    const stop = exit.watchRankedGameExit();
+    const serverSlot = slotAt({ currentRung: '12k', winsAtCurrentRung: 0, lossStreak: 0 });
+    const server = new FakeServer({ ...m.sync.buildLocalDoc(), ladder: ladderOf(serverSlot, 3) });
+    server.rev = 5;
+    vi.stubGlobal('fetch', server.fetch);
+    loggedIn(m, 2);
+
+    m.sync.beginRankedGame();
+    // The board still shows the previous, finished game: not an exit.
+    game.useGameStore.setState({ autoplayContext: true, phase: 'finished', gameId: 'old' });
+    // The ranked game comes on and is played.
+    game.useGameStore.setState({ autoplayContext: true, phase: 'playing', gameId: 'ranked-1' });
+    game.useGameStore.setState({ moveCount: 12 });
+    await m.sync.useSyncStore.getState().sync();
+    expect(m.sync.isRankedGameHeld()).toBe(true);
+    expect(m.auto.useAutoPlayStore.getState().rungState.currentRung).toBe('30k'); // held
+
+    leave({ m, game, replay });
+
+    expect(m.sync.isRankedGameHeld()).toBe(false);
+    expect(m.auto.useAutoPlayStore.getState().rungState.currentRung).toBe('12k'); // what was held, applied
+    await m.sync.syncIdle();
+    await m.sync.useSyncStore.getState().sync();
+    expect(m.sync.useSyncStore.getState().baseRev).toBeGreaterThanOrEqual(5); // syncing again, not holding
+    stop();
   });
 });
 
