@@ -1422,9 +1422,13 @@ describe('a name another profile has', () => {
     vi.stubGlobal('fetch', server.fetch);
     boot(m);
     m.profile.useProfileStore.getState().setHandle([5, 7]);
-    server.intercept = (c) => {
-      // Shuffle on the Profile page while the first create is on its way.
+    server.intercept = async (c) => {
+      // Shuffle on the Profile page while the first create is on its way. A
+      // real fetch never re-enters synchronously: yield first, so the create
+      // is the running one and the shuffle lands while it is out (the review
+      // found the synchronous form started a second create instead).
       if (c.method === 'POST' && c.path === '/sync/players' && handleOf(c)!.join() === '5,7') {
+        await new Promise((r) => setTimeout(r, 0));
         m.profile.useProfileStore.getState().setHandle([9, 9]);
       }
       return undefined;
@@ -1436,6 +1440,32 @@ describe('a name another profile has', () => {
     expect(posts.map(handleOf)).toEqual([[5, 7], [9, 9]]);
     expect(m.profile.useProfileStore.getState().handle).toEqual([9, 9]);
     expect(m.sync.useSyncStore.getState()).toMatchObject({ deviceToken: 'tok-new', showIntro: false, nameWasTaken: false });
+  });
+
+  it('a name changed here while a refused push was out is the one pushed next, not a draw', async () => {
+    const m = await load();
+    m.profile.useProfileStore.getState().setHandle([0, 0]);
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    vi.stubGlobal('fetch', server.fetch);
+    loggedIn(m, 1);
+    server.taken.add('5,7');
+    let refused = false;
+    server.intercept = async (c) => {
+      if (c.method === 'PUT' && c.path === '/sync/state' && handleOf(c)!.join() === '5,7' && !refused) {
+        refused = true;
+        await new Promise((r) => setTimeout(r, 0));
+        m.profile.useProfileStore.getState().setHandle([9, 9]); // the player's own Shuffle, meanwhile
+        return taken();
+      }
+      return undefined;
+    };
+
+    m.profile.useProfileStore.getState().setHandle([5, 7]);
+    await m.sync.syncIdle();
+
+    const puts = server.find('PUT', '/sync/state');
+    expect(puts.map(handleOf)).toEqual([[5, 7], [9, 9]]);
+    expect(m.profile.useProfileStore.getState().handle).toEqual([9, 9]);
   });
 
   it('Shuffle once the profile exists: a taken name is replaced and pushed on the same revision; the name shown is the one the server took', async () => {
