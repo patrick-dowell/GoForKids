@@ -531,7 +531,8 @@ section wins.
 
 ### What a player can do
 
-- See their own **friend code** and give it to a friend.
+- See their own **friend code**, give it to a friend, and replace it with
+  a new one.
 - **Add a friend** by typing the friend's code. That sends a request.
 - See the requests sent to them and **accept** or **decline** each one.
 - See their **friends** and open a **friend's card**: the generated name,
@@ -539,66 +540,90 @@ section wins.
   ten ranked results.
 - **Remove a friend.**
 
-Nothing a player types is ever shown to another player: the only typed
-input is a friend code, and it is used only to find the player it
-belongs to. There is no grown-up gate on these screens in this revision,
-and accepting is required before anything is shared.
+On these screens nothing a player types is ever shown to another player:
+the only typed input is a friend code, used only to find the player it
+belongs to, and everything shown about another player is a value the
+server has checked (below).
+
+**Left open, and built for now as follows:** whether these screens need a
+grown-up gate (built without one), whether a request must be accepted
+before anything is shared (built so that it must), and what else a card
+shows (built with the fields below and nothing more).
 
 ### Friend codes
 
 - Each profile has one friend code: 8 characters of the share-code
   alphabet (`23456789ACDEFGHJKMNPQRTVWXY`), unique across profiles, shown
-  in two groups of four. It does not expire. It is assigned when the
-  profile is created; profiles from before this revision get one at
-  start-up.
-- Lookup normalises case, surrounding space and one space or hyphen
-  between the two groups, as pairing codes do.
+  in two groups of four. It does not expire.
+- It lives in a new column, `sync_players.friend_code`, with a unique
+  index, added the way Revision 2.1's columns were. Both create paths
+  (`POST /players` and `POST /admin/players`) set it; profiles from before
+  this revision get one at start-up; a collision is retried with a new
+  code.
+- **Normalisation, on the server and in the client's field alike:**
+  remove every space and hyphen, then uppercase. A result that is not
+  exactly 8 characters of the alphabet answers **422**.
+- Replacing the code (`POST /friends/code`) makes the old one stop
+  working at once. Requests already received and friends already made are
+  kept.
 - A friend code is not a pairing code and never logs a device in; a
   pairing code is never accepted as a friend code.
 
 ### Storage
 
 One table, `sync_friendships`: requester id, addressee id, status
-(`pending`, `accepted` or `declined`), created and updated times; one row
-per ordered pair. The 30-day cleanup (Revision 3) deletes a profile's
-rows in both directions with the profile.
+(`pending`, `accepted` or `declined`), created and updated times; at most
+one row per ordered pair. Accepting a request deletes any other row
+between the two players, so a friendship is exactly one `accepted` row.
+The 30-day cleanup (Revision 3) deletes a profile's rows in both
+directions with the profile.
 
 ### Routes
 
 All under `/api/sync`, all with `Authorization: Bearer <device_token>`. A
-missing, unknown or revoked token answers **401**.
+missing, unknown or revoked token answers **401**. `/friends/code` and
+`/friends/requests…` are matched before `/friends/{player_id}`, and
+`{player_id}` matches only a UUID; anything else under `/friends/` answers
+**404**.
 
 | Method and path | Request | Success | Errors |
 |---|---|---|---|
 | `GET /friends/code` | — | **200** `{ "code" }` | 401 |
+| `POST /friends/code` | — | **201** `{ "code" }`, a new code | 401 |
 | `POST /friends/requests` | `{ "code" }` | **202** `{}` | 401, **404** no profile has that code, **422** a malformed code or the requester's own code, **429** over a rate limit |
 | `GET /friends` | — | **200** `{ "friends": [...], "incoming": [...] }` | 401 |
-| `POST /friends/requests/{player_id}/accept` | — | **200** `{}` | 401, **404** no pending request from that player to the requester |
-| `POST /friends/requests/{player_id}/decline` | — | **204** | 401, **404** as for accept |
+| `POST /friends/requests/{player_id}/accept` | — | **204**, also when the two are already friends | 401, **404** when there is neither a pending request from that player nor a friendship |
+| `POST /friends/requests/{player_id}/decline` | — | **204**, also when that player's request is already declined | 401, **404** when there is no pending or declined request from that player |
 | `GET /friends/{player_id}` | — | **200** the card | 401, **404** for every player who is not an accepted friend |
 | `DELETE /friends/{player_id}` | — | **204**, also when the two are not friends | 401 |
 
 - **`POST /friends/requests`** answers the same **202** whatever the state
-  between the two players: a new request, a repeat of a pending one,
-  one the other side declined earlier (it stays declined and the
-  addressee is not shown it again), or players who are already friends.
-  When the other player already has a pending request to the requester,
-  the two become friends at once. The reply never says which case it
-  was.
+  between the two players: a new request, a repeat of a pending one, one
+  the other side declined earlier (it stays declined and the addressee is
+  not shown it again), or players who are already friends. When the other
+  player already has a pending request to the requester, the two become
+  friends at once. The reply never says which case it was.
 - **Rate limits**, in memory, on `POST /friends/requests` (every attempt
-  counts, a 404 included): 20 an hour per player, and 60 an hour per
-  client address keyed exactly as the existing limits are (through
-  `SYNC_TRUSTED_PROXY_HOPS`, so a client-supplied `X-Forwarded-For` moves
-  nothing when no proxy is trusted). Over either answers **429**.
+  counts, a 404 and a 422 included): 20 an hour per player, and 60 an
+  hour per client address keyed exactly as the existing limits are
+  (through `SYNC_TRUSTED_PROXY_HOPS`, so a client-supplied
+  `X-Forwarded-For` moves nothing when no proxy is trusted). Over either
+  answers **429**.
 - **`GET /friends`**: `friends` is `[{ "player_id", "handle", "avatar",
-  "since" }]` for accepted friends, newest first; `incoming` is
-  `[{ "player_id", "handle", "avatar", "sent_at" }]` for pending requests
-  to the requester, newest first. Requests the requester sent are not
-  listed, so a pending or declined request reveals nothing.
+  "since" }]` for accepted friends, newest first, where `since` is when
+  the request was accepted; `incoming` is `[{ "player_id", "handle",
+  "avatar", "sent_at" }]` for pending requests to the requester, newest
+  first, where `sent_at` is when the request was first sent (a repeat
+  does not change it). Times use `YYYY-MM-DDTHH:MM:SSZ`, as in Revision 3.
+  `handle` and `avatar` pass the same checks as on the card. Requests the
+  requester sent are not listed, so a pending or declined request reveals
+  nothing.
 - **Accepting** makes the two friends both ways. **Declining** marks the
   request declined; nothing tells the requester.
-- **Removing** a friend deletes the friendship both ways; either player
-  may send a new request afterwards.
+- **Removing** a friend deletes the accepted friendship and nothing else:
+  a declined request stays declined, so removing someone never lets a
+  declined request through again. After a removal either player may send
+  a new request.
 - **A friend's card** (`GET /friends/{player_id}`):
 
   ```json
@@ -618,24 +643,27 @@ missing, unknown or revoked token answers **401**.
   one of the app's avatar names (`blackhole`, `nova`, `nebula`, `tide`,
   `eclipse`, `prism`, `comet`) or `blackhole`; board keys `9x9`, `13x13`
   or `19x19` only; `rung` matching `^[0-9]{1,2}[kdp]$` or `null`; `result`
-  `win` or `loss`; `ts` a number. `games` is the ranked games across
-  boards; `recent` is the newest ten ranked results across boards by
-  `ts`, skipping any entry that fails a check. The friend's replays,
-  lessons and devices are not on the card.
-- A 404 from the card or from accept looks the same for a stranger, a
-  pending or declined request either way, an unknown id and the
-  requester's own id.
+  `win` or `loss`; `ts` an integer (not a boolean) from 0 to 2^53.
+  `games` is the ranked games across boards as the stored history holds
+  them (the app keeps at most 200 per board); `recent` is the newest ten
+  ranked results across boards by `ts`, skipping any entry that fails a
+  check. The client shows a result's date, not its time. The friend's
+  replays, lessons and devices are not on the card.
+- A 404 from the card looks the same for a stranger, a pending or
+  declined request either way, an unknown id and the requester's own id.
 
 ### The client's Friends section
 
-On the Profile page, below Devices, for a device that is logged in:
+On the Profile page, after Devices and before Admin, for a device that is
+logged in:
 
-- **Your friend code**, in two groups of four.
+- **Your friend code**, in two groups of four, and **New code** after one
+  confirm that says the old code will stop working.
 - **Add a friend**: one field for a code (it accepts the code with or
-  without the space and in either case), and a Send button. After a send:
-  "Request sent" for a 202, "No player has that code" for a 404, "That's
-  your own code" or "That isn't a friend code" for a 422, and a plain
-  try-later line for a 429.
+  without spaces or a hyphen and in either case), and a Send button.
+  After a send: "Request sent" for a 202, "No player has that code" for a
+  404, "That's your own code" or "That isn't a friend code" for a 422,
+  and a plain try-later line for a 429.
 - **Requests**: each incoming request with the sender's generated name
   and avatar, and Accept and Decline.
 - **Friends**: each friend's generated name and avatar; tapping one opens
@@ -649,18 +677,20 @@ On the Profile page, below Devices, for a device that is logged in:
 
 ### Verification for Revision 4
 
-- Backend: codes assigned at creation and at start-up, unique, normalised;
-  each route's success and errors; a stranger, a pending request (either
-  way), a declined request and a removed friend all get the same 404 for
-  the card; the 202 identical across cases; the mutual request; the
-  card's checks against a state with injected text in `bot`, `rung`,
-  `avatar`, board keys and `result`; both rate limits, including a
-  rotating `X-Forwarded-For` with no trusted proxy and with one; the
-  cleanup removing friendships; no token hash or friend code of another
-  player in any reply.
+- Backend: codes set by both create paths and at start-up, unique,
+  normalised, replaced; each route's success and errors, including the
+  route order; a stranger, a pending request (either way), a declined
+  request and a removed friend all get the same 404 for the card; the
+  202 identical across cases; the mutual request; removing a friend
+  leaving a declined request declined; the checks on the card and on
+  both lists against a state with injected text in `handle`, `avatar`,
+  `bot`, `rung`, board keys, `result` and `ts`; both rate limits,
+  including a rotating `X-Forwarded-For` with no trusted proxy and with
+  one; the cleanup removing friendships; no token hash in any reply and
+  no other player's friend code in any reply.
 - Frontend: `npm run build`, `npm test`, `npm run test:layout`. Tests for
-  each send outcome, accept and decline, the list and the card, remove
-  with its confirm, the section hidden when not logged in, and friends
-  data dropped on log out and on a 401.
+  each send outcome, accept and decline, the list and the card, New code
+  and Remove friend with their confirms, the section hidden when not
+  logged in, and friends data dropped on log out and on a 401.
 - Together: two browser origins against a local backend become friends
   by code and each reads the other's card; a third cannot.
