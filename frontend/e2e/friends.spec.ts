@@ -1,15 +1,18 @@
 import { test, expect, type Page } from '@playwright/test';
 
 /**
- * The Friends section (feature 32, revision 4; on its own Friends page,
- * reached from the home screen's Friends button, since revision 7), driven
- * through the real UI against a fake of the `/api/sync` contract answered
- * by route interception (no backend runs): shown only on a logged-in
- * device, after Devices and before Admin; the friend code and New code with
- * its confirm; each answer to Add a friend; Accept and Decline; the list and
- * a friend's card; Remove friend with its confirm; a refresh on open and
- * after each action, and no polling; nothing another player typed shown;
- * the data dropped on a 401 and on a log out.
+ * The Friends section (feature 32, revisions 4 and 5; on its own Friends
+ * page, reached from the home screen's Friends button, since revision 7),
+ * driven through the real UI against a fake of the `/api/sync` contract
+ * answered by route interception (no backend runs): shown only on a
+ * logged-in device; the friend code and New code with its confirm; each
+ * answer to Add a friend; Accept and Decline; the list and a friend's card;
+ * Remove friend with its confirm; revision 5's feed first, the online dot
+ * and ranks, a friend's recent games opening in the replay viewer; the lists
+ * loaded after the launch sync; a refresh on open, after each action, from
+ * Refresh, every 30 seconds while open and when the app comes back to the
+ * screen; nothing another player typed shown; the data dropped on a 401
+ * and on a log out.
  *
  * Every name here is generated from the word lists.
  */
@@ -27,6 +30,50 @@ interface Person {
   player_id: string;
   handle: unknown;
   avatar: unknown;
+}
+
+interface Replay {
+  id: string;
+  date: string;
+  board: string | null;
+  outcome: string | null;
+  opponent: string | null;
+  payload: Record<string, unknown>;
+}
+
+/** The SGF the app writes, as the server serves a friend's replay. */
+const APP_SGF = '(;GM[1]FF[4]CA[UTF-8]SZ[9]KM[6.5]RU[Japanese]RE[B+5.5];B[ee];W[cc];B[gc];W[])';
+
+function falconReplays(): Replay[] {
+  return [
+    {
+      id: 'a1b2c3d4',
+      date: new Date(day(2, 16)).toISOString(),
+      board: '9x9',
+      outcome: 'win',
+      opponent: '12k',
+      payload: { sgf: APP_SGF, result: 'Black wins by 5.5', playerColor: 'black', opponentRank: '12k', moveCount: 4, isRanked: true },
+    },
+    {
+      id: 'e5f6a7b8',
+      date: new Date(day(1, 16)).toISOString(),
+      board: '19x19',
+      outcome: 'loss',
+      opponent: '18k',
+      payload: { sgf: APP_SGF.replace('SZ[9]', 'SZ[19]'), result: 'White wins (resignation)', playerColor: 'black', opponentRank: '18k' },
+    },
+  ];
+}
+
+/** The feed's events, newest first: Falcon's promotion and win today, Owl's loss yesterday. */
+function feedEvents() {
+  const falcon = { player_id: FALCON, handle: [3, 3], avatar: 'nova' };
+  const owl = { player_id: OWL, handle: [8, 5], avatar: 'comet' };
+  return [
+    { kind: 'promotion', ...falcon, board: '9x9', from: '16k', to: '15k', ts: day(2, 18) },
+    { kind: 'game', ...falcon, board: '9x9', result: 'win', rung: '16k', bot: '12k', ts: day(2, 18) },
+    { kind: 'game', ...owl, board: '9x9', result: 'loss', rung: '25k', bot: '18k', ts: day(1, 17) },
+  ];
 }
 
 interface Logged {
@@ -71,6 +118,12 @@ async function fakeSync(
     friendsStatus?: number;
     /** Answer POST /players (a create) with this status. */
     createStatus?: number;
+    /** The feed's events (default: feedEvents()). */
+    events?: unknown[];
+    /** Friends online now. */
+    online?: string[];
+    /** Each friend's replays (default: Falcon's two). */
+    replays?: Record<string, Replay[]>;
   } = {},
 ) {
   const log: Logged[] = [];
@@ -99,6 +152,11 @@ async function fakeSync(
       },
     } as Record<string, unknown>,
     sendStatuses: [...(opts.sendStatuses ?? [])],
+    events: opts.events ?? (feedEvents() as unknown[]),
+    online: new Set(opts.online ?? [FALCON]),
+    replays: opts.replays ?? ({ [FALCON]: falconReplays() } as Record<string, Replay[]>),
+    /** Every friends route answers 503 while set (the device is offline). */
+    down: false,
   };
   const known = opts.known ?? { RA3V8YGF: TURTLE };
   let rev = 1;
@@ -129,6 +187,28 @@ async function fakeSync(
 
     if (path.startsWith('/sync/friends')) {
       if (opts.friendsStatus) return reply(opts.friendsStatus, { detail: 'refused' });
+      if (state.down) return reply(503, { detail: 'down' });
+      const isFriend = (id: string) => state.friends.some((f) => f.player_id === id);
+      if (path === '/sync/friends/feed' && method === 'GET') {
+        return reply(200, {
+          friends: state.friends.map((f) => ({
+            player_id: f.player_id,
+            handle: f.handle,
+            avatar: f.avatar,
+            active_recently: state.online.has(f.player_id),
+            boards: (state.cards[f.player_id] as { boards?: unknown } | undefined)?.boards ?? {},
+          })),
+          events: state.events.filter((e) => isFriend((e as { player_id: string }).player_id)),
+        });
+      }
+      const g = /^\/sync\/friends\/([^/]+)\/games(?:\/([^/]+))?$/.exec(path);
+      if (g && method === 'GET') {
+        if (!isFriend(g[1])) return reply(404, { detail: 'Not Found' });
+        const replays = state.replays[g[1]] ?? [];
+        if (!g[2]) return reply(200, { games: replays.map(({ payload: _p, ...entry }) => entry) });
+        const found = replays.find((r) => r.id === decodeURIComponent(g[2]));
+        return found ? reply(200, { id: found.id, date: found.date, payload: found.payload }) : reply(404, { detail: 'Not Found' });
+      }
       if (path === '/sync/friends/code') {
         if (method === 'GET') return reply(200, { code: state.code });
         state.code = state.newCodes.shift()!;
@@ -230,11 +310,19 @@ const request = (page: Page, id: string) => page.locator(`.profile-friends-reque
 async function heldData(page: Page) {
   return page.evaluate(() => {
     const s = (window as unknown as { __friendsStore: { getState: () => Record<string, unknown> } }).__friendsStore.getState();
-    return { code: s.code, friends: s.friends, incoming: s.incoming, card: s.card, cardFor: s.cardFor };
+    return {
+      code: s.code,
+      friends: s.friends,
+      incoming: s.incoming,
+      feed: s.feed,
+      card: s.card,
+      cardFor: s.cardFor,
+      cardGames: s.cardGames,
+    };
   });
 }
 
-const DROPPED = { code: null, friends: null, incoming: null, card: null, cardFor: null };
+const DROPPED = { code: null, friends: null, incoming: null, feed: null, card: null, cardFor: null, cardGames: null };
 
 test('not logged in: no Friends section, and no friends request', async ({ page }) => {
   // A player whose profile could not be created yet (the create keeps failing).
@@ -643,58 +731,99 @@ test("a section that won't load says so", async ({ page }) => {
   await expect(page.locator('.first-run')).toHaveCount(0);
 });
 
-test('refreshes when the Friends page opens and after each action, and never polls', async ({ page }) => {
+test('the lists load after the launch sync; the section refreshes on open, after each action, from Refresh, every 30 seconds while open, and when the app comes back', async ({ page }) => {
   await page.clock.install();
-  const { count } = await fakeSync(page);
+  const { count, state } = await fakeSync(page);
   await seedLoggedIn(page);
-  // Nothing is asked before the Friends page opens.
-  await page.goto('/');
-  await page.getByRole('button', { name: /Friends/ }).waitFor();
-  await page.waitForTimeout(300);
-  expect(count('GET', '/sync/friends')).toBe(0);
+  const reads = () => ['/sync/friends/code', '/sync/friends', '/sync/friends/feed'].map((p) => count('GET', p));
 
-  // Opening it loads the section. (The dev build's StrictMode runs the
-  // opening effect twice; a production build asks once. Counted, not assumed.)
+  // The launch pass ends logged in: the lists (the requests badge), and
+  // nothing else before the Friends section opens. (The dev build's
+  // StrictMode runs the launch effect twice, so two passes may run; a
+  // production build runs one. Counted, not assumed.)
+  await page.goto('/');
+  await page.getByRole('button', { name: /Profile/ }).waitFor();
+  await expect.poll(() => count('GET', '/sync/friends')).toBeGreaterThanOrEqual(1);
+  await page.waitForTimeout(300);
+  const launch = count('GET', '/sync/friends');
+  expect(launch).toBeLessThanOrEqual(2);
+  expect(reads()).toEqual([0, launch, 0]);
+  expect(await page.evaluate(() => (window as unknown as { __friendsStore: { getState: () => { incoming: unknown[] | null } } }).__friendsStore.getState().incoming?.length)).toBe(1);
+
+  // Opening it loads everything (the opening effect runs twice in the dev
+  // build too).
   await page.getByRole('button', { name: /Friends/ }).click();
   await expect(friend(page, OTTER)).toBeVisible();
   await page.waitForTimeout(300);
-  const onOpen = count('GET', '/sync/friends');
-  expect(onOpen).toBeGreaterThanOrEqual(1);
-  expect(count('GET', '/sync/friends/code')).toBe(onOpen);
+  const [c0, l0, f0] = reads();
+  expect(c0).toBeGreaterThanOrEqual(1);
+  expect(l0).toBe(launch + c0);
+  expect(f0).toBe(c0);
 
-  // Ten minutes on the page: nothing more is asked.
-  await page.clock.runFor(10 * 60_000);
+  // Every 30 seconds while open: everything once.
+  await page.clock.runFor(30_000);
+  await expect.poll(reads).toEqual([c0 + 1, l0 + 1, f0 + 1]);
+  await page.clock.runFor(29_000);
   await page.waitForTimeout(200);
-  expect(count('GET', '/sync/friends')).toBe(onOpen);
-  expect(count('GET', '/sync/friends/code')).toBe(onOpen);
+  expect(reads()).toEqual([c0 + 1, l0 + 1, f0 + 1]);
+  await page.clock.runFor(1_000);
+  await expect.poll(reads).toEqual([c0 + 2, l0 + 2, f0 + 2]);
+
+  // A friend who accepted meanwhile shows on the next one.
+  state.friends.unshift({ player_id: FOX, handle: [21, 4], avatar: 'prism', since: '2026-10-02T16:00:00Z' });
+  state.incoming = [];
+  await page.clock.runFor(30_000);
+  await expect(friend(page, FOX).locator('.profile-friends-name')).toHaveText('Shining Fox');
+  await expect(request(page, FOX)).toHaveCount(0);
+  const [c1, l1, f1] = reads();
 
   // An action: one refresh.
   await section(page).locator('.profile-friends-input').fill('RA3V8YGF');
   await section(page).getByRole('button', { name: 'Send' }).click();
   await expect(section(page).locator('.profile-friends-outcome')).toHaveText('Request sent');
-  await expect.poll(() => count('GET', '/sync/friends')).toBe(onOpen + 1);
-  expect(count('GET', '/sync/friends/code')).toBe(onOpen + 1);
-  // Opening a card is not an action on the list.
+  await expect.poll(reads).toEqual([c1 + 1, l1 + 1, f1 + 1]);
+
+  // Refresh: one refresh.
+  await section(page).getByRole('button', { name: 'Refresh' }).click();
+  await expect.poll(reads).toEqual([c1 + 2, l1 + 2, f1 + 2]);
+  await expect(section(page).getByRole('button', { name: 'Refresh' })).toBeEnabled();
+
+  // The app comes back to the screen: one refresh.
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect.poll(reads).toEqual([c1 + 3, l1 + 3, f1 + 3]);
+
+  // Opening a card is not a refresh of the list.
   await friend(page, FALCON).locator('.profile-friends-person').click();
   await expect(friend(page, FALCON).locator('.profile-friends-card-name')).toBeVisible();
-  expect(count('GET', '/sync/friends')).toBe(onOpen + 1);
+  expect(reads()).toEqual([c1 + 3, l1 + 3, f1 + 3]);
 
-  // Leaving the page and coming back: loaded again.
+  // Leaving the page stops the section's refreshes; coming back loads again,
+  // on the list rather than on the card left open.
   await page.getByRole('button', { name: 'Go to the home screen' }).click();
   await page.waitForTimeout(300);
-  expect(count('GET', '/sync/friends')).toBe(onOpen + 1);
-  await page.getByRole('button', { name: /Friends/ }).click();
-  await expect.poll(() => count('GET', '/sync/friends')).toBe(2 * onOpen + 1);
-  // It opens on the list, not on the card left open.
-  await expect(section(page).locator('.profile-friends-card')).toHaveCount(0);
+  const [c2, , f2] = reads();
   await page.clock.runFor(10 * 60_000);
   await page.waitForTimeout(200);
-  expect(count('GET', '/sync/friends')).toBe(2 * onOpen + 1);
+  expect([reads()[0], reads()[2]]).toEqual([c2, f2]);
+  await page.getByRole('button', { name: /Friends/ }).click();
+  await expect.poll(() => reads()[2]).toBeGreaterThan(f2);
+  await expect(section(page).locator('.profile-friends-card')).toHaveCount(0);
 });
 
-test('nothing another player typed is shown: text in the list and the card never appears', async ({ page }) => {
+test('nothing another player typed is shown: text in the list, the card, the feed and a replay never appears', async ({ page }) => {
   const INJ = 'INJ Visit example.com';
   await fakeSync(page, {
+    online: [FALCON],
+    events: [
+      { kind: 'game', player_id: FALCON, handle: INJ, avatar: INJ, board: '9x9', result: 'win', rung: INJ, bot: INJ, ts: day(2) },
+      { kind: 'promotion', player_id: FALCON, handle: [3, 3], avatar: 'nova', board: '9x9', from: INJ, to: INJ, ts: day(2) },
+      { kind: INJ, player_id: FALCON, handle: [3, 3], avatar: 'nova', board: INJ, result: INJ, ts: day(2) },
+    ],
+    replays: {
+      [FALCON]: [
+        { id: 'inj1', date: new Date(day(2)).toISOString(), board: INJ, outcome: INJ, opponent: INJ, payload: { sgf: `(;GM[1]FF[4]CA[UTF-8]SZ[9]PB[${INJ}]RU[Japanese];B[ee])`, result: INJ } },
+      ],
+    },
     friends: [{ player_id: FALCON, handle: INJ, avatar: INJ }],
     incoming: [{ player_id: FOX, handle: [64, 1], avatar: `${INJ} nova` }],
     cards: {
@@ -725,6 +854,15 @@ test('nothing another player typed is shown: text in the list and the card never
   await expect(card.locator('.profile-friends-card-rank')).toHaveCount(1);
   await expect(card.locator('.profile-friends-card-rank')).toHaveText(/^9×9 \d{1,2}[kdp] · 0 games$/);
   await expect(card.locator('.profile-friends-result')).toHaveText(['9×9LossOct 1']);
+  await expect(section(page).locator('.profile-friends-feed-item:not(.profile-friends-feed-online) .profile-friends-feed-text')).toHaveText([
+    'A friend won a game on 9×9',
+  ]);
+  await expect(section(page).locator('.profile-friends-feed-online')).toHaveText('A friend is online now');
+  await expect(card.locator('.profile-friends-game')).toHaveText(/^Played a game/);
+  // A replay whose SGF carries text opens nothing, and says so.
+  await card.locator('.profile-friends-game').click();
+  await expect(card.getByRole('alert')).toHaveText("That game can't be shown.");
+  await expect(page.locator('.replay-controls')).toHaveCount(0);
   const html = await page.content();
   expect(html).not.toContain('INJ');
   expect(html).not.toContain('example.com');
@@ -733,8 +871,8 @@ test('nothing another player typed is shown: text in the list and the card never
 test('a 401 from a friends route: the first-run choice with its line, and the friends data gone', async ({ page }) => {
   await fakeSync(page, { friendsStatus: 401 });
   await seedLoggedIn(page);
+  // The lists load after the launch sync, so the 401 comes before any tap.
   await page.goto('/');
-  await page.getByRole('button', { name: /Friends/ }).click();
   await expect(page.locator('.first-run')).toBeVisible();
   await expect(page.locator('.first-run-notice')).toBeVisible();
   expect(await heldData(page)).toEqual(DROPPED);
@@ -761,4 +899,185 @@ test('Log out drops the friends data, and nothing of it was ever stored', async 
   await expect(page.locator('.first-run')).toBeVisible();
   await expect(page.locator('.first-run-notice')).toHaveCount(0);
   expect(await heldData(page)).toEqual(DROPPED);
+});
+
+/* ------------------------------------------------------------------------- *
+ * Revision 5: the feed, and a friend's games in the replay viewer.
+ * ------------------------------------------------------------------------- */
+
+/** The page's now in the tests below that show a day: Oct 2, 2026, 1 PM in
+ *  Los Angeles, so the feed's "Today" and "Yesterday" never drift. */
+const NOW = new Date(Date.UTC(2026, 9, 2, 20, 0));
+
+const feedText = (page: Page) =>
+  section(page).locator('.profile-friends-feed-item:not(.profile-friends-feed-online) .profile-friends-feed-text');
+
+test('the feed comes first: who is online, then what friends did, in sentences', async ({ page }) => {
+  await page.clock.setFixedTime(NOW);
+  await fakeSync(page);
+  await seedLoggedIn(page);
+  await openProfile(page);
+  // First in the section, before the code.
+  const blocks = await section(page).locator('.profile-friends-label').allTextContents();
+  expect(blocks.slice(0, 2)).toEqual(['What your friends are up to', 'Your friend code']);
+
+  await expect(section(page).locator('.profile-friends-feed-online')).toHaveText(['Swift Falcon is online now']);
+  await expect(feedText(page)).toHaveText([
+    'Swift Falcon was promoted to 15k on 9×9',
+    'Swift Falcon beat the 12k bot on 9×9',
+    'Lucky Owl lost to the 18k bot on 9×9',
+  ]);
+  await expect(section(page).locator('.profile-friends-feed-when')).toHaveText(['Today', 'Today', 'Yesterday']);
+  // The online dot on Falcon's lines and in the list, nowhere else.
+  const falconLines = section(page).locator(`.profile-friends-feed-item[data-player-id="${FALCON}"]`);
+  await expect(falconLines.locator('.profile-friends-dot')).toHaveCount(3);
+  await expect(section(page).locator(`.profile-friends-feed-item[data-player-id="${OWL}"] .profile-friends-dot`)).toHaveCount(0);
+  await expect(friend(page, FALCON).locator('.profile-friends-dot')).toHaveAttribute('aria-label', 'Online now');
+  await expect(friend(page, OWL).locator('.profile-friends-dot')).toHaveCount(0);
+  // Each friend's ranks under their name; online now first.
+  await expect(friend(page, FALCON).locator('.profile-friends-status')).toHaveText('Online now · 9×9 15k · 19×19 20k');
+  await expect(friend(page, OWL).locator('.profile-friends-status')).toHaveText('9×9 25k');
+  await expect(friend(page, OTTER).locator('.profile-friends-status')).toHaveCount(0);
+  // A day, never a time.
+  await expect(section(page).locator('.profile-friends-feed')).not.toContainText(/\d:\d\d|AM|PM/);
+});
+
+test('a long feed shows eight lines, then Show more', async ({ page }) => {
+  await page.clock.setFixedTime(NOW);
+  const events = Array.from({ length: 12 }, (_, i) => ({
+    kind: 'game',
+    player_id: OWL,
+    handle: [8, 5],
+    avatar: 'comet',
+    board: '9x9',
+    result: i % 2 ? 'loss' : 'win',
+    rung: '25k',
+    bot: '18k',
+    ts: day(2, 23) - i * 3_600_000,
+  }));
+  await fakeSync(page, { events, online: [] });
+  await seedLoggedIn(page);
+  await openProfile(page);
+  await expect(feedText(page)).toHaveCount(8);
+  await section(page).getByRole('button', { name: 'Show more' }).click();
+  await expect(feedText(page)).toHaveCount(12);
+  await section(page).getByRole('button', { name: 'Show less' }).click();
+  await expect(feedText(page)).toHaveCount(8);
+});
+
+test('an empty feed says why: no friends yet, or friends with no games yet', async ({ page }) => {
+  await fakeSync(page, { friends: [], incoming: [], events: [], online: [] });
+  await seedLoggedIn(page);
+  await openProfile(page);
+  await expect(section(page).locator('.profile-friends-feed-empty')).toHaveText("When you have friends, you'll see their games here.");
+});
+
+test('friends with no games yet', async ({ page }) => {
+  await fakeSync(page, { events: [], online: [] });
+  await seedLoggedIn(page);
+  await openProfile(page);
+  await expect(section(page).locator('.profile-friends-feed-empty')).toHaveText("Your friends haven't played any ranked games yet.");
+  await expect(section(page).locator('.profile-friends-feed-item')).toHaveCount(0);
+});
+
+test("offline: the feed stays as it was and the section says it couldn't load", async ({ page }) => {
+  const { state } = await fakeSync(page);
+  await seedLoggedIn(page);
+  await openProfile(page);
+  await expect(feedText(page)).toHaveCount(3);
+  state.down = true;
+  await section(page).getByRole('button', { name: 'Refresh' }).click();
+  await expect(section(page)).toContainText("Couldn't load your friends. They'll show next time you're connected.");
+  await expect(feedText(page)).toHaveCount(3);
+  await expect(friend(page, FALCON)).toBeVisible();
+  state.down = false;
+  await section(page).getByRole('button', { name: 'Refresh' }).click();
+  await expect(section(page)).not.toContainText("Couldn't load your friends");
+});
+
+test("a friend's recent games open in the replay viewer", async ({ page }) => {
+  await page.clock.setFixedTime(NOW);
+  const { count } = await fakeSync(page);
+  await seedLoggedIn(page);
+  await openProfile(page);
+  await friend(page, FALCON).locator('.profile-friends-person').click();
+  const card = friend(page, FALCON).locator('.profile-friends-card');
+  await expect(card.locator('.profile-friends-game')).toHaveText([/^Beat the 12k bot on 9×9Today/, /^Lost to the 18k bot on 19×19Yesterday/]);
+  await expect(card.getByRole('button', { name: 'Watch: Beat the 12k bot on 9×9, Today' })).toBeVisible();
+  expect(count('GET', `/sync/friends/${FALCON}/games`)).toBe(1);
+
+  await card.getByRole('button', { name: 'Watch: Beat the 12k bot on 9×9, Today' }).click();
+  // The Library's viewer: the Profile page gives way to it.
+  await expect(page.locator('.replay-controls')).toBeVisible();
+  await expect(page.locator('.profile-friends')).toHaveCount(0);
+  await expect(page.locator('.replay-meta')).toHaveText('vs 12k · Black wins by 5.5');
+  const replay = await page.evaluate(() => {
+    const r = (window as unknown as { __replayStore: { getState: () => Record<string, unknown> } }).__replayStore.getState();
+    return { sgf: r.sgf, totalMoves: r.totalMoves, libraryId: r.libraryId, sharedId: r.sharedId };
+  });
+  expect(replay).toEqual({ sgf: APP_SGF, totalMoves: 4, libraryId: null, sharedId: null });
+  // It is not this player's game: no Share, and nothing lands in the Library.
+  await expect(page.getByRole('button', { name: 'Share game' })).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem('goforkids_library') ?? '')).not.toContain('a1b2c3d4');
+  // Close goes home, as from the Library.
+  await page.locator('.replay-controls').getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByRole('button', { name: /Profile/ })).toBeVisible();
+});
+
+test('a friend with no games yet, and games that will not load', async ({ page }) => {
+  const { once } = await fakeSync(page, { replays: {} });
+  await seedLoggedIn(page);
+  await openProfile(page);
+  await friend(page, OWL).locator('.profile-friends-person').click();
+  await expect(friend(page, OWL).locator('.profile-friends-games-note')).toHaveText('No saved games yet.');
+  once.set(`GET /sync/friends/${OTTER}/games`, 503);
+  await friend(page, OTTER).locator('.profile-friends-person').click();
+  await expect(friend(page, OTTER).locator('.profile-friends-games-note')).toHaveText("Couldn't load their games.");
+  await expect(friend(page, OTTER).locator('.profile-friends-card-name')).toHaveText('Cosmic Otter');
+});
+
+test('a game that is gone says so; the list of games catches up', async ({ page }) => {
+  await page.clock.setFixedTime(NOW);
+  const { state } = await fakeSync(page);
+  await seedLoggedIn(page);
+  await openProfile(page);
+  await friend(page, FALCON).locator('.profile-friends-person').click();
+  const card = friend(page, FALCON).locator('.profile-friends-card');
+  await expect(card.locator('.profile-friends-game')).toHaveCount(2);
+  state.replays[FALCON] = state.replays[FALCON].slice(1); // deleted on their device
+  await card.locator('.profile-friends-game').first().click();
+  await expect(card.getByRole('alert')).toHaveText("That game isn't there any more.");
+  await expect(card.locator('.profile-friends-game')).toHaveCount(1);
+  await expect(page.locator('.replay-controls')).toHaveCount(0);
+});
+
+test('a friend removed while their card is open: a game tapped says so, and the card closes', async ({ page }) => {
+  await page.clock.setFixedTime(NOW);
+  const { state } = await fakeSync(page);
+  await seedLoggedIn(page);
+  await openProfile(page);
+  await friend(page, FALCON).locator('.profile-friends-person').click();
+  const card = friend(page, FALCON).locator('.profile-friends-card');
+  await expect(card.locator('.profile-friends-game')).toHaveCount(2);
+  state.friends = state.friends.filter((f) => f.player_id !== FALCON); // removed on their side
+  await card.locator('.profile-friends-game').first().click();
+  await expect(section(page).getByRole('alert')).toHaveText("That player isn't your friend any more.");
+  await expect(friend(page, FALCON)).toHaveCount(0);
+  await expect(section(page).locator('.profile-friends-card')).toHaveCount(0);
+  await expect(page.locator('.replay-controls')).toHaveCount(0);
+  // Gone from the feed too.
+  await expect(section(page).locator(`.profile-friends-feed-item[data-player-id="${FALCON}"]`)).toHaveCount(0);
+});
+
+test('a friend removed while their card is open: the next 30-second refresh closes it', async ({ page }) => {
+  await page.clock.install({ time: NOW });
+  const { state } = await fakeSync(page);
+  await seedLoggedIn(page);
+  await openProfile(page);
+  await friend(page, OWL).locator('.profile-friends-person').click();
+  await expect(friend(page, OWL).locator('.profile-friends-card-name')).toHaveText('Lucky Owl');
+  state.friends = state.friends.filter((f) => f.player_id !== OWL);
+  await page.clock.runFor(30_000);
+  await expect(friend(page, OWL)).toHaveCount(0);
+  await expect(section(page).locator('.profile-friends-card')).toHaveCount(0);
 });
