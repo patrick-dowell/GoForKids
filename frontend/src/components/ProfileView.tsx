@@ -17,6 +17,8 @@ import {
 } from '../autoplay/matchmaker';
 import { confidenceInterval, displayRating, toGoRank } from '../autoplay/glicko';
 import { DevicesSection } from './DevicesSection';
+import { AdminSection } from './AdminSection';
+import { useSyncStore } from '../store/syncStore';
 import { renderName, type Handle } from '../profile/names';
 import './ProfileView.css';
 
@@ -29,6 +31,8 @@ export function ProfileView({ onExit }: ProfileViewProps) {
   const handle = useProfileStore((s) => s.handle);
   const setAvatar = useProfileStore((s) => s.setAvatar);
   const shuffleHandle = useProfileStore((s) => s.shuffleHandle);
+  // Revision 3: only when the latest sync pass said this profile is an admin.
+  const isAdmin = useSyncStore((s) => s.admin);
 
   // The active board's slot — set by the home-screen chip that opened this view.
   const boardSize = useAutoPlayStore((s) => s.boardSize);
@@ -77,6 +81,8 @@ export function ProfileView({ onExit }: ProfileViewProps) {
         <AvatarPickerSection avatar={avatar} onSelect={setAvatar} />
 
         <DevicesSection />
+
+        {isAdmin && <AdminSection />}
 
         <AdvancedSection
           open={advancedOpen}
