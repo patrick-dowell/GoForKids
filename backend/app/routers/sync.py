@@ -85,13 +85,15 @@ def _unauthorized() -> HTTPException:
 
 
 async def current_device(
-    authorization: Optional[str] = Header(None), now: float = Depends(current_time)
+    authorization: Optional[str] = Header(None),
+    x_device_kind: Optional[str] = Header(None),
+    now: float = Depends(current_time),
 ) -> Device:
     scheme, _, token = (authorization or "").partition(" ")
     token = token.strip()
     if scheme.lower() != "bearer" or not token:
         raise _unauthorized()
-    found = await storage.authenticate(token, now)
+    found = await storage.authenticate(token, now, kind=x_device_kind)
     if found is None:
         raise _unauthorized()
     player_id, device_id = found
@@ -254,6 +256,7 @@ async def create_player(
     body: CreatePlayerRequest,
     request: Request,
     response: Response,
+    x_device_kind: Optional[str] = Header(None),
     _finite: None = Depends(finite_body),
     now: float = Depends(current_time),
 ):
@@ -261,7 +264,9 @@ async def create_player(
     # whole, and it counts toward the limit like any create.
     state_json = _checked_state_json(body.state)
     _enforce(create_limiter, request, now)
-    result = await storage.create_player(state_json, now, create_key=body.create_key)
+    result = await storage.create_player(
+        state_json, now, create_key=body.create_key, kind=x_device_kind
+    )
     if not result.created:
         response.status_code = 200
     return {
@@ -282,13 +287,16 @@ async def mint_pairing_code(
 
 @router.post("/pairing-codes/redeem")
 async def redeem_pairing_code(
-    body: RedeemRequest, request: Request, now: float = Depends(current_time)
+    body: RedeemRequest,
+    request: Request,
+    x_device_kind: Optional[str] = Header(None),
+    now: float = Depends(current_time),
 ):
     _enforce(redeem_limiter, request, now)
     code = body.code.strip().upper()
     linked = None
     if len(code) == storage.PAIRING_CODE_LENGTH:
-        linked = await storage.redeem_pairing_code(code, now)
+        linked = await storage.redeem_pairing_code(code, now, kind=x_device_kind)
     if linked is None:
         # Unknown, expired and used look the same from outside.
         raise HTTPException(status_code=404, detail="Pairing code not found")

@@ -156,6 +156,7 @@ def _entry(summary: storage.PlayerSummary, now: float) -> Dict[str, Any]:
                 "device_id": d.device_id,
                 "created_at": d.created_at,
                 "last_seen_at": _iso_or_none(d.last_seen_at),
+                "kind": d.kind,
             }
             for d in summary.devices
         ],
@@ -171,7 +172,12 @@ def _entry(summary: storage.PlayerSummary, now: float) -> Dict[str, Any]:
 async def list_players(
     _admin: Device = Depends(admin_device), now: float = Depends(current_time)
 ):
-    return {"players": [_entry(s, now) for s in await storage.list_players()]}
+    return {
+        "players": [_entry(s, now) for s in await storage.list_players()],
+        # A device row with no `last_seen_at` created before this was last
+        # used before it, not never (the stamp arrived with Revision 3).
+        "last_seen_since": await storage.last_seen_since(),
+    }
 
 
 # ── A new profile and a code for it ──────────────────────────────────

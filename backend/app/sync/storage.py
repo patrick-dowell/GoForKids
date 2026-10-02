@@ -49,6 +49,15 @@ RETENTION_S = 30 * 24 * 3600
 # A device's last-seen time is written at most this often.
 LAST_SEEN_EVERY_S = 60
 
+# What a device may say it is (the `X-Device-Kind` header). Not personal: the
+# admin list shows it so a parent or teacher can tell an iPad row from a
+# browser row. Anything else is ignored.
+DEVICE_KINDS = ("iPad", "iPhone", "web")
+
+
+def valid_device_kind(value: object) -> Optional[str]:
+    return value if isinstance(value, str) and value in DEVICE_KINDS else None
+
 
 def resolve_db_path(env: Mapping[str, str] = os.environ) -> str:
     """GOFORKIDS_SYNC_DB, else GOFORKIDS_DB, else goforkids.db."""
@@ -117,6 +126,7 @@ _ADDED_COLUMNS = (
     ("sync_devices", "device_id", "TEXT"),
     ("sync_devices", "last_seen_at", "REAL"),
     ("sync_players", "friend_code", "TEXT"),
+    ("sync_devices", "kind", "TEXT"),
 )
 
 
@@ -147,6 +157,19 @@ async def init_sync_db(now: Optional[float] = None) -> None:
                 created_at TEXT NOT NULL
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS sync_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        # When this server began recording `last_seen_at`: a device row with
+        # no stamp and an earlier `created_at` was last used before then,
+        # not never. Written once, at the first start-up that knows the key.
+        await db.execute(
+            "INSERT OR IGNORE INTO sync_meta (key, value) VALUES ('last_seen_since', ?)",
+            (iso_utc(now),),
+        )
         await db.execute("""
             CREATE TABLE IF NOT EXISTS sync_games (
                 player_id TEXT NOT NULL,
@@ -265,16 +288,21 @@ async def _stamp_if_deviceless(db: aiosqlite.Connection, player_id: str, now: fl
 
 
 async def _add_device(
-    db: aiosqlite.Connection, player_id: str, now: float, key_hash: Optional[str] = None
+    db: aiosqlite.Connection,
+    player_id: str,
+    now: float,
+    key_hash: Optional[str] = None,
+    kind: Optional[str] = None,
 ) -> str:
     """Every login goes through here, so this is also where a profile's
     retention clock stops."""
     token = new_device_token()
     await db.execute(
         """INSERT INTO sync_devices
-           (token_hash, player_id, created_at, create_key_hash, device_id, last_seen_at)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (hash_token(token), player_id, iso_utc(now), key_hash, new_device_id(), now),
+           (token_hash, player_id, created_at, create_key_hash, device_id, last_seen_at, kind)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (hash_token(token), player_id, iso_utc(now), key_hash, new_device_id(), now,
+         valid_device_kind(kind)),
     )
     await db.execute(
         "UPDATE sync_players SET no_device_since = NULL WHERE id = ?", (player_id,)
@@ -292,7 +320,10 @@ class CreatedPlayer:
 
 
 async def create_player(
-    state_json: str, now: float, create_key: Optional[str] = None
+    state_json: str,
+    now: float,
+    create_key: Optional[str] = None,
+    kind: Optional[str] = None,
 ) -> CreatedPlayer:
     """Create a record at revision 1 with its first device.
 
@@ -317,7 +348,7 @@ async def create_player(
                     "DELETE FROM sync_devices WHERE player_id = ? AND create_key_hash = ?",
                     (player_id, key_hash),
                 )
-                token = await _add_device(db, player_id, now, key_hash)
+                token = await _add_device(db, player_id, now, key_hash, kind)
                 return CreatedPlayer(player_id, token, rev, current_json, created=False)
         player_id = str(uuid.uuid4())
         await db.execute(
@@ -326,27 +357,37 @@ async def create_player(
                VALUES (?, 1, ?, ?, ?, ?, ?)""",
             (player_id, state_json, stamp, stamp, key_hash, await _free_friend_code(db)),
         )
-        token = await _add_device(db, player_id, now, key_hash)
+        token = await _add_device(db, player_id, now, key_hash, kind)
     return CreatedPlayer(player_id, token, 1, state_json, created=True)
 
 
-async def authenticate(token: str, now: float) -> Optional[tuple[str, str]]:
+async def authenticate(
+    token: str, now: float, kind: Optional[str] = None
+) -> Optional[tuple[str, str]]:
     """(player_id, device_id) for a live token, or None. Records the device
-    as seen at `now`, writing at most once per LAST_SEEN_EVERY_S."""
+    as seen at `now`, writing at most once per LAST_SEEN_EVERY_S, and keeps
+    the first valid kind a device reports (rows from before kinds existed
+    pick theirs up on their next request)."""
     token_hash = hash_token(token)
+    kind = valid_device_kind(kind)
     async with _connect() as db:
         async with db.execute(
-            "SELECT player_id, device_id, last_seen_at FROM sync_devices WHERE token_hash = ?",
+            "SELECT player_id, device_id, last_seen_at, kind FROM sync_devices WHERE token_hash = ?",
             (token_hash,),
         ) as cur:
             row = await cur.fetchone()
         if row is None:
             return None
-        player_id, device_id, last_seen_at = row
+        player_id, device_id, last_seen_at, stored_kind = row
         if last_seen_at is None or now - last_seen_at >= LAST_SEEN_EVERY_S:
             await db.execute(
                 "UPDATE sync_devices SET last_seen_at = ? WHERE token_hash = ?",
                 (now, token_hash),
+            )
+        if stored_kind is None and kind is not None:
+            await db.execute(
+                "UPDATE sync_devices SET kind = ? WHERE token_hash = ? AND kind IS NULL",
+                (kind, token_hash),
             )
     return player_id, device_id
 
@@ -446,7 +487,9 @@ async def mint_admin_pairing_code(
         return await _mint_code(db, player_id, now, expires_at)
 
 
-async def redeem_pairing_code(code: str, now: float) -> Optional[tuple[str, str, int, str]]:
+async def redeem_pairing_code(
+    code: str, now: float, kind: Optional[str] = None
+) -> Optional[tuple[str, str, int, str]]:
     """Spend a live code and link a new device to its player.
 
     Returns (player_id, device_token, rev, state_json), or None when the code
@@ -469,7 +512,7 @@ async def redeem_pairing_code(code: str, now: float) -> Optional[tuple[str, str,
         if row is None:
             return None
         player_id, rev, state_json = row
-        token = await _add_device(db, player_id, now)
+        token = await _add_device(db, player_id, now, kind=kind)
     return player_id, token, rev, state_json
 
 
@@ -562,6 +605,7 @@ class DeviceSummary:
     device_id: str
     created_at: str
     last_seen_at: Optional[float]
+    kind: Optional[str] = None
 
 
 @dataclass
@@ -575,6 +619,17 @@ class PlayerSummary:
     replays: int
 
 
+async def last_seen_since() -> Optional[str]:
+    """When this server began recording `last_seen_at` (ISO UTC), or None on
+    a database that never started up."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT value FROM sync_meta WHERE key = 'last_seen_since'"
+        ) as cur:
+            row = await cur.fetchone()
+    return None if row is None else row[0]
+
+
 async def list_players() -> list[PlayerSummary]:
     """Every profile, most recently updated first, with its devices (oldest
     first) and replay count. Never carries a token hash."""
@@ -585,7 +640,7 @@ async def list_players() -> list[PlayerSummary]:
         ) as cur:
             players = await cur.fetchall()
         async with db.execute(
-            """SELECT player_id, device_id, created_at, last_seen_at FROM sync_devices
+            """SELECT player_id, device_id, created_at, last_seen_at, kind FROM sync_devices
                ORDER BY created_at, rowid"""
         ) as cur:
             device_rows = await cur.fetchall()
@@ -594,9 +649,9 @@ async def list_players() -> list[PlayerSummary]:
         ) as cur:
             replays = dict(await cur.fetchall())
     devices: dict[str, list[DeviceSummary]] = {}
-    for player_id, device_id, created_at, last_seen_at in device_rows:
+    for player_id, device_id, created_at, last_seen_at, kind in device_rows:
         devices.setdefault(player_id, []).append(
-            DeviceSummary(device_id, created_at, last_seen_at)
+            DeviceSummary(device_id, created_at, last_seen_at, kind)
         )
     return [
         PlayerSummary(

@@ -230,9 +230,9 @@ async def test_list_entry_has_the_planned_shape(client, admin, clock):
     # Minting the code at t0 + 90 was the first device's latest request.
     assert entry["devices"] == [
         {"device_id": await device_id(client, auth), "created_at": at(t0),
-         "last_seen_at": at(t0 + 90)},
+         "last_seen_at": at(t0 + 90), "kind": None},
         {"device_id": await device_id(client, second), "created_at": at(t0 + 90),
-         "last_seen_at": at(t0 + 90)},
+         "last_seen_at": at(t0 + 90), "kind": None},
     ]
     assert entry["replays"] == 2
     assert entry["created_at"] == at(t0)
@@ -803,3 +803,52 @@ async def test_no_reply_carries_a_token_hash(client, admin, sync_db):
             assert h not in text
         for a in tokens:
             assert a["Authorization"].split()[1] not in text
+
+
+# ── Device kinds and the last-seen-since stamp (the device lines) ─────
+
+
+async def test_a_device_reports_its_kind_on_create_and_on_redeem(client, admin, clock):
+    _, admin_auth = admin
+    created, auth = await new_player(client, headers={"X-Device-Kind": "iPad"})
+    code = (await client.post("/api/sync/pairing-codes", headers=auth)).json()["code"]
+    r = await client.post("/api/sync/pairing-codes/redeem", json={"code": code},
+                          headers={"X-Device-Kind": "web"})
+    assert r.status_code == 200, r.text
+    entry = (await players(client, admin_auth))[created["player_id"]]
+    assert [d["kind"] for d in entry["devices"]] == ["iPad", "web"]
+
+
+async def test_an_unknown_kind_is_ignored_and_never_stored(client, admin, clock):
+    _, admin_auth = admin
+    created, auth = await new_player(client, headers={"X-Device-Kind": "Fridge; drop table"})
+    entry = (await players(client, admin_auth))[created["player_id"]]
+    assert [d["kind"] for d in entry["devices"]] == [None]
+
+
+async def test_a_device_from_before_kinds_picks_its_kind_up_on_its_next_request(client, admin, clock):
+    """Rows written by an older app have no kind; the first valid header
+    fills it, and a later different header does not change it."""
+    _, admin_auth = admin
+    created, auth = await new_player(client)
+    entry = (await players(client, admin_auth))[created["player_id"]]
+    assert entry["devices"][0]["kind"] is None
+    r = await client.get("/api/sync/state", headers={**auth, "X-Device-Kind": "iPhone"})
+    assert r.status_code == 200
+    r = await client.get("/api/sync/state", headers={**auth, "X-Device-Kind": "web"})
+    assert r.status_code == 200
+    entry = (await players(client, admin_auth))[created["player_id"]]
+    assert entry["devices"][0]["kind"] == "iPhone"
+
+
+async def test_the_list_says_when_last_seen_began(client, admin, clock):
+    """`last_seen_since` is the start-up that first knew the stamp, so the
+    app can say "last used before <then>" for an older row with no stamp."""
+    _, admin_auth = admin
+    r = await client.get(f"{ADMIN}/players", headers=admin_auth)
+    assert r.status_code == 200
+    since = r.json()["last_seen_since"]
+    assert since is not None and since.endswith("Z")
+    clock.advance(3600)
+    r = await client.get(f"{ADMIN}/players", headers=admin_auth)
+    assert r.json()["last_seen_since"] == since  # written once, never moved
