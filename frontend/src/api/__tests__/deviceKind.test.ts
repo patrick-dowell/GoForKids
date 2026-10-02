@@ -10,6 +10,8 @@ const g = globalThis as { window?: { kataGo?: unknown } };
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X)';
 const IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'; // iPadOS reports a Mac
 
+const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+
 function withUserAgent(ua: string) {
   // Node's `navigator` is a getter-only global; redefine it for the test.
   Object.defineProperty(globalThis, 'navigator', { value: { userAgent: ua }, configurable: true });
@@ -18,6 +20,7 @@ function withUserAgent(ua: string) {
 describe('deviceKind', () => {
   afterEach(() => {
     delete g.window;
+    if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator);
     vi.unstubAllGlobals();
   });
 

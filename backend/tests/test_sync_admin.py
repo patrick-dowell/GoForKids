@@ -852,3 +852,30 @@ async def test_the_list_says_when_last_seen_began(client, admin, clock):
     clock.advance(3600)
     r = await client.get(f"{ADMIN}/players", headers=admin_auth)
     assert r.json()["last_seen_since"] == since  # written once, never moved
+
+
+async def test_last_seen_since_is_the_first_start_up_and_never_moves(tmp_path, monkeypatch):
+    """A later start-up (a redeploy) keeps the first stamp, and the stamp is
+    the start-up time it was given, not the wall clock. On a fresh file: the
+    shared fixture has already started its own database once."""
+    from app.sync import storage
+
+    monkeypatch.setattr(storage, "DB_PATH", str(tmp_path / "fresh.db"))
+    t0 = 1_900_000_000.0
+    await storage.init_sync_db(t0)
+    await storage.init_sync_db(t0 + 86400)
+    assert await storage.last_seen_since() == storage.iso_utc(t0)
+
+
+async def test_a_bad_kind_on_a_later_request_leaves_the_row_as_it_was(client, admin, clock):
+    """The fill-in on authenticated requests is validated like create is."""
+    _, admin_auth = admin
+    created, auth = await new_player(client)
+    r = await client.get("/api/sync/state", headers={**auth, "X-Device-Kind": "Fridge; drop table"})
+    assert r.status_code == 200
+    entry = (await players(client, admin_auth))[created["player_id"]]
+    assert entry["devices"][0]["kind"] is None
+    r = await client.get("/api/sync/state", headers={**auth, "X-Device-Kind": "iPad"})
+    assert r.status_code == 200
+    entry = (await players(client, admin_auth))[created["player_id"]]
+    assert entry["devices"][0]["kind"] == "iPad"

@@ -187,18 +187,24 @@ describe('New player', () => {
 });
 
 describe('the device lines', () => {
-  const since = '2026-10-02T21:30:00Z';
-  const noon = new Date('2026-10-02T19:00:00Z'); // "today" for whenText
+  // Built in local time so the day names hold in any time zone: noon on
+  // Oct 2 local is "today"; the stamp began that afternoon; the row was
+  // added that morning (before the stamp) or the next morning (after).
+  const noon = new Date(2026, 9, 2, 12, 0, 0);
+  const since = new Date(2026, 9, 2, 14, 30, 0).toISOString();
+  const morning = new Date(2026, 9, 2, 7, 20, 0).toISOString();
+  const nextMorning = new Date(2026, 9, 3, 7, 20, 0).toISOString();
   const row = (over: Partial<AdminPlayer['devices'][number]>) => ({
     device_id: 'd1',
-    created_at: '2026-10-02T07:20:00Z',
+    created_at: morning,
     last_seen_at: null,
     kind: null,
     ...over,
   });
 
   it('names the kind, the day added and when it was last used', () => {
-    const text = deviceLineText(row({ kind: 'iPad', last_seen_at: '2026-10-02T18:05:00Z' }), since, noon);
+    const used = new Date(2026, 9, 2, 11, 5, 0).toISOString();
+    const text = deviceLineText(row({ kind: 'iPad', last_seen_at: used }), since, noon);
     expect(text).toMatch(/^iPad · added Oct 2 · last used today at /);
   });
 
@@ -208,11 +214,11 @@ describe('the device lines', () => {
   });
 
   it('says "last used before" the stamp began for an older row with no stamp', () => {
-    expect(deviceLineText(row({ created_at: '2026-10-02T07:20:00Z' }), since, noon)).toMatch(/last used before Oct 2$/);
+    expect(deviceLineText(row({ created_at: morning }), since, noon)).toMatch(/last used before Oct 2$/);
   });
 
   it('says "not used yet" for a row made since the stamp began, or when the server gave no stamp', () => {
-    expect(deviceLineText(row({ created_at: '2026-10-03T07:20:00Z' }), since, noon)).toMatch(/not used yet$/);
+    expect(deviceLineText(row({ created_at: nextMorning }), since, noon)).toMatch(/not used yet$/);
     expect(deviceLineText(row({}), null, noon)).toMatch(/not used yet$/);
   });
 

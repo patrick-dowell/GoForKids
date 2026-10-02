@@ -308,7 +308,7 @@ function AdminRow({
           No device{player.days_left !== null ? ` · ${daysLeftText(player.days_left)}` : ''}
         </div>
       ) : (
-        <ul className="profile-admin-devices" aria-label={installedOnText(player.devices.length)}>
+        <ul className="profile-admin-devices">
           <li className="profile-admin-device-count">{installedOnText(player.devices.length)}</li>
           {player.devices.map((d) => (
             <li key={d.device_id} className="profile-admin-device">
