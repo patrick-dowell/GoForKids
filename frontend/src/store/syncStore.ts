@@ -9,9 +9,11 @@ import {
   type PairingCode,
   type RemoteGameEntry,
   type RemoteState,
+  type StateReply,
   type SyncStateDoc,
 } from '../api/sync';
 import { isHandle, randomHandle } from '../profile/names';
+import { useAdminLabels } from './adminLabels';
 import {
   onBeforeRankedResult,
   onRankedResult,
@@ -40,6 +42,12 @@ import { useProfileStore } from './profileStore';
  * A revision counter decides which side is newer. Ranked results this device
  * could not push wait in a queue and are re-applied, in order, on top of the
  * server's ladder at the next pass.
+ *
+ * Revision 3: each pass also reads, from `GET /state`, whether this device's
+ * profile is an admin and this device's own id. The Admin section (see
+ * adminStore.ts) shows only while the latest pass said admin; its requests
+ * go through `adminRequest`. Log out and a 401 clear both, and the admin's
+ * labels with them.
  */
 
 const STORAGE_KEY = 'goforkids.sync.v1';
@@ -84,6 +92,11 @@ interface PersistedSync {
    *  every create attempt, cleared once one succeeds (revision 2.1): a
    *  repeated create returns the same profile instead of a second one. */
   createKey: string | null;
+  /** The latest pass's `GET /state` said this device's profile is an admin
+   *  (revision 3): the Profile page shows the Admin section. */
+  admin: boolean;
+  /** This device's own id, from the latest `GET /state`. */
+  deviceId: string | null;
 }
 
 const EMPTY: PersistedSync = {
@@ -99,6 +112,8 @@ const EMPTY: PersistedSync = {
   showIntro: false,
   refusedGameIds: [],
   createKey: null,
+  admin: false,
+  deviceId: null,
 };
 
 interface SyncState extends PersistedSync {
@@ -129,6 +144,10 @@ interface SyncState extends PersistedSync {
   logOut: () => Promise<void>;
   /** The name card has been seen. */
   dismissIntro: () => void;
+  /** Make an admin request with this device's token (revision 3). A 401
+   *  takes the 401 path; a 403 hides the Admin section and never signs the
+   *  device out. Throws without a request when this device isn't an admin. */
+  adminRequest: <T>(call: (token: string) => Promise<T>) => Promise<T>;
 }
 
 /* ------------------------------------------------------------------------- *
@@ -182,6 +201,8 @@ function pickPersisted(s: PersistedSync): PersistedSync {
     showIntro: s.showIntro,
     refusedGameIds: s.refusedGameIds,
     createKey: s.createKey,
+    admin: s.admin,
+    deviceId: s.deviceId,
   };
 }
 
@@ -229,6 +250,8 @@ function parsePersisted(raw: string | null): PersistedSync {
       showIntro: p.showIntro === true,
       refusedGameIds: stringArray(p.refusedGameIds),
       createKey: pendingCreate && isCreateKey(p.createKey) ? p.createKey : null,
+      admin: p.admin === true,
+      deviceId: typeof p.deviceId === 'string' ? p.deviceId : null,
     };
   } catch {
     return { ...EMPTY };
@@ -367,6 +390,9 @@ export const useSyncStore = create<SyncState>((set, get) => {
       useLibraryStore.getState().replaceGames([]);
       useProfileStore.getState().clearPlayer();
     });
+    // The admin's labels go too: they never stay on a device that leaves
+    // the admin profile.
+    useAdminLabels.getState().clear();
     heldRemote = null;
     rankedGameActive = false;
     avatarEdited = false;
@@ -406,8 +432,15 @@ export const useSyncStore = create<SyncState>((set, get) => {
 
   /** Steps 1–4 of a pass. */
   const syncState = async (token: string): Promise<StateOutcome> => {
-    let remote = checkRemote(await syncApi.getState(token));
+    const reply: StateReply = await syncApi.getState(token);
+    let remote = checkRemote(reply);
     if (!linkedWith(token)) return 'stopped';
+    // Revision 3: whether this device may see the Admin section, and its
+    // own id, as of this pass.
+    update({
+      admin: reply.admin === true,
+      deviceId: typeof reply.device_id === 'string' ? reply.device_id : null,
+    });
     let retries = 0;
     for (;;) {
       if (remote.rev !== get().baseRev) {
@@ -738,6 +771,18 @@ export const useSyncStore = create<SyncState>((set, get) => {
     },
 
     dismissIntro: () => update({ showIntro: false }),
+
+    adminRequest: async <T,>(call: (token: string) => Promise<T>): Promise<T> => {
+      const token = get().deviceToken;
+      if (!token || !get().admin) throw new Error('sync: not an admin');
+      try {
+        return await call(token);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) handleUnauthorized(token);
+        else if (e instanceof ApiError && e.status === 403) update({ admin: false });
+        throw e;
+      }
+    },
   };
 });
 

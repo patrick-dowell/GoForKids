@@ -349,6 +349,75 @@ test('profile: sanctioned scroll screen — everything reachable', async ({ page
   });
 });
 
+test('profile with the Admin section (an admin device): everything reachable, nothing wider than the screen', async ({ page }) => {
+  // Feature 32, revision 3: the pass says this device's profile is an admin,
+  // and the list holds a profile with two devices, one with none, and this
+  // device's own. Answered here; nothing leaves the browser.
+  const device = (id: string, seen: string | null) => ({ device_id: id, created_at: '2026-09-10T16:00:00Z', last_seen_at: seen });
+  const entry = (id: string, handle: [number, number], devices: ReturnType<typeof device>[], days: number | null) => ({
+    player_id: id,
+    handle,
+    boards: { '9x9': { rung: '15k', games: 12 }, '19x19': { rung: '20k', games: 5 } },
+    devices,
+    replays: 7,
+    created_at: '2026-09-10T16:00:00Z',
+    updated_at: '2026-10-01T16:00:00Z',
+    no_device_since: days === null ? null : '2026-09-14T16:00:00Z',
+    days_left: days,
+  });
+  const list = [
+    entry('p-own', [26, 33], [device('d-self', '2026-10-01T16:00:00Z')], null),
+    entry('p-two', [44, 18], [device('d-a', '2026-10-01T16:00:00Z'), device('d-b', null)], null),
+    entry('p-none', [7, 13], [], 12),
+  ];
+  await page.route(
+    (url) => url.pathname.startsWith('/api/sync/'),
+    (route) => {
+      const path = new URL(route.request().url()).pathname;
+      const body =
+        path === '/api/sync/state'
+          ? { rev: 1, state: { schema: 1, ladder: { byBoardSize: {} }, lessons: [], avatar: 'tide', avatarPicked: true, handle: [26, 33] }, admin: true, device_id: 'd-self' }
+          : path === '/api/sync/games'
+            ? { games: [] }
+            : path === '/api/sync/admin/players'
+              ? { players: list }
+              : path.endsWith('/pairing-codes')
+                ? { code: 'K7QX2MPD', expires_at: '2026-10-02T23:30:00Z' }
+                : null;
+      return body ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }) : route.abort();
+    },
+  );
+  await page.addInitScript(() => {
+    localStorage.setItem('goforkids.profile.v1', JSON.stringify({ avatar: 'tide', avatarPicked: true, handle: [26, 33] }));
+    localStorage.setItem('goforkids.sync.v1', JSON.stringify({ playerId: 'p-own', deviceToken: 'layout-probe', baseRev: 1 }));
+    localStorage.setItem('goforkids.admin.labels.v1', JSON.stringify({ 'p-two': 'A label as long as one may be, forty' }));
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /Profile/ }).click();
+  await page.locator('.profile-admin-row').nth(2).waitFor();
+  // A code on show in the last row.
+  const last = page.locator('.profile-admin-row').nth(2);
+  await last.getByRole('button', { name: 'Code for this player' }).click();
+  await last.getByRole('button', { name: 'Make code' }).click();
+  await last.locator('.profile-devices-code').waitFor();
+  await sweep(page, 'profile-admin-code', {
+    reachable: [
+      '.profile-devices',
+      '.profile-admin',
+      '.profile-admin-row:nth-child(2) .profile-admin-device:last-child',
+      '.profile-admin-row:last-child .profile-devices-code',
+    ],
+    noBodyScroll: true,
+  });
+  // The New player step.
+  await last.getByRole('button', { name: 'Done' }).click();
+  await page.locator('.profile-admin').getByRole('button', { name: 'New player' }).click();
+  await sweep(page, 'profile-admin-new', {
+    reachable: ['.profile-admin-new', 'btn:Create player', '.profile-admin-row:last-child'],
+    noBodyScroll: true,
+  });
+});
+
 test('first-run choice: fits without scrolling at every viewport, all three steps', async ({ page }) => {
   // Fresh install: nothing stored, so the first-run choice is the first screen.
   await page.goto('/');

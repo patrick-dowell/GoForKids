@@ -1,6 +1,7 @@
 /**
- * Sync API (feature 32): the ten routes under `/api/sync`, coded to the
- * contract in feature_plans/32_sync_foundation.md. Rides the shared
+ * Sync API (feature 32): the ten routes under `/api/sync`, and revision 3's
+ * five admin routes under `/api/sync/admin`, coded to the contract in
+ * feature_plans/32_sync_foundation.md. Rides the shared
  * `request` helper in client.ts (base URL, timeout, network retry); a non-OK
  * response arrives as an `ApiError` carrying its status and JSON body.
  *
@@ -32,6 +33,43 @@ export interface SyncStateDoc {
 export interface RemoteState {
   rev: number;
   state: SyncStateDoc;
+}
+
+/** `GET /state` (revision 3) also says whether this device's profile is an
+ *  admin and gives this device's own id. */
+export interface StateReply extends RemoteState {
+  admin?: boolean;
+  device_id?: string;
+}
+
+/** One device of a profile, as the admin list shows it. Times are
+ *  `YYYY-MM-DDTHH:MM:SSZ`; `last_seen_at` is null until the device is seen. */
+export interface AdminDevice {
+  device_id: string;
+  created_at: string;
+  last_seen_at: string | null;
+}
+
+/** One board of a profile in the admin list: the stored rung (null when
+ *  missing or malformed) and how many ranked games its history holds. */
+export interface AdminBoard {
+  rung: string | null;
+  games: number;
+}
+
+/** One entry of `GET /admin/players`. */
+export interface AdminPlayer {
+  player_id: string;
+  handle: [number, number] | null;
+  boards: Record<string, AdminBoard>;
+  devices: AdminDevice[];
+  replays: number;
+  created_at: string;
+  updated_at: string;
+  no_device_since: string | null;
+  /** Null while the profile has a device; otherwise whole days left before
+   *  the cleanup deletes it, rounded up, never below 0. */
+  days_left: number | null;
 }
 
 /** What `POST /players` and `POST /pairing-codes/redeem` hand back. */
@@ -111,8 +149,8 @@ export const syncApi = {
       body: JSON.stringify({ code }),
     }),
 
-  getState: (token: string): Promise<RemoteState> =>
-    request<RemoteState>(`${BASE}/state`, authed(token)),
+  getState: (token: string): Promise<StateReply> =>
+    request<StateReply>(`${BASE}/state`, authed(token)),
 
   putState: async (token: string, baseRev: number, state: SyncStateDoc): Promise<PutStateResult> => {
     try {
@@ -156,6 +194,40 @@ export const syncApi = {
 
   revokeDevice: (token: string): Promise<void> =>
     request<void>(`${BASE}/devices/current`, authed(token, { method: 'DELETE' })),
+};
+
+/**
+ * The admin routes (revision 3), for a device of a profile listed as an
+ * admin on the server. Any other device gets 403 from every one of them.
+ * Nothing here carries the admin's labels: those stay on the device.
+ */
+export const adminApi = {
+  listPlayers: async (token: string): Promise<AdminPlayer[]> => {
+    const res = await request<{ players: AdminPlayer[] }>(`${BASE}/admin/players`, authed(token));
+    return Array.isArray(res?.players) ? res.players : [];
+  },
+
+  createPlayer: (token: string, state: SyncStateDoc): Promise<{ player_id: string; rev: number }> =>
+    request<{ player_id: string; rev: number }>(
+      `${BASE}/admin/players`,
+      authed(token, { method: 'POST', body: JSON.stringify({ state }) }),
+    ),
+
+  /** `expiresAt` is sent as given: the caller passes `toISOString()`. */
+  mintCode: (token: string, playerId: string, expiresAt: string): Promise<PairingCode> =>
+    request<PairingCode>(
+      `${BASE}/admin/players/${encodeURIComponent(playerId)}/pairing-codes`,
+      authed(token, { method: 'POST', body: JSON.stringify({ expires_at: expiresAt }) }),
+    ),
+
+  removeDevice: (token: string, deviceId: string): Promise<void> =>
+    request<void>(`${BASE}/admin/devices/${encodeURIComponent(deviceId)}`, authed(token, { method: 'DELETE' })),
+
+  signOutPlayer: (token: string, playerId: string): Promise<void> =>
+    request<void>(
+      `${BASE}/admin/players/${encodeURIComponent(playerId)}/devices`,
+      authed(token, { method: 'DELETE' }),
+    ),
 };
 
 /** The create key's alphabet (64 symbols, so a random byte's low six bits
