@@ -694,3 +694,95 @@ logged in:
   logged in, and friends data dropped on log out and on a 401.
 - Together: two browser origins against a local backend become friends
   by code and each reads the other's card; a third cannot.
+
+---
+
+## Revision 6 — a name is unique across profiles
+
+Asked for so that everyone on the app has their own name from the
+friends side. Where this section and an earlier one disagree, this
+section wins (it replaces Revision 2's "names are not unique").
+
+### Server
+
+- `sync_players.handle` holds the state's `handle` as `"a,n"` (for
+  example `"3,13"`), null when the state has none, under a unique index.
+  It is added the way earlier columns were, and every write of a state
+  sets it, so a state without a handle frees its name.
+- `POST /players`, `PUT /state` and `POST /admin/players` answer **409**
+  `{ "detail": "handle_taken" }` for a name another profile holds. A
+  profile keeping its own name is fine. The check and the write are one
+  transaction, so two simultaneous writes of one name cannot both land.
+- `PUT /state` with a stale `base_rev` answers the revision conflict (409
+  with `rev` and `state`) whatever the name; the name is checked only for
+  a write that would land. The client tells the two 409s apart by body.
+- A repeated create (Revision 2.1, same key) is answered before the name
+  is looked at: its state is ignored, so its name never makes it a 409.
+  A `handle_taken` makes nothing, so the key stays unused and the device
+  retries under it with another name; that retry is still safe to repeat.
+- A refused create still counts toward the 60-an-hour create limit.
+- **Start-up on an existing file** fills the column from each state,
+  oldest profile first (`created_at`, then insertion order for the same
+  second). Where profiles already share a name, the first keeps it; each
+  later one gets a free name, uniform over the free ones, written to the
+  column and into its state, with `rev` raised by one and `updated_at`
+  set to the start-up time. Each of that profile's devices then finds the
+  server ahead at its next pass and takes the new name like any change
+  made elsewhere (a device that changed its name since its last push keeps
+  its own and pushes it, checked like any push).
+
+### Client
+
+- **Creating a profile** (both first-launch cases): a `handle_taken`
+  draws another name with `randomHandle(avoid)` and retries under the
+  same create key, silently, up to 8 times (9 requests in all). Past that
+  the create stays pending and the next trigger goes on.
+- **A push** (Shuffle, or a name made on the device): the same, on the
+  same revision. Past the bound the state stays dirty and the next pass
+  goes on.
+- **The admin's New player**: the same. The list shows the name the
+  profile got. Past the bound the section says "Couldn't connect. Try
+  again in a minute.", because it explains every 409 as a log-out matter
+  and that file is outside this change.
+- A drawn name is sync's own write, so it starts no extra pass. If the
+  name changed on the device while the refused request was out, that
+  newer name is tried next and nothing is drawn.
+- **What the player sees.** A new player saw a name on the first-run
+  screen; if that name was taken, the name card (Revision 2's, unchanged
+  otherwise: shown once, Shuffle, OK) appears once the profile lands,
+  saying "Someone already has that name, so your player name is" with the
+  name the profile got, without the progress line. An existing player
+  (case 2) never saw the earlier name, so their card is the usual one. A
+  Shuffle that is refused shows the drawn name for a moment and then the
+  replacement, on the card and on the Profile page alike.
+
+### Open (the owner's call)
+
+- There are 4,096 names. A create tries 9, so it fails only when nearly
+  all are held (with n profiles, about (n/4096)^9). Past 4,096 profiles a
+  name cannot be unique; start-up refuses to run on a file that would
+  need a free name and has none. Growing the lists (they are
+  append-only, so a third word or longer lists can be added) is open.
+- Whether the admin should be told that a New player's name changed
+  (built: the list just shows the name it got).
+- The card's wording for a taken name (built as above).
+- A 409 tells the caller that some profile holds a name, never which.
+
+### Verification for Revision 6
+
+- Backend: each route's 409 and its body, keeping one's own name, a
+  freed name, a stale revision beside a taken name, a repeat under a key
+  carrying a taken name, a refused create leaving its key unused, the
+  admin route behind its 403, concurrent creates, admin creates and
+  renames to one name (one lands, the rest are `handle_taken`, never an
+  index error), and start-up on a file from the schema before this
+  revision with shared names (creation order, ties, the revision raise,
+  the device's next read, a second start-up changing nothing) and
+  without.
+- Frontend: `npm run build`, `npm test`, `npm run test:layout`. Unit
+  tests for each create case re-drawing under one key, the card for a new
+  player and not for an existing one, the bound on creates and pushes and
+  what follows, a re-drawn create whose reply is lost, a name changed
+  while a create was out, Shuffle re-drawn on one revision, a revision
+  conflict followed by a taken name, and New player. e2e for the
+  first-run flow, the taken-name card at every viewport, and New player.
