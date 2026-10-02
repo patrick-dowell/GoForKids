@@ -4,6 +4,8 @@ import { formatPairingCode, type AdminDevice, type AdminPlayer, type PairingCode
 import {
   boardRanks,
   canRemoveDevice,
+  deviceLineText,
+  installedOnText,
   canSignOutPlayer,
   codeExpiryOptions,
   daysLeftText,
@@ -40,20 +42,6 @@ type Panel =
   | { kind: 'code'; playerId: string; choice: number; options: Date[]; code: PairingCode | null }
   | { kind: 'sign-out'; playerId: string };
 
-function timeOf(d: Date): string {
-  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
-
-function dayOf(d: Date): string {
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-}
-
-/** "today at 3:05 PM", "Sep 30 at 9:12 AM". */
-function whenText(iso: string): string {
-  const d = new Date(iso);
-  if (d.toDateString() === new Date().toDateString()) return `today at ${timeOf(d)}`;
-  return `${dayOf(d)} at ${timeOf(d)}`;
-}
 
 const PASSED = 'That time has passed. Pick a later one.';
 const REFUSED_TIME = "The server didn't accept that time. Pick an earlier one.";
@@ -72,6 +60,7 @@ function actionError(e: unknown, expiry?: Date): string {
 
 export function AdminSection() {
   const players = useAdminStore((s) => s.players);
+  const lastSeenSince = useAdminStore((s) => s.lastSeenSince);
   const loading = useAdminStore((s) => s.loading);
   const loadFailed = useAdminStore((s) => s.loadFailed);
   const labels = useAdminLabels((s) => s.labels);
@@ -217,6 +206,7 @@ export function AdminSection() {
               key={p.player_id}
               player={p}
               self={self}
+              lastSeenSince={lastSeenSince}
               label={labels[p.player_id] ?? ''}
               onLabel={(text) => setLabel(p.player_id, text)}
               isNew={created === p.player_id}
@@ -241,6 +231,7 @@ export function AdminSection() {
 interface AdminRowProps {
   player: AdminPlayer;
   self: SelfIds;
+  lastSeenSince: string | null;
   label: string;
   onLabel: (text: string) => void;
   isNew: boolean;
@@ -259,6 +250,7 @@ interface AdminRowProps {
 function AdminRow({
   player,
   self,
+  lastSeenSince,
   label,
   onLabel,
   isNew,
@@ -316,12 +308,13 @@ function AdminRow({
           No device{player.days_left !== null ? ` · ${daysLeftText(player.days_left)}` : ''}
         </div>
       ) : (
-        <ul className="profile-admin-devices">
+        <ul className="profile-admin-devices" aria-label={installedOnText(player.devices.length)}>
+          <li className="profile-admin-device-count">{installedOnText(player.devices.length)}</li>
           {player.devices.map((d) => (
             <li key={d.device_id} className="profile-admin-device">
               <span className="profile-admin-device-text">
                 {isThisDevice(d, self) && <strong>This device · </strong>}
-                Added {dayOf(new Date(d.created_at))} · {d.last_seen_at ? `seen ${whenText(d.last_seen_at)}` : 'not seen yet'}
+                {deviceLineText(d, lastSeenSince)}
               </span>
               {canRemoveDevice(d, self) && (
                 <button className="profile-admin-small-btn" onClick={() => onRemove(d)} disabled={busy}>

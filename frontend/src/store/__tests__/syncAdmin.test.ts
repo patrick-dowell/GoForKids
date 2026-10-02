@@ -134,7 +134,7 @@ class FakeServer {
       player_id: id,
       handle: p.state.handle ?? null,
       boards,
-      devices: p.devices.map((d) => ({ device_id: d.device_id, created_at: '2026-10-01T09:00:00Z', last_seen_at: null })),
+      devices: p.devices.map((d) => ({ device_id: d.device_id, created_at: '2026-10-01T09:00:00Z', last_seen_at: null, kind: null })),
       replays: 0,
       created_at: '2026-10-01T09:00:00Z',
       updated_at: '2026-10-01T09:00:00Z',

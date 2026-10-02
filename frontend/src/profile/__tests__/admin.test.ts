@@ -8,8 +8,10 @@ import {
   codeExpiryOptions,
   daysLeftText,
   defaultCodeExpiry,
+  deviceLineText,
   expiryLabel,
   freshPlayerState,
+  installedOnText,
   isAllowedCodeExpiry,
   isOwnProfile,
   isThisDevice,
@@ -131,7 +133,7 @@ function player(id: string, deviceIds: string[]): AdminPlayer {
     player_id: id,
     handle: [0, 0],
     boards: {},
-    devices: deviceIds.map((d) => ({ device_id: d, created_at: '2026-10-01T09:00:00Z', last_seen_at: null })),
+    devices: deviceIds.map((d) => ({ device_id: d, created_at: '2026-10-01T09:00:00Z', last_seen_at: null, kind: null })),
     replays: 0,
     created_at: '2026-10-01T09:00:00Z',
     updated_at: '2026-10-01T09:00:00Z',
@@ -181,5 +183,41 @@ describe('New player', () => {
     });
     expect(Object.keys(state).sort()).toEqual(['avatar', 'avatarPicked', 'handle', 'ladder', 'lessons', 'schema']);
     expect(Object.keys(state.ladder)).toEqual(['byBoardSize']);
+  });
+});
+
+describe('the device lines', () => {
+  const since = '2026-10-02T21:30:00Z';
+  const noon = new Date('2026-10-02T19:00:00Z'); // "today" for whenText
+  const row = (over: Partial<AdminPlayer['devices'][number]>) => ({
+    device_id: 'd1',
+    created_at: '2026-10-02T07:20:00Z',
+    last_seen_at: null,
+    kind: null,
+    ...over,
+  });
+
+  it('names the kind, the day added and when it was last used', () => {
+    const text = deviceLineText(row({ kind: 'iPad', last_seen_at: '2026-10-02T18:05:00Z' }), since, noon);
+    expect(text).toMatch(/^iPad · added Oct 2 · last used today at /);
+  });
+
+  it('calls a browser a Browser and an unknown kind a Device', () => {
+    expect(deviceLineText(row({ kind: 'web' }), null, noon)).toMatch(/^Browser · /);
+    expect(deviceLineText(row({ kind: null }), null, noon)).toMatch(/^Device · /);
+  });
+
+  it('says "last used before" the stamp began for an older row with no stamp', () => {
+    expect(deviceLineText(row({ created_at: '2026-10-02T07:20:00Z' }), since, noon)).toMatch(/last used before Oct 2$/);
+  });
+
+  it('says "not used yet" for a row made since the stamp began, or when the server gave no stamp', () => {
+    expect(deviceLineText(row({ created_at: '2026-10-03T07:20:00Z' }), since, noon)).toMatch(/not used yet$/);
+    expect(deviceLineText(row({}), null, noon)).toMatch(/not used yet$/);
+  });
+
+  it('counts devices', () => {
+    expect(installedOnText(1)).toBe('Installed on 1 device');
+    expect(installedOnText(3)).toBe('Installed on 3 devices');
   });
 });

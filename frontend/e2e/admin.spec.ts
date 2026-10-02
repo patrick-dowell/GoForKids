@@ -22,6 +22,7 @@ interface Device {
   device_id: string;
   created_at: string;
   last_seen_at: string | null;
+  kind: string | null;
 }
 
 interface Player {
@@ -52,7 +53,7 @@ function players(): Player[] {
       player_id: SELF_PLAYER,
       handle: [2, 9], // Bright Koala
       boards: { '19x19': { rung: '9k', games: 40 } },
-      devices: [{ device_id: SELF_DEVICE, created_at: '2026-09-01T16:00:00Z', last_seen_at: '2026-10-02T15:58:00Z' }],
+      devices: [{ device_id: SELF_DEVICE, created_at: '2026-09-01T16:00:00Z', last_seen_at: '2026-10-02T15:58:00Z', kind: 'iPad' }],
       replays: 12,
       created_at: '2026-09-01T16:00:00Z',
       updated_at: '2026-10-02T15:58:00Z',
@@ -64,8 +65,8 @@ function players(): Player[] {
       handle: [26, 33], // Orbiting Voyager
       boards: { '19x19': { rung: '20k', games: 5 }, '9x9': { rung: '15k', games: 12 } },
       devices: [
-        { device_id: 'd-a', created_at: '2026-09-10T16:00:00Z', last_seen_at: '2026-10-01T23:05:00Z' },
-        { device_id: 'd-b', created_at: '2026-09-28T16:00:00Z', last_seen_at: null },
+        { device_id: 'd-a', created_at: '2026-09-10T16:00:00Z', last_seen_at: '2026-10-01T23:05:00Z', kind: 'web' },
+        { device_id: 'd-b', created_at: '2026-09-28T16:00:00Z', last_seen_at: null, kind: null },
       ],
       replays: 7,
       created_at: '2026-09-10T16:00:00Z',
@@ -135,7 +136,9 @@ async function fakeSync(
     }
     if (path.startsWith('/sync/admin/')) {
       if (opts.adminStatus) return reply(opts.adminStatus, { detail: 'refused' });
-      if (method === 'GET' && path === '/sync/admin/players') return reply(200, { players: list });
+      if (method === 'GET' && path === '/sync/admin/players') {
+        return reply(200, { players: list, last_seen_since: '2026-10-02T21:30:00Z' });
+      }
       if (method === 'POST' && path === '/sync/admin/players') {
         const id = `p-made-${++made}`;
         const state = body!.state as { handle: [number, number] };
@@ -236,7 +239,8 @@ test('admin: the list, with nothing offered for this device', async ({ page }) =
   const own = row(page, SELF_PLAYER);
   await expect(own.locator('.profile-admin-name')).toHaveText('Bright Koala');
   await expect(own.locator('.profile-admin-ranks')).toContainText('19×19 9k · 40 games');
-  await expect(own.locator('.profile-admin-device')).toHaveText(/^This device · Added Sep 1 · seen today at 8:58\sAM/);
+  await expect(own.locator('.profile-admin-device-count')).toHaveText('Installed on 1 device');
+  await expect(own.locator('.profile-admin-device')).toHaveText(/^This device · iPad · added Sep 1 · last used today at 8:58\sAM/);
   await expect(own.getByRole('button', { name: 'Remove' })).toHaveCount(0);
   await expect(own.getByRole('button', { name: "Sign out this player's devices" })).toHaveCount(0);
   await expect(own.getByRole('button', { name: 'Code for this player' })).toBeVisible();
@@ -246,8 +250,10 @@ test('admin: the list, with nothing offered for this device', async ({ page }) =
   await expect(two.locator('.profile-admin-name')).toHaveText('Orbiting Voyager');
   await expect(two.locator('.profile-admin-rank')).toHaveText(['9×9 15k · 12 games', '19×19 20k · 5 games']);
   await expect(two.locator('.profile-admin-device')).toHaveCount(2);
-  await expect(two.locator('.profile-admin-device').nth(0)).toContainText(/Added Sep 10 · seen Oct 1 at 4:05\sPM/);
-  await expect(two.locator('.profile-admin-device').nth(1)).toContainText(/Added Sep 28 · not seen yet/);
+  await expect(two.locator('.profile-admin-device-count')).toHaveText('Installed on 2 devices');
+  await expect(two.locator('.profile-admin-device').nth(0)).toContainText(/Browser · added Sep 10 · last used Oct 1 at 4:05\sPM/);
+  // No stamp, and the row predates the server's stamping: it was in use before then, not never.
+  await expect(two.locator('.profile-admin-device').nth(1)).toContainText(/Device · added Sep 28 · last used before Oct 2/);
   await expect(two.getByRole('button', { name: 'Remove' })).toHaveCount(2);
   await expect(two.getByRole('button', { name: "Sign out this player's devices" })).toBeVisible();
   await expect(two).toContainText('7 replays');

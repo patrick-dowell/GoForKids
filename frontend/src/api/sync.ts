@@ -49,6 +49,9 @@ export interface AdminDevice {
   device_id: string;
   created_at: string;
   last_seen_at: string | null;
+  /** What the device said it was ('iPad' | 'iPhone' | 'web'), or null for a
+   *  row written before devices reported a kind and not seen since. */
+  kind: string | null;
 }
 
 /** One board of a profile in the admin list: the stored rung (null when
@@ -56,6 +59,14 @@ export interface AdminDevice {
 export interface AdminBoard {
   rung: string | null;
   games: number;
+}
+
+/** `GET /admin/players`: the profiles, and when the server began recording
+ *  `last_seen_at` (a device row with no stamp from before then was last used
+ *  before it, not never). */
+export interface AdminList {
+  players: AdminPlayer[];
+  lastSeenSince: string | null;
 }
 
 /** One entry of `GET /admin/players`. */
@@ -145,14 +156,31 @@ export type PutStateResult =
 
 const BASE = '/sync';
 
+/** What this device tells the server it is, in `X-Device-Kind`. The native
+ *  shell injects `window.kataGo` on every iOS build, so its presence means
+ *  the iPad or iPhone app; anything else is a browser. Not personal: the
+ *  admin list uses it to tell an iPad row from a browser row. */
+export type DeviceKind = 'iPad' | 'iPhone' | 'web';
+
+export function deviceKind(): DeviceKind {
+  if (typeof window === 'undefined' || !window.kataGo) return 'web';
+  return /iPhone/.test(navigator.userAgent) ? 'iPhone' : 'iPad';
+}
+
 function authed(token: string, init?: RequestInit): RequestInit {
   return {
     ...init,
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
+      'X-Device-Kind': deviceKind(),
     },
   };
+}
+
+/** Headers for the two requests that make a device row without a token. */
+function unauthed(): Record<string, string> {
+  return { 'Content-Type': 'application/json', 'X-Device-Kind': deviceKind() };
 }
 
 function gamePath(id: string): string {
@@ -178,6 +206,7 @@ export const syncApi = {
   ): Promise<{ repeated: boolean; grant: DeviceGrant }> => {
     const res = await requestWithStatus<DeviceGrant>(`${BASE}/players`, {
       method: 'POST',
+      headers: unauthed(),
       body: JSON.stringify({ state, create_key: createKey }),
     });
     return { repeated: res.status === 200, grant: res.body };
@@ -189,6 +218,7 @@ export const syncApi = {
   redeemPairingCode: (code: string): Promise<DeviceGrant> =>
     request<DeviceGrant>(`${BASE}/pairing-codes/redeem`, {
       method: 'POST',
+      headers: unauthed(),
       body: JSON.stringify({ code }),
     }),
 
@@ -245,9 +275,15 @@ export const syncApi = {
  * Nothing here carries the admin's labels: those stay on the device.
  */
 export const adminApi = {
-  listPlayers: async (token: string): Promise<AdminPlayer[]> => {
-    const res = await request<{ players: AdminPlayer[] }>(`${BASE}/admin/players`, authed(token));
-    return Array.isArray(res?.players) ? res.players : [];
+  listPlayers: async (token: string): Promise<AdminList> => {
+    const res = await request<{ players: AdminPlayer[]; last_seen_since?: string | null }>(
+      `${BASE}/admin/players`,
+      authed(token),
+    );
+    return {
+      players: Array.isArray(res?.players) ? res.players : [],
+      lastSeenSince: typeof res?.last_seen_since === 'string' ? res.last_seen_since : null,
+    };
   },
 
   createPlayer: (token: string, state: SyncStateDoc): Promise<{ player_id: string; rev: number }> =>

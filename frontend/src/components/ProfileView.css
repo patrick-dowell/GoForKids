@@ -823,6 +823,11 @@
 .profile-admin-device-text {
   min-width: 0;
 }
+.profile-admin-device-count {
+  font-size: 13px;
+  color: #8b949e;
+  font-weight: 600;
+}
 .profile-admin-small-btn {
   flex-shrink: 0;
   font-size: 12px;

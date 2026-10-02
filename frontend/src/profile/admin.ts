@@ -154,3 +154,44 @@ export function freshPlayerState(handle: Handle): SyncStateDoc {
     handle: [handle[0], handle[1]],
   };
 }
+
+
+// ── The device lines ─────────────────────────────────────────────────
+
+function timeOfDay(d: Date): string {
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function dayOf(d: Date): string {
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+/** "today at 3:05 PM", "Sep 30 at 9:12 AM". */
+function whenText(iso: string, now: Date): string {
+  const d = new Date(iso);
+  if (d.toDateString() === now.toDateString()) return `today at ${timeOfDay(d)}`;
+  return `${dayOf(d)} at ${timeOfDay(d)}`;
+}
+
+/** "iPad · added Oct 2 · last used today at 3:05 PM". A row with no
+ *  last-seen stamp that predates the server's stamping was in use before it
+ *  ("last used before Oct 2"); one made since then simply hasn't been used.
+ *  `now` is for tests. */
+export function deviceLineText(
+  d: AdminDevice,
+  lastSeenSince: string | null,
+  now: Date = new Date(),
+): string {
+  const what = d.kind === 'web' ? 'Browser' : (d.kind ?? 'Device');
+  let used: string;
+  if (d.last_seen_at) used = `last used ${whenText(d.last_seen_at, now)}`;
+  else if (lastSeenSince && d.created_at < lastSeenSince) {
+    used = `last used before ${dayOf(new Date(lastSeenSince))}`;
+  } else used = 'not used yet';
+  return `${what} · added ${dayOf(new Date(d.created_at))} · ${used}`;
+}
+
+/** "Installed on 2 devices". */
+export function installedOnText(count: number): string {
+  return `Installed on ${count} ${count === 1 ? 'device' : 'devices'}`;
+}

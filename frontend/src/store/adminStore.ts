@@ -17,6 +17,10 @@ import { useSyncStore } from './syncStore';
 interface AdminState {
   /** The profiles, most recently updated first; null until loaded. */
   players: AdminPlayer[] | null;
+  /** When the server began recording when a device was last seen (ISO), or
+   *  null when it didn't say: a device row with no stamp from before then
+   *  was last used before it, not never. */
+  lastSeenSince: string | null;
   loading: boolean;
   /** The latest load failed (offline, a 5xx). */
   loadFailed: boolean;
@@ -50,6 +54,7 @@ export const useAdminStore = create<AdminState>((set, get) => {
 
   return {
     players: null,
+    lastSeenSince: null,
     loading: false,
     loadFailed: false,
 
@@ -57,8 +62,8 @@ export const useAdminStore = create<AdminState>((set, get) => {
       const seq = ++loadSeq;
       set({ loading: true });
       try {
-        const players = await useSyncStore.getState().adminRequest((token) => adminApi.listPlayers(token));
-        if (seq === loadSeq) set({ players, loadFailed: false });
+        const list = await useSyncStore.getState().adminRequest((token) => adminApi.listPlayers(token));
+        if (seq === loadSeq) set({ players: list.players, lastSeenSince: list.lastSeenSince, loadFailed: false });
       } catch {
         if (seq === loadSeq) set({ loadFailed: true });
       } finally {
@@ -82,7 +87,7 @@ export const useAdminStore = create<AdminState>((set, get) => {
     },
 
     removeDevice: async (deviceId) => {
-      if (!canRemoveDevice({ device_id: deviceId, created_at: '', last_seen_at: null }, selfIds())) {
+      if (!canRemoveDevice({ device_id: deviceId, created_at: '', last_seen_at: null, kind: null }, selfIds())) {
         throw new Error('admin: this device signs out with Log out');
       }
       await useSyncStore.getState().adminRequest((token) => adminApi.removeDevice(token, deviceId));
@@ -106,5 +111,5 @@ export const useAdminStore = create<AdminState>((set, get) => {
 useSyncStore.subscribe((s) => {
   if (s.admin) return;
   loadSeq++;
-  useAdminStore.setState({ players: null, loading: false, loadFailed: false });
+  useAdminStore.setState({ players: null, lastSeenSince: null, loading: false, loadFailed: false });
 });
