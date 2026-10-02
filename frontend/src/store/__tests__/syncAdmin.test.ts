@@ -163,6 +163,11 @@ class FakeServer {
         return json(200, { players: [...this.players].map(([id, p]) => this.entry(id, p)) });
       }
       if (s.method === 'POST' && s.path === '/sync/admin/players') {
+        // Revision 6: a name another profile holds is refused.
+        const h = (s.body!.state as SyncStateDoc).handle;
+        if (h && [...this.players.values()].some((p) => p.state.handle?.join() === h.join())) {
+          return json(409, { detail: 'handle_taken' });
+        }
         const id = `p-made-${this.nextId++}`;
         this.players.set(id, { rev: 1, state: clone(s.body!.state as SyncStateDoc), devices: [] });
         return json(201, { player_id: id, rev: 1 });
@@ -465,6 +470,42 @@ describe('admin actions', () => {
     const listed = m.admin.useAdminStore.getState().players!.find((p) => p.player_id === id)!;
     expect(listed.handle).toEqual([12, 21]);
     expect(listed.devices).toEqual([]);
+  });
+
+  it('New player with a name another profile has: another is picked, silently, and the list shows the name it got', async () => {
+    const { m, server } = await adminDevice();
+    const id = await m.admin.useAdminStore.getState().createPlayer([4, 2]); // p-two's name
+
+    const create = server.find('POST', '/sync/admin/players');
+    expect(create).toHaveLength(2);
+    expect((create[0].body!.state as SyncStateDoc).handle).toEqual([4, 2]);
+    const got = (create[1].body!.state as SyncStateDoc).handle!;
+    expect(got).not.toEqual([4, 2]);
+    expect(create[1].body).toStrictEqual({ state: freshPlayerState(got) });
+    const listed = m.admin.useAdminStore.getState().players!.find((p) => p.player_id === id)!;
+    expect(listed.handle).toEqual(got);
+  });
+
+  it('New player gives up after eight more names, with an error that is not the 409', async () => {
+    const { m, server } = await adminDevice();
+    server.intercept = (s) =>
+      s.method === 'POST' && s.path === '/sync/admin/players' ? json(409, { detail: 'handle_taken' }) : undefined;
+
+    const outcome = await m.admin.useAdminStore.getState().createPlayer([12, 21]).catch((e: unknown) => e);
+    expect(outcome).toBeInstanceOf(Error);
+    expect(outcome).not.toHaveProperty('status');
+    expect((outcome as Error).message).toMatch(/^admin: /);
+    expect(server.count('POST', '/sync/admin/players')).toBe(9);
+    expect(m.admin.useAdminStore.getState().players).toHaveLength(3);
+    expect(m.sync.useSyncStore.getState().deviceToken).toBe('tok-1'); // a 409 never signs out
+  });
+
+  it('a 409 that is not about the name is not retried', async () => {
+    const { m, server } = await adminDevice();
+    server.intercept = (s) =>
+      s.method === 'POST' && s.path === '/sync/admin/players' ? json(409, { detail: 'something else' }) : undefined;
+    await expect(m.admin.useAdminStore.getState().createPlayer([12, 21])).rejects.toMatchObject({ status: 409 });
+    expect(server.count('POST', '/sync/admin/players')).toBe(1);
   });
 
   it('a code: expires_at goes as toISOString(), and the code comes back', async () => {

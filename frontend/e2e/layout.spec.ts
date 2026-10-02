@@ -611,6 +611,70 @@ test('name card (existing player, first launch with a profile): fits at every vi
   });
 });
 
+test('name card after a first-run name another profile had: fits at every viewport', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'goforkids.profile.v1',
+      JSON.stringify({ avatar: 'blackhole', avatarPicked: false, handle: [26, 33] }),
+    );
+    localStorage.setItem(
+      'goforkids.sync.v1',
+      JSON.stringify({ playerId: 'p', deviceToken: 'layout-probe', baseRev: 1, showIntro: true, nameWasTaken: true }),
+    );
+  });
+  await page.goto('/');
+  const card = page.locator('.name-intro-card');
+  await card.waitFor();
+  await expect(card).toContainText('Someone already has that name');
+  await sweep(page, 'name-card-taken', {
+    strict: ['.name-intro-card', '.first-run-name', 'btn:Shuffle', 'btn:OK'],
+    noBodyScroll: true,
+  });
+});
+
+test('first-run name another profile has: the profile gets another, and the card that follows shows it', async ({ page }) => {
+  // Overrides the abort-everything route for sync: the first create is
+  // refused as taken (revision 6), the next lands.
+  const posted: [number, number][] = [];
+  let stored: unknown = null;
+  await page.route(
+    (url) => url.pathname.startsWith('/api/sync/'),
+    async (route) => {
+      const req = route.request();
+      const path = new URL(req.url()).pathname.replace(/^\/api/, '');
+      const reply = (status: number, body: unknown) =>
+        route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+      if (req.method() === 'POST' && path === '/sync/players') {
+        const state = (JSON.parse(req.postData()!) as { state: { handle: [number, number] } }).state;
+        posted.push(state.handle);
+        if (posted.length === 1) return reply(409, { detail: 'handle_taken' });
+        stored = state;
+        return reply(201, { player_id: 'p-e2e', device_token: 'tok-e2e', rev: 1, state });
+      }
+      if (req.method() === 'GET' && path === '/sync/state') return reply(200, { rev: 1, state: stored });
+      if (req.method() === 'GET' && path === '/sync/games') return reply(200, { games: [] });
+      return route.abort();
+    },
+  );
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'New player' }).click();
+  const shown = (await page.locator('.first-run-name').textContent())!;
+  await page.getByRole('button', { name: "Let's go →" }).click();
+
+  const card = page.locator('.name-intro-card');
+  await card.waitFor();
+  await expect(card).toContainText('Someone already has that name');
+  const got = (await card.locator('.first-run-name').textContent())!;
+  expect(got).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
+  expect(got).not.toBe(shown);
+  expect(posted).toHaveLength(2);
+  expect(posted[1]).not.toEqual(posted[0]);
+
+  await card.getByRole('button', { name: 'OK' }).click();
+  await expect(card).toHaveCount(0);
+});
+
 test('library: sanctioned scroll screen — list reachable, close visible', async ({ page }) => {
   await seedPickedProfile(page);
   await page.goto('/');

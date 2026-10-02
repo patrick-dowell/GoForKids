@@ -34,6 +34,7 @@ from app.routers.sync import (
     admin_player_ids,
     current_device,
     current_time,
+    handle_taken,
 )
 
 router = APIRouter()
@@ -201,7 +202,10 @@ async def create_player(
             detail="A new profile's state needs a handle, a ladder object and a lessons array",
         )
     state_json = _checked_state_json(state)
-    player_id = await storage.admin_create_player(state_json, now)
+    try:
+        player_id = await storage.admin_create_player(state_json, now)
+    except storage.HandleTaken:
+        raise handle_taken()
     return {"player_id": player_id, "rev": 1}
 
 

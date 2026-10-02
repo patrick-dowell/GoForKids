@@ -416,6 +416,44 @@ test('New player: a generated name with Shuffle, created with the fresh state, t
   await expect(fresh.getByRole('button', { name: 'Code for this player' })).toBeVisible();
 });
 
+test('New player whose name another profile has: another is picked, and the list shows the name it got', async ({ page }) => {
+  const { log } = await fakeSync(page);
+  await seedAdminDevice(page);
+  await openProfile(page);
+  await expect(page.locator('.profile-admin-row')).toHaveCount(3);
+
+  // The server refuses the first name as taken (revision 6); the next lands.
+  const tried: [number, number][] = [];
+  await page.route(
+    (url) => url.pathname === '/api/sync/admin/players',
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      tried.push((JSON.parse(route.request().postData()!) as { state: { handle: [number, number] } }).state.handle);
+      if (tried.length === 1) {
+        return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: 'handle_taken' }) });
+      }
+      return route.fallback();
+    },
+  );
+
+  await page.locator('.profile-admin').getByRole('button', { name: 'New player' }).click();
+  const shown = (await page.locator('.profile-admin-new-name').textContent())!;
+  await page.getByRole('button', { name: 'Create player' }).click();
+
+  await expect(page.locator('.profile-admin-row')).toHaveCount(4);
+  await expect(page.locator('.profile-admin-new')).toHaveCount(0);
+  await expect(page.locator('.profile-admin .profile-devices-error')).toHaveCount(0);
+  expect(tried).toHaveLength(2);
+  expect(tried[1]).not.toEqual(tried[0]);
+  // Only the one that landed reached the server.
+  const landed = log.filter((l) => l.method === 'POST' && l.path === '/sync/admin/players');
+  expect(landed.map((p) => (p.body!.state as { handle: [number, number] }).handle)).toEqual([tried[1]]);
+  const fresh = row(page, 'p-made-1');
+  await expect(fresh).toHaveClass(/profile-admin-row-new/);
+  await expect(fresh.locator('.profile-admin-name')).toHaveText(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
+  await expect(fresh.locator('.profile-admin-name')).not.toHaveText(shown);
+});
+
 test('labels stay on this device: no request carries one, through every admin action and a sync pass', async ({ page }) => {
   // Every request the page makes, API or not (the API ones again, whole, in `log`).
   const sent: { url: string; headers: Record<string, string>; body: string | null }[] = [];

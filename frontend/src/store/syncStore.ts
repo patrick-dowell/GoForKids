@@ -12,7 +12,7 @@ import {
   type StateReply,
   type SyncStateDoc,
 } from '../api/sync';
-import { isHandle, randomHandle } from '../profile/names';
+import { isHandle, randomHandle, type Handle } from '../profile/names';
 import { useAdminLabels } from './adminLabels';
 import {
   onBeforeRankedResult,
@@ -52,6 +52,13 @@ import { useProfileStore } from './profileStore';
  * Revision 4: the Friends section's requests go through `friendsRequest`,
  * which takes the 401 path on a 401. Its data lives in friendsStore.ts, in
  * memory only, and is dropped whenever this device's token changes.
+ *
+ * Revision 6: a name is unique across profiles. A create or a push whose
+ * name another profile holds gets a 409 `handle_taken`; the device picks
+ * another name and tries again, silently, up to MAX_HANDLE_RETRIES times
+ * (the admin's New player does the same, in adminStore.ts). A player who was
+ * shown a name on the first-run screen that then had to change gets the
+ * name card, saying so.
  */
 
 const STORAGE_KEY = 'goforkids.sync.v1';
@@ -61,6 +68,23 @@ export const PLAY_SYNC_TIMEOUT_MS = 2000;
 
 /** How many times a pass rebases and re-pushes after a 409. */
 export const MAX_CONFLICT_RETRIES = 3;
+
+/** How many times a create, a push or the admin's New player picks another
+ *  name after a `handle_taken` before leaving it to the next attempt. */
+export const MAX_HANDLE_RETRIES = 8;
+
+/** The 409 detail for a name another profile holds (revision 6). */
+export const HANDLE_TAKEN = 'handle_taken';
+
+/** True for the server's "another profile has this name" (a 409 told apart
+ *  from the revision conflict's 409 by its body). */
+export function isHandleTaken(e: unknown): boolean {
+  return (
+    e instanceof ApiError &&
+    e.status === 409 &&
+    (e.body as { detail?: unknown } | null)?.detail === HANDLE_TAKEN
+  );
+}
 
 /** Why a profile is waiting to be created: made from progress this device
  *  already had, or chosen as "New player" at first run. */
@@ -90,6 +114,11 @@ interface PersistedSync {
   pendingCreate: PendingCreate | null;
   /** The one-time card introducing the generated name is due. */
   showIntro: boolean;
+  /** The name a new player was shown at first run belonged to another
+   *  profile, so the create picked another (revision 6). Set while the
+   *  create is pending; once it lands the name card is due and says why the
+   *  name changed; cleared when the card is dismissed. */
+  nameWasTaken: boolean;
   /** Replays the server refused (413 / 422): never sent again. */
   refusedGameIds: string[];
   /** Made when the device first decides to create a profile, sent with
@@ -114,6 +143,7 @@ const EMPTY: PersistedSync = {
   lastSyncAt: null,
   pendingCreate: null,
   showIntro: false,
+  nameWasTaken: false,
   refusedGameIds: [],
   createKey: null,
   admin: false,
@@ -206,6 +236,7 @@ function pickPersisted(s: PersistedSync): PersistedSync {
     lastSyncAt: s.lastSyncAt,
     pendingCreate: s.pendingCreate,
     showIntro: s.showIntro,
+    nameWasTaken: s.nameWasTaken,
     refusedGameIds: s.refusedGameIds,
     createKey: s.createKey,
     admin: s.admin,
@@ -255,6 +286,7 @@ function parsePersisted(raw: string | null): PersistedSync {
       lastSyncAt: typeof p.lastSyncAt === 'number' ? p.lastSyncAt : null,
       pendingCreate,
       showIntro: p.showIntro === true,
+      nameWasTaken: p.nameWasTaken === true,
       refusedGameIds: stringArray(p.refusedGameIds),
       createKey: pendingCreate && isCreateKey(p.createKey) ? p.createKey : null,
       admin: p.admin === true,
@@ -340,6 +372,21 @@ function ensureHandle(): boolean {
   return true;
 }
 
+function sameHandle(a: Handle | null | undefined, b: Handle | null | undefined): boolean {
+  return !!a && !!b && a[0] === b[0] && a[1] === b[1];
+}
+
+/** The server said `taken` belongs to another profile: give the player
+ *  another name, written as sync's own change (no extra pass). When the
+ *  name changed here while the request was out, that newer choice is the
+ *  one tried next and nothing is picked. True when a name was picked. */
+function rerollHandle(taken: Handle | null | undefined): boolean {
+  const current = useProfileStore.getState().handle;
+  if (taken && current && !sameHandle(current, taken)) return false;
+  asRemote(() => useProfileStore.getState().setHandle(randomHandle(current)));
+  return true;
+}
+
 /* ------------------------------------------------------------------------- *
  * The store.
  * ------------------------------------------------------------------------- */
@@ -414,13 +461,24 @@ export const useSyncStore = create<SyncState>((set, get) => {
     if (linkedWith(token)) signOutLocally('logged-out');
   };
 
-  type PushOutcome = { kind: 'ok' } | { kind: 'conflict'; remote: RemoteState } | { kind: 'stopped' };
+  type PushOutcome =
+    | { kind: 'ok' }
+    | { kind: 'conflict'; remote: RemoteState }
+    | { kind: 'name-taken'; handle: Handle | undefined }
+    | { kind: 'stopped' };
 
   const push = async (token: string): Promise<PushOutcome> => {
     const doc = buildLocalDoc();
     const pushed = new Set(get().pendingResults.map((r) => r.ts));
     const gen = generation;
-    const res = await syncApi.putState(token, get().baseRev, doc);
+    let res: Awaited<ReturnType<typeof syncApi.putState>>;
+    try {
+      res = await syncApi.putState(token, get().baseRev, doc);
+    } catch (e) {
+      // Revision 6: another profile has this name. Nothing was written.
+      if (!isHandleTaken(e)) throw e;
+      return linkedWith(token) ? { kind: 'name-taken', handle: doc.handle } : { kind: 'stopped' };
+    }
     if (!linkedWith(token)) return { kind: 'stopped' };
     if (!res.ok) return { kind: 'conflict', remote: { rev: res.rev, state: res.state } };
     update({
@@ -449,6 +507,7 @@ export const useSyncStore = create<SyncState>((set, get) => {
       deviceId: typeof reply.device_id === 'string' ? reply.device_id : null,
     });
     let retries = 0;
+    let nameRetries = 0;
     for (;;) {
       if (remote.rev !== get().baseRev) {
         // Server ahead. Mid ranked game, the rank must not move: hold the
@@ -473,6 +532,16 @@ export const useSyncStore = create<SyncState>((set, get) => {
       const out = await push(token);
       if (out.kind === 'stopped') return 'stopped';
       if (out.kind === 'ok') return 'ok';
+      if (out.kind === 'name-taken') {
+        // Another profile has the name this device holds (a Shuffle, or a
+        // name made here): pick another and push again on the same
+        // revision. The name shown everywhere follows. Past the bound the
+        // state stays dirty and the next pass goes on from here.
+        if (nameRetries >= MAX_HANDLE_RETRIES) return 'gave-up';
+        nameRetries++;
+        if (rerollHandle(out.handle)) handleEdited = true;
+        continue;
+      }
       // 409: the server moved since we read it. Rebase onto its copy and
       // try again, a bounded number of times; the queue stays intact.
       if (retries >= MAX_CONFLICT_RETRIES) return 'gave-up';
@@ -605,11 +674,29 @@ export const useSyncStore = create<SyncState>((set, get) => {
       key = makeCreateKey();
       update({ createKey: key });
     }
-    const doc = buildLocalDoc();
-    const { repeated, grant } = await syncApi.createPlayer(doc, key);
+    let doc = buildLocalDoc();
+    let created: Awaited<ReturnType<typeof syncApi.createPlayer>> | null = null;
+    for (let nameRetries = 0; !created; nameRetries++) {
+      try {
+        created = await syncApi.createPlayer(doc, key);
+      } catch (e) {
+        // Revision 6: another profile has this name. The server made
+        // nothing, so the key is still unused: the next attempt, under the
+        // same key with another name, stays safe to repeat. Past the bound
+        // the create is left to the next trigger, like any failed create.
+        if (!isHandleTaken(e) || nameRetries >= MAX_HANDLE_RETRIES) throw e;
+        if (get().deviceToken || get().pendingCreate !== kind) return null;
+        // A new player saw this name at first run: the card will say why
+        // it changed.
+        if (rerollHandle(doc.handle) && kind === 'new') update({ nameWasTaken: true });
+        doc = buildLocalDoc();
+      }
+    }
+    const { repeated, grant } = created;
     // Logged in, or out, while the request was out: this create is moot.
     if (get().deviceToken || get().pendingCreate !== kind) return null;
     if (!isGrant(grant)) throw new Error('sync: malformed create response');
+    const nameWasTaken = get().nameWasTaken;
     update({
       ...EMPTY,
       playerId: grant.player_id,
@@ -621,7 +708,11 @@ export const useSyncStore = create<SyncState>((set, get) => {
       // device's state is the newer one, so push it from the returned rev.
       dirty: repeated || !sameDoc(buildLocalDoc(), doc),
       lastSyncAt: Date.now(),
-      showIntro: kind === 'existing',
+      // The card meets an existing player's new name (revision 2), and shows
+      // a new player the name they ended up with when the one they were
+      // shown was taken (revision 6).
+      showIntro: kind === 'existing' || nameWasTaken,
+      nameWasTaken,
     });
     generation++;
     avatarEdited = false;
@@ -777,7 +868,7 @@ export const useSyncStore = create<SyncState>((set, get) => {
       signOutLocally(null);
     },
 
-    dismissIntro: () => update({ showIntro: false }),
+    dismissIntro: () => update({ showIntro: false, nameWasTaken: false }),
 
     adminRequest: async <T,>(call: (token: string) => Promise<T>): Promise<T> => {
       const token = get().deviceToken;

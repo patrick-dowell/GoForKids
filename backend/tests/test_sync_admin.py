@@ -490,8 +490,8 @@ async def test_create_refuses_an_oversized_state_with_413(client, admin):
 
 async def test_create_is_not_rate_limited(client, admin):
     _, admin_auth = admin
-    for _ in range(61):
-        await admin_create(client, admin_auth)
+    for n in range(61):  # each its own name: names are unique (Revision 6)
+        await admin_create(client, admin_auth, {**FRESH, "handle": [n, 0]})
     assert (await new_player(client))[0]["rev"] == 1  # nor counted toward the public limit
 
 

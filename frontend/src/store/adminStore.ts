@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { adminApi, type AdminPlayer, type PairingCode } from '../api/sync';
 import { canRemoveDevice, canSignOutPlayer, freshPlayerState, isAllowedCodeExpiry } from '../profile/admin';
-import { isHandle, type Handle } from '../profile/names';
-import { useSyncStore } from './syncStore';
+import { isHandle, randomHandle, type Handle } from '../profile/names';
+import { isHandleTaken, MAX_HANDLE_RETRIES, useSyncStore } from './syncStore';
 
 /**
  * The Admin section's data and actions (feature 32, revision 3). Every
@@ -28,7 +28,9 @@ interface AdminState {
   /** Load the list. Never throws. */
   refresh: () => Promise<void>;
   /** Make a profile with the fresh state and this name; resolves to its id
-   *  once the list has it. */
+   *  once the list has it. When another profile has the name, another is
+   *  picked and tried, silently (revision 6): the list shows the name the
+   *  profile got. */
   createPlayer: (handle: Handle) => Promise<string>;
   /** A code that logs a device into this profile, valid until `expiresAt`
    *  (after now, at most 24 hours ahead). */
@@ -73,10 +75,22 @@ export const useAdminStore = create<AdminState>((set, get) => {
 
     createPlayer: async (handle) => {
       if (!isHandle(handle)) throw new Error('admin: not a name');
-      const state = freshPlayerState(handle);
-      const res = await useSyncStore.getState().adminRequest((token) => adminApi.createPlayer(token, state));
+      let name: Handle = handle;
+      let made: { player_id: string } | null = null;
+      for (let retries = 0; !made; retries++) {
+        try {
+          const state = freshPlayerState(name);
+          made = await useSyncStore.getState().adminRequest((token) => adminApi.createPlayer(token, state));
+        } catch (e) {
+          if (!isHandleTaken(e)) throw e;
+          // Not the 409 the section explains as "this device signs out with
+          // Log out": past the bound, say only that it didn't work this time.
+          if (retries >= MAX_HANDLE_RETRIES) throw new Error('admin: every name tried was taken');
+          name = randomHandle(name);
+        }
+      }
       await reload();
-      return res.player_id;
+      return made.player_id;
     },
 
     mintCode: async (playerId, expiresAt) => {

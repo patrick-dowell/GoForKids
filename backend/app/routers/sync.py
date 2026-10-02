@@ -44,7 +44,10 @@ ALLOWED_STATE_KEYS = frozenset(
     {"schema", "ladder", "lessons", "avatar", "avatarPicked", "handle"}
 )
 # A generated name: one position in each of two 64-word lists.
-HANDLE_WORDS = 64
+HANDLE_WORDS = storage.HANDLE_WORDS
+# The 409 detail for a state whose name another profile holds (Revision 6),
+# told apart from the revision conflict's 409 by its body.
+HANDLE_TAKEN = "handle_taken"
 MAX_STATE_BYTES = 512 * 1024
 MAX_GAME_BYTES = 1024 * 1024
 MAX_GAME_ID_LENGTH = 128
@@ -192,12 +195,12 @@ async def finite_body(request: Request) -> None:
 
 
 def _valid_handle(value: Any) -> bool:
-    # type() rather than isinstance(): a bool is an int to Python, not to JSON.
-    return (
-        isinstance(value, list)
-        and len(value) == 2
-        and all(type(v) is int and 0 <= v < HANDLE_WORDS for v in value)
-    )
+    return storage.handle_key(value) is not None
+
+
+def handle_taken() -> HTTPException:
+    """409 `{"detail": "handle_taken"}`: another profile has this name."""
+    return HTTPException(status_code=409, detail=HANDLE_TAKEN)
 
 
 def _checked_state_json(state: Dict[str, Any]) -> str:
@@ -264,9 +267,14 @@ async def create_player(
     # whole, and it counts toward the limit like any create.
     state_json = _checked_state_json(body.state)
     _enforce(create_limiter, request, now)
-    result = await storage.create_player(
-        state_json, now, create_key=body.create_key, kind=x_device_kind
-    )
+    try:
+        result = await storage.create_player(
+            state_json, now, create_key=body.create_key, kind=x_device_kind
+        )
+    except storage.HandleTaken:
+        # Nothing was made, so the device may retry under the same key with
+        # another name.
+        raise handle_taken()
     if not result.created:
         response.status_code = 200
     return {
@@ -344,9 +352,12 @@ async def put_state(
     now: float = Depends(current_time),
 ):
     state_json = _checked_state_json(body.state)
-    written, rev, current_json = await storage.put_state(
-        device.player_id, body.base_rev, state_json, now
-    )
+    try:
+        written, rev, current_json = await storage.put_state(
+            device.player_id, body.base_rev, state_json, now
+        )
+    except storage.HandleTaken:
+        raise handle_taken()
     if not written:
         return JSONResponse(
             status_code=409, content={"rev": rev, "state": json.loads(current_json)}

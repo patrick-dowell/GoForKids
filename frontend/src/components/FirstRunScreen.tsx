@@ -25,6 +25,9 @@ function logInError(e: unknown): string {
  *
  * - "New player": a generated name (Shuffle for another), then on into the
  *   app; the profile is created in the background and never blocks play.
+ *   The name is drawn here without asking the server, so another profile
+ *   may already hold it (revision 6): then sync draws another while
+ *   creating, and the name card on the home screen shows the one it got.
  * - "I already play on another device": type the code from that device's
  *   Profile → Add a device, and this device takes that player whole.
  */

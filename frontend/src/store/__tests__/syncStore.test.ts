@@ -94,6 +94,8 @@ class FakeServer {
   createKeys = new Map<string, string[]>();
   /** Players actually made (201s). */
   playersCreated = 0;
+  /** Names other profiles hold, as "a,n" (revision 6). */
+  taken = new Set<string>();
 
   constructor(state: SyncStateDoc) {
     this.state = clone(state);
@@ -144,6 +146,11 @@ class FakeServer {
     return 'handle' in state && !validHandle(state.handle);
   }
 
+  /** Another profile holds this state's name. */
+  isTaken(state: SyncStateDoc): boolean {
+    return !!state.handle && this.taken.has(state.handle.join(','));
+  }
+
   /** The contract's default answer (public so an intercept can let a request
    *  land and still lose its reply). */
   handle(c: Call): Response {
@@ -165,6 +172,7 @@ class FakeServer {
         return json(200, { player_id: 'p-1', device_token: fresh, rev: this.rev, state: clone(this.state) });
       }
       if (this.badState(c.body?.state)) return json(422, { detail: 'bad state' });
+      if (this.isTaken(c.body!.state!)) return json(409, { detail: 'handle_taken' });
       this.rev = 1;
       this.state = clone(c.body!.state!);
       this.tokens.add('tok-new');
@@ -190,6 +198,7 @@ class FakeServer {
     if (c.path === '/sync/state' && c.method === 'PUT') {
       if (this.badState(c.body?.state)) return json(422, { detail: 'bad state' });
       if (c.body?.base_rev !== this.rev) return json(409, { rev: this.rev, state: clone(this.state) });
+      if (this.isTaken(c.body!.state!)) return json(409, { detail: 'handle_taken' });
       this.rev += 1;
       this.state = clone(c.body!.state!);
       return json(200, { rev: this.rev });
@@ -1269,6 +1278,249 @@ describe('the create key', () => {
     expect(s.baseRev).toBe(4);
     expect(s.dirty).toBe(false);
     expect(server.count('PUT', '/sync/games/old-1')).toBe(1); // replays sent as after any create
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * Revision 6: a name is unique across profiles.
+ * ------------------------------------------------------------------------- */
+
+describe('a name another profile has', () => {
+  const taken = () => json(409, { detail: 'handle_taken' });
+  const handleOf = (c: Call) => c.body!.state!.handle;
+  const syncKey = () => JSON.parse(localStorage.getItem('goforkids.sync.v1')!) as Record<string, unknown>;
+
+  /** Each name tried differs from the one tried before it. */
+  function expectEachDifferent(calls: Call[]) {
+    for (let i = 1; i < calls.length; i++) expect(handleOf(calls[i])).not.toEqual(handleOf(calls[i - 1]));
+  }
+
+  it('retries at most eight times', async () => {
+    const m = await load();
+    expect(m.sync.MAX_HANDLE_RETRIES).toBe(8);
+  });
+
+  it("a new player's first-run name: another is picked under the same key, silently, and the card shows the name the profile got", async () => {
+    const m = await load();
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    server.tokens.clear();
+    server.taken.add('5,7');
+    vi.stubGlobal('fetch', server.fetch);
+    expect(boot(m)).toBe('first-run');
+
+    m.profile.useProfileStore.getState().setHandle([5, 7]); // what the first-run screen showed
+    m.sync.useSyncStore.getState().startNewPlayer();
+    await m.sync.syncIdle();
+
+    const posts = server.find('POST', '/sync/players');
+    expect(posts).toHaveLength(2);
+    expect(handleOf(posts[0])).toEqual([5, 7]);
+    const got = m.profile.useProfileStore.getState().handle!;
+    expect(got).not.toEqual([5, 7]);
+    expect(handleOf(posts[1])).toEqual(got);
+    expect(posts[1].body!.create_key).toBe(posts[0].body!.create_key);
+    expect(server.playersCreated).toBe(1);
+    expect(server.state.handle).toEqual(got);
+    expect(JSON.parse(localStorage.getItem('goforkids.profile.v1')!).handle).toEqual(got);
+
+    const s = m.sync.useSyncStore.getState();
+    expect(s.deviceToken).toBe('tok-new');
+    expect(s.showIntro).toBe(true);
+    expect(s.nameWasTaken).toBe(true);
+    expect(syncKey()).toMatchObject({ showIntro: true, nameWasTaken: true });
+    // Sync's own pick is not a change made here: one pass, nothing to push.
+    expect(server.count('GET', '/sync/state')).toBe(1);
+    expect(server.count('PUT', '/sync/state')).toBe(0);
+
+    s.dismissIntro();
+    expect(m.sync.useSyncStore.getState()).toMatchObject({ showIntro: false, nameWasTaken: false });
+    expect(syncKey()).toMatchObject({ showIntro: false, nameWasTaken: false });
+  });
+
+  it("an existing player's generated name: another is picked; the card is the usual one", async () => {
+    seedExistingPlayer();
+    const m = await load();
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    server.tokens.clear();
+    vi.stubGlobal('fetch', server.fetch);
+    let refusals = 2;
+    server.intercept = (c) => (c.method === 'POST' && c.path === '/sync/players' && refusals-- > 0 ? taken() : undefined);
+
+    expect(boot(m)).toBe('existing');
+    await m.sync.syncIdle();
+
+    const posts = server.find('POST', '/sync/players');
+    expect(posts).toHaveLength(3);
+    expectEachDifferent(posts);
+    expect(new Set(posts.map((p) => p.body!.create_key)).size).toBe(1);
+    const got = m.profile.useProfileStore.getState().handle!;
+    expect(handleOf(posts[2])).toEqual(got);
+    expect(server.state.handle).toEqual(got);
+    expect(m.sync.useSyncStore.getState()).toMatchObject({ deviceToken: 'tok-new', showIntro: true, nameWasTaken: false });
+  });
+
+  it('a create gives up after eight more names, stays pending, and the next trigger goes on', async () => {
+    seedExistingPlayer();
+    const m = await load();
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    server.tokens.clear();
+    vi.stubGlobal('fetch', server.fetch);
+    server.intercept = (c) => (c.method === 'POST' && c.path === '/sync/players' ? taken() : undefined);
+
+    boot(m);
+    const key = m.sync.useSyncStore.getState().createKey;
+    await m.sync.syncIdle();
+    expect(server.count('POST', '/sync/players')).toBe(9);
+    expectEachDifferent(server.find('POST', '/sync/players'));
+    expect(m.sync.useSyncStore.getState()).toMatchObject({ deviceToken: null, pendingCreate: 'existing', createKey: key });
+
+    server.intercept = undefined;
+    m.auto.useAutoPlayStore.getState().recordResult('win'); // a trigger
+    await m.sync.syncIdle();
+    expect(server.count('POST', '/sync/players')).toBe(10);
+    expect(server.find('POST', '/sync/players')[9].body!.create_key).toBe(key);
+    expect(m.sync.useSyncStore.getState().deviceToken).toBe('tok-new');
+    expect(server.state.handle).toEqual(m.profile.useProfileStore.getState().handle);
+  });
+
+  it('a create under a new name whose reply is lost is repeated under the same key: one profile, under that name', async () => {
+    const m = await load();
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    server.tokens.clear();
+    server.taken.add('5,7');
+    vi.stubGlobal('fetch', server.fetch);
+    let lost = true;
+    server.intercept = (c) => {
+      if (lost && c.method === 'POST' && c.path === '/sync/players' && !server.isTaken(c.body!.state!)) {
+        lost = false;
+        server.handle(c); // lands...
+        throw new TypeError('Load failed'); // ...and its reply is lost
+      }
+      return undefined;
+    };
+    boot(m);
+    m.profile.useProfileStore.getState().setHandle([5, 7]);
+    m.sync.useSyncStore.getState().startNewPlayer();
+    await m.sync.syncIdle();
+
+    const posts = server.find('POST', '/sync/players');
+    expect(posts).toHaveLength(3); // refused, landed with its reply lost, repeated
+    expect(new Set(posts.map((p) => p.body!.create_key)).size).toBe(1);
+    expect(handleOf(posts[2])).toEqual(handleOf(posts[1]));
+    expect(server.playersCreated).toBe(1);
+    const got = m.profile.useProfileStore.getState().handle!;
+    expect(got).toEqual(handleOf(posts[1]));
+    expect(server.state.handle).toEqual(got);
+    expect(m.sync.useSyncStore.getState()).toMatchObject({ deviceToken: 'tok-again-1', showIntro: true, nameWasTaken: true });
+  });
+
+  it('a name changed here while the create was out is the one tried next, and no card', async () => {
+    const m = await load();
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    server.tokens.clear();
+    server.taken.add('5,7');
+    vi.stubGlobal('fetch', server.fetch);
+    boot(m);
+    m.profile.useProfileStore.getState().setHandle([5, 7]);
+    server.intercept = (c) => {
+      // Shuffle on the Profile page while the first create is on its way.
+      if (c.method === 'POST' && c.path === '/sync/players' && handleOf(c)!.join() === '5,7') {
+        m.profile.useProfileStore.getState().setHandle([9, 9]);
+      }
+      return undefined;
+    };
+    m.sync.useSyncStore.getState().startNewPlayer();
+    await m.sync.syncIdle();
+
+    const posts = server.find('POST', '/sync/players');
+    expect(posts.map(handleOf)).toEqual([[5, 7], [9, 9]]);
+    expect(m.profile.useProfileStore.getState().handle).toEqual([9, 9]);
+    expect(m.sync.useSyncStore.getState()).toMatchObject({ deviceToken: 'tok-new', showIntro: false, nameWasTaken: false });
+  });
+
+  it('Shuffle once the profile exists: a taken name is replaced and pushed on the same revision; the name shown is the one the server took', async () => {
+    const m = await load();
+    m.profile.useProfileStore.getState().setHandle([0, 0]);
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    vi.stubGlobal('fetch', server.fetch);
+    loggedIn(m, 1);
+    let refusals = 3;
+    server.intercept = (c) => (c.method === 'PUT' && c.path === '/sync/state' && refusals-- > 0 ? taken() : undefined);
+
+    m.profile.useProfileStore.getState().shuffleHandle();
+    const shuffled = m.profile.useProfileStore.getState().handle!;
+    await m.sync.syncIdle();
+
+    const puts = server.find('PUT', '/sync/state');
+    expect(puts).toHaveLength(4);
+    expect(handleOf(puts[0])).toEqual(shuffled);
+    expectEachDifferent(puts);
+    expect(puts.map((p) => p.body!.base_rev)).toEqual([1, 1, 1, 1]);
+    const got = m.profile.useProfileStore.getState().handle!;
+    expect(got).toEqual(handleOf(puts[3]));
+    expect(server.state.handle).toEqual(got);
+    expect(server.rev).toBe(2);
+    expect(JSON.parse(localStorage.getItem('goforkids.profile.v1')!).handle).toEqual(got);
+    const s = m.sync.useSyncStore.getState();
+    expect(s.baseRev).toBe(2);
+    expect(s.dirty).toBe(false);
+    // Sync's own picks start no pass of their own.
+    expect(server.count('GET', '/sync/state')).toBe(1);
+  });
+
+  it('a push gives up after eight more names, stays dirty, and the next pass goes on', async () => {
+    const m = await load();
+    m.profile.useProfileStore.getState().setHandle([0, 0]);
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    vi.stubGlobal('fetch', server.fetch);
+    loggedIn(m, 1);
+    server.intercept = (c) => (c.method === 'PUT' && c.path === '/sync/state' ? taken() : undefined);
+
+    m.profile.useProfileStore.getState().shuffleHandle();
+    await m.sync.syncIdle();
+    expect(server.count('PUT', '/sync/state')).toBe(9);
+    expect(m.sync.useSyncStore.getState()).toMatchObject({ baseRev: 1, dirty: true, deviceToken: 'tok-1' });
+    expect(server.state.handle).toEqual([0, 0]);
+
+    server.intercept = undefined;
+    expect(await m.sync.useSyncStore.getState().sync()).toBe(true);
+    expect(server.state.handle).toEqual(m.profile.useProfileStore.getState().handle);
+    expect(server.state.handle).not.toEqual([0, 0]);
+  });
+
+  it('a revision conflict is still a rebase; the name is replaced only when the server says it is taken', async () => {
+    const m = await load();
+    m.profile.useProfileStore.getState().setHandle([0, 0]);
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    vi.stubGlobal('fetch', server.fetch);
+    loggedIn(m, 1);
+    let puts = 0;
+    server.intercept = (c) => {
+      if (c.method !== 'PUT' || c.path !== '/sync/state') return undefined;
+      puts++;
+      if (puts === 1) {
+        // Another device wrote first: the default answer is the revision 409.
+        server.rev = 2;
+        server.state = { ...clone(server.state), lessons: ['elsewhere'] };
+      }
+      return puts === 2 ? taken() : undefined;
+    };
+
+    m.profile.useProfileStore.getState().shuffleHandle();
+    const shuffled = m.profile.useProfileStore.getState().handle!;
+    await m.sync.syncIdle();
+
+    const sent = server.find('PUT', '/sync/state');
+    expect(sent.map((c) => c.body!.base_rev)).toEqual([1, 2, 2]);
+    // The rebase kept the name changed here (not the server's [0, 0])...
+    expect(handleOf(sent[1])).toEqual(shuffled);
+    // ...and only the name refusal replaced it.
+    const got = m.profile.useProfileStore.getState().handle!;
+    expect(handleOf(sent[2])).toEqual(got);
+    expect(got).not.toEqual(shuffled);
+    expect(server.state.handle).toEqual(got);
+    expect(server.state.lessons).toContain('elsewhere');
+    expect(m.sync.useSyncStore.getState()).toMatchObject({ baseRev: 3, dirty: false });
   });
 });
 

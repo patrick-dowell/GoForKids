@@ -22,11 +22,18 @@ Friends (plan 32, Revision 4): every profile holds a unique friend code, and
 `sync_friendships` holds at most one row per ordered pair of profiles, with
 a status of pending, accepted or declined. Accepting deletes the other row
 between the two, so a friendship is exactly one accepted row.
+
+Names (plan 32, Revision 6): a generated name is unique across profiles.
+`sync_players.handle` mirrors the state's `handle` as "a,n" (null when the
+state has none) under a unique index; every write of a state sets it, and a
+write whose handle another profile holds raises HandleTaken, checked inside
+the writing transaction.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 import time
@@ -89,6 +96,36 @@ def new_device_id() -> str:
     return str(uuid.uuid4())
 
 
+# A generated name: one position in each of two 64-word lists (Revision 2).
+HANDLE_WORDS = 64
+
+
+class HandleTaken(Exception):
+    """The state's handle is another profile's name (Revision 6)."""
+
+
+def handle_key(value: object) -> Optional[str]:
+    """The column form of a state's `handle`, "a,n", or None when the value
+    is not a handle: a list of two integers from 0 to HANDLE_WORDS - 1.
+    type() rather than isinstance(): a bool is an int to Python, not to JSON."""
+    if (
+        isinstance(value, list)
+        and len(value) == 2
+        and all(type(v) is int and 0 <= v < HANDLE_WORDS for v in value)
+    ):
+        return f"{value[0]},{value[1]}"
+    return None
+
+
+def _handle_of(state_json: str) -> Optional[str]:
+    """The column form of the handle in a state document, or None."""
+    try:
+        state = json.loads(state_json)
+    except ValueError:
+        return None
+    return handle_key(state.get("handle")) if isinstance(state, dict) else None
+
+
 def iso_utc(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -118,7 +155,9 @@ async def _write_txn() -> AsyncIterator[aiosqlite.Connection]:
 # names (unique), and on every device token a create with that key issued.
 # Revision 3 adds a player's `no_device_since` and a device's public id and
 # last-seen time (both epoch seconds; null until set). Revision 4 adds the
-# player's friend code (unique; given to older rows at start-up).
+# player's friend code (unique; given to older rows at start-up). Revision 6
+# adds the player's handle, "a,n" (unique; filled from older rows' states at
+# start-up).
 _ADDED_COLUMNS = (
     ("sync_players", "create_key_hash", "TEXT"),
     ("sync_devices", "create_key_hash", "TEXT"),
@@ -127,6 +166,7 @@ _ADDED_COLUMNS = (
     ("sync_devices", "last_seen_at", "REAL"),
     ("sync_players", "friend_code", "TEXT"),
     ("sync_devices", "kind", "TEXT"),
+    ("sync_players", "handle", "TEXT"),
 )
 
 
@@ -137,7 +177,8 @@ async def init_sync_db(now: Optional[float] = None) -> None:
     Device rows written before Revision 3 get a device id. A profile that
     already has no device and no `no_device_since` gets `now`, so it has the
     full retention period from this start-up. A profile written before
-    Revision 4 gets a friend code.
+    Revision 4 gets a friend code. A profile written before Revision 6 gets
+    its handle column filled from its state (`_index_handles`).
     """
     now = time.time() if now is None else now
     async with _write_txn() as db:
@@ -251,6 +292,7 @@ async def init_sync_db(now: Optional[float] = None) -> None:
                 "UPDATE sync_players SET friend_code = ? WHERE id = ?",
                 (await _free_friend_code(db), player_id),
             )
+        await _index_handles(db, now)
 
 
 async def _free_friend_code(db: aiosqlite.Connection) -> str:
@@ -263,6 +305,83 @@ async def _free_friend_code(db: aiosqlite.Connection) -> str:
             if await cur.fetchone() is None:
                 return code
     raise RuntimeError("could not allocate a unique friend code")
+
+
+async def _index_handles(db: aiosqlite.Connection, now: float) -> None:
+    """Fill the handle column of every profile whose state names it and
+    whose column is still empty (every profile, on the first start-up after
+    Revision 6), then put the unique index on it.
+
+    Oldest profile first (by `created_at`, then insertion order): the first
+    to hold a name keeps it. Each later holder gets a free name, written to
+    the column and into its state, with its revision raised by one, so each
+    of its devices finds the server ahead at its next pass and takes the
+    new name like any other change made elsewhere.
+    """
+    async with db.execute("SELECT handle FROM sync_players WHERE handle IS NOT NULL") as cur:
+        held = {row[0] for row in await cur.fetchall()}
+    async with db.execute(
+        "SELECT id, state FROM sync_players WHERE handle IS NULL ORDER BY created_at, rowid"
+    ) as cur:
+        rows = await cur.fetchall()
+    for player_id, state_json in rows:
+        try:
+            state = json.loads(state_json)
+        except ValueError:
+            continue
+        handle = handle_key(state.get("handle")) if isinstance(state, dict) else None
+        if handle is None:
+            continue
+        if handle not in held:
+            await db.execute(
+                "UPDATE sync_players SET handle = ? WHERE id = ?", (handle, player_id)
+            )
+        else:
+            state["handle"] = _free_handle(held)
+            handle = handle_key(state["handle"])
+            await db.execute(
+                """UPDATE sync_players SET handle = ?, state = ?, rev = rev + 1, updated_at = ?
+                   WHERE id = ?""",
+                (handle, _state_json(state), iso_utc(now), player_id),
+            )
+        held.add(handle)
+    await db.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS sync_players_by_handle
+        ON sync_players (handle)
+    """)
+
+
+def _free_handle(held: set[str]) -> list[int]:
+    """A handle not in `held`, uniform over the free ones."""
+    free = [
+        [a, n]
+        for a in range(HANDLE_WORDS)
+        for n in range(HANDLE_WORDS)
+        if f"{a},{n}" not in held
+    ]
+    if not free:
+        raise RuntimeError("every generated name is taken")
+    return secrets.choice(free)
+
+
+def _state_json(state: dict) -> str:
+    """A state document as the sync router writes it (compact, UTF-8)."""
+    return json.dumps(state, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+
+
+async def _check_handle_free(
+    db: aiosqlite.Connection, handle: Optional[str], player_id: Optional[str] = None
+) -> None:
+    """Raise HandleTaken when a profile other than `player_id` holds the
+    handle. Called inside the transaction that then writes it, so no other
+    write can take the name in between."""
+    if handle is None:
+        return
+    async with db.execute(
+        "SELECT 1 FROM sync_players WHERE handle = ? AND id IS NOT ?", (handle, player_id)
+    ) as cur:
+        if await cur.fetchone() is not None:
+            raise HandleTaken(handle)
 
 
 # True of a sync_players row with no device row left.
@@ -332,8 +451,14 @@ async def create_player(
     for the same player, and return the player's current revision and state
     (the given state is ignored). The lookup and the write share one
     transaction, so concurrent creates with one key make one player.
+
+    Otherwise, raise HandleTaken when another profile holds the state's
+    handle; the check and the insert share one transaction, so concurrent
+    creates with one name make one player. A repeat is answered before the
+    name is looked at: its state, name included, is ignored.
     """
     key_hash = hash_token(create_key) if create_key is not None else None
+    handle = _handle_of(state_json)
     stamp = iso_utc(now)
     async with _write_txn() as db:
         if key_hash is not None:
@@ -350,12 +475,13 @@ async def create_player(
                 )
                 token = await _add_device(db, player_id, now, key_hash, kind)
                 return CreatedPlayer(player_id, token, rev, current_json, created=False)
+        await _check_handle_free(db, handle)
         player_id = str(uuid.uuid4())
         await db.execute(
             """INSERT INTO sync_players
-               (id, rev, state, created_at, updated_at, create_key_hash, friend_code)
-               VALUES (?, 1, ?, ?, ?, ?, ?)""",
-            (player_id, state_json, stamp, stamp, key_hash, await _free_friend_code(db)),
+               (id, rev, state, created_at, updated_at, create_key_hash, friend_code, handle)
+               VALUES (?, 1, ?, ?, ?, ?, ?, ?)""",
+            (player_id, state_json, stamp, stamp, key_hash, await _free_friend_code(db), handle),
         )
         token = await _add_device(db, player_id, now, key_hash, kind)
     return CreatedPlayer(player_id, token, 1, state_json, created=True)
@@ -427,12 +553,24 @@ async def put_state(
 
     Returns (written, rev, state_json): on success the new revision and the
     written state, on conflict the server's current revision and state.
+
+    With base_rev current, raises HandleTaken (writing nothing) when another
+    profile holds the state's handle; keeping the player's own name is fine,
+    and a state without a handle frees the name. A stale base_rev is the
+    conflict above whatever the name, since nothing would be written.
     """
+    handle = _handle_of(state_json)
     async with _write_txn() as db:
+        async with db.execute(
+            "SELECT rev FROM sync_players WHERE id = ?", (player_id,)
+        ) as sel:
+            row = await sel.fetchone()
+        if row is not None and row[0] == base_rev:
+            await _check_handle_free(db, handle, player_id)
         cur = await db.execute(
-            """UPDATE sync_players SET rev = rev + 1, state = ?, updated_at = ?
+            """UPDATE sync_players SET rev = rev + 1, state = ?, handle = ?, updated_at = ?
                WHERE id = ? AND rev = ?""",
-            (state_json, iso_utc(now), player_id, base_rev),
+            (state_json, handle, iso_utc(now), player_id, base_rev),
         )
         written = cur.rowcount == 1
         async with db.execute(
@@ -587,15 +725,18 @@ async def _player_exists(db: aiosqlite.Connection, player_id: str) -> bool:
 
 async def admin_create_player(state_json: str, now: float) -> str:
     """A profile with no device yet, so its retention clock starts now.
-    Returns the new player id."""
+    Returns the new player id. Raises HandleTaken when another profile holds
+    the state's handle, checked in the transaction that inserts."""
     player_id = str(uuid.uuid4())
+    handle = _handle_of(state_json)
     stamp = iso_utc(now)
     async with _write_txn() as db:
+        await _check_handle_free(db, handle)
         await db.execute(
             """INSERT INTO sync_players
-               (id, rev, state, created_at, updated_at, no_device_since, friend_code)
-               VALUES (?, 1, ?, ?, ?, ?, ?)""",
-            (player_id, state_json, stamp, stamp, now, await _free_friend_code(db)),
+               (id, rev, state, created_at, updated_at, no_device_since, friend_code, handle)
+               VALUES (?, 1, ?, ?, ?, ?, ?, ?)""",
+            (player_id, state_json, stamp, stamp, now, await _free_friend_code(db), handle),
         )
     return player_id
 
