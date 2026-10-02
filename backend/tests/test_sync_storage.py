@@ -67,7 +67,7 @@ async def test_tokens_are_stored_only_as_sha256(client, sync_db):
 
 
 async def test_compare_and_write_admits_one_of_many_concurrent_writers(sync_db):
-    player_id, _ = await sync_storage.create_player("{}", 0)
+    player_id = (await sync_storage.create_player("{}", 0)).player_id
     results = await asyncio.gather(
         *(sync_storage.put_state(player_id, 1, f'{{"n":{i}}}', 1) for i in range(8))
     )
@@ -79,7 +79,7 @@ async def test_compare_and_write_admits_one_of_many_concurrent_writers(sync_db):
 
 
 async def test_concurrent_redeems_of_one_code_link_one_device(sync_db):
-    player_id, _ = await sync_storage.create_player("{}", 0)
+    player_id = (await sync_storage.create_player("{}", 0)).player_id
     code, _ = await sync_storage.mint_pairing_code(player_id, 0)
     results = await asyncio.gather(
         *(sync_storage.redeem_pairing_code(code, 1) for _ in range(6))
@@ -90,7 +90,7 @@ async def test_concurrent_redeems_of_one_code_link_one_device(sync_db):
 
 
 async def test_minting_clears_expired_codes(sync_db):
-    player_id, _ = await sync_storage.create_player("{}", 0)
+    player_id = (await sync_storage.create_player("{}", 0)).player_id
     await sync_storage.mint_pairing_code(player_id, 0)
     await sync_storage.mint_pairing_code(player_id, 10_000)
     with sqlite3.connect(sync_db) as db:

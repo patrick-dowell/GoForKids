@@ -20,6 +20,7 @@ import os
 import secrets
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import AsyncIterator, Mapping, Optional
 
@@ -77,9 +78,20 @@ async def _write_txn() -> AsyncIterator[aiosqlite.Connection]:
         await db.execute("COMMIT")
 
 
+# Columns added after the first schema. Startup adds any that are missing, so
+# a file written by an earlier build keeps working; a fresh file gets them the
+# same way. Each create key is stored only as its SHA-256: on the player it
+# names (unique), and on every device token a create with that key issued.
+_ADDED_COLUMNS = (
+    ("sync_players", "create_key_hash", "TEXT"),
+    ("sync_devices", "create_key_hash", "TEXT"),
+)
+
+
 async def init_sync_db() -> None:
-    """Create the four sync_ tables. Called from the app lifespan."""
-    async with _connect() as db:
+    """Create the four sync_ tables and bring an older file up to date.
+    Called from the app lifespan."""
+    async with _write_txn() as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS sync_players (
                 id TEXT PRIMARY KEY,
@@ -118,33 +130,81 @@ async def init_sync_db() -> None:
                 used INTEGER NOT NULL DEFAULT 0
             )
         """)
+        for table, column, decl in _ADDED_COLUMNS:
+            async with db.execute(f"PRAGMA table_info({table})") as cur:
+                existing = {row[1] for row in await cur.fetchall()}
+            if column not in existing:
+                await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        await db.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS sync_players_by_create_key
+            ON sync_players (create_key_hash)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS sync_devices_by_create_key
+            ON sync_devices (create_key_hash)
+        """)
 
 
 # ── Players and devices ──────────────────────────────────────────────
 
 
-async def _add_device(db: aiosqlite.Connection, player_id: str, now: float) -> str:
+async def _add_device(
+    db: aiosqlite.Connection, player_id: str, now: float, key_hash: Optional[str] = None
+) -> str:
     token = new_device_token()
     await db.execute(
-        "INSERT INTO sync_devices (token_hash, player_id, created_at) VALUES (?, ?, ?)",
-        (hash_token(token), player_id, iso_utc(now)),
+        """INSERT INTO sync_devices (token_hash, player_id, created_at, create_key_hash)
+           VALUES (?, ?, ?, ?)""",
+        (hash_token(token), player_id, iso_utc(now), key_hash),
     )
     return token
 
 
-async def create_player(state_json: str, now: float) -> tuple[str, str]:
-    """Create a record at revision 1 with its first device. Returns
-    (player_id, device_token); the token is not recoverable afterwards."""
-    player_id = str(uuid.uuid4())
+@dataclass
+class CreatedPlayer:
+    player_id: str
+    device_token: str  # not recoverable afterwards
+    rev: int
+    state_json: str
+    created: bool  # False when a create key matched an existing player
+
+
+async def create_player(
+    state_json: str, now: float, create_key: Optional[str] = None
+) -> CreatedPlayer:
+    """Create a record at revision 1 with its first device.
+
+    With a create key already used by an earlier create, make no record:
+    revoke every token that creates with that key issued, issue a fresh one
+    for the same player, and return the player's current revision and state
+    (the given state is ignored). The lookup and the write share one
+    transaction, so concurrent creates with one key make one player.
+    """
+    key_hash = hash_token(create_key) if create_key is not None else None
     stamp = iso_utc(now)
     async with _write_txn() as db:
+        if key_hash is not None:
+            async with db.execute(
+                "SELECT id, rev, state FROM sync_players WHERE create_key_hash = ?",
+                (key_hash,),
+            ) as cur:
+                row = await cur.fetchone()
+            if row is not None:
+                player_id, rev, current_json = row
+                await db.execute(
+                    "DELETE FROM sync_devices WHERE player_id = ? AND create_key_hash = ?",
+                    (player_id, key_hash),
+                )
+                token = await _add_device(db, player_id, now, key_hash)
+                return CreatedPlayer(player_id, token, rev, current_json, created=False)
+        player_id = str(uuid.uuid4())
         await db.execute(
-            """INSERT INTO sync_players (id, rev, state, created_at, updated_at)
-               VALUES (?, 1, ?, ?, ?)""",
-            (player_id, state_json, stamp, stamp),
+            """INSERT INTO sync_players (id, rev, state, created_at, updated_at, create_key_hash)
+               VALUES (?, 1, ?, ?, ?, ?)""",
+            (player_id, state_json, stamp, stamp, key_hash),
         )
-        token = await _add_device(db, player_id, now)
-    return player_id, token
+        token = await _add_device(db, player_id, now, key_hash)
+    return CreatedPlayer(player_id, token, 1, state_json, created=True)
 
 
 async def player_for_token(token: str) -> Optional[str]:

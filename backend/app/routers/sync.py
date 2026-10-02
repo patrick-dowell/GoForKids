@@ -28,7 +28,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, StrictInt
+from pydantic import BaseModel, Field, StrictInt, StrictStr
 
 from app.sync import storage
 from app.sync.ratelimit import RateLimiter
@@ -203,8 +203,16 @@ def _checked_state_json(state: Dict[str, Any]) -> str:
 # ── Request bodies ───────────────────────────────────────────────────
 
 
+# Made up by the device and sent with every attempt at one create, so a
+# create whose reply was lost can be repeated without making a second player.
+CREATE_KEY_PATTERN = r"^[A-Za-z0-9_-]{16,64}$"
+
+
 class CreatePlayerRequest(BaseModel):
     state: Dict[str, Any]
+    # Absent is allowed; an explicit null, like any non-string, is refused
+    # (the default is not validated, a sent value is).
+    create_key: StrictStr = Field(default=None, pattern=CREATE_KEY_PATTERN)
 
 
 class RedeemRequest(BaseModel):
@@ -229,13 +237,23 @@ class PutGameRequest(BaseModel):
 async def create_player(
     body: CreatePlayerRequest,
     request: Request,
+    response: Response,
     _finite: None = Depends(finite_body),
     now: float = Depends(current_time),
 ):
+    # A repeat ignores the state it carries, but the request is still checked
+    # whole, and it counts toward the limit like any create.
     state_json = _checked_state_json(body.state)
     _enforce(create_limiter, request, now)
-    player_id, token = await storage.create_player(state_json, now)
-    return {"player_id": player_id, "device_token": token, "rev": 1, "state": body.state}
+    result = await storage.create_player(state_json, now, create_key=body.create_key)
+    if not result.created:
+        response.status_code = 200
+    return {
+        "player_id": result.player_id,
+        "device_token": result.device_token,
+        "rev": result.rev,
+        "state": json.loads(result.state_json),
+    }
 
 
 @router.post("/pairing-codes", status_code=201)
