@@ -9,7 +9,7 @@ from tests.sync_helpers import bearer, new_player
 
 HOUR = 3600
 CREATE_LIMIT = 60
-REDEEM_LIMIT = 20
+REDEEM_LIMIT = 60
 
 
 def _from(address: str) -> dict:
@@ -61,7 +61,7 @@ async def test_refused_create_makes_no_record(client, sync_db):
         assert db.execute("SELECT COUNT(*) FROM sync_players").fetchone()[0] == CREATE_LIMIT
 
 
-async def test_redeem_allows_20_an_hour_then_429_until_the_clock_moves(client, clock):
+async def test_redeem_allows_60_an_hour_then_429_until_the_clock_moves(client, clock):
     _, auth = await new_player(client)
     for _ in range(REDEEM_LIMIT):
         r = await client.post("/api/sync/pairing-codes/redeem", json={"code": "AAAAAAAA"})

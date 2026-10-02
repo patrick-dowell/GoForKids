@@ -7,7 +7,7 @@ import sqlite3
 import pytest
 
 import app.sync.storage as sync_storage
-from tests.sync_helpers import DEFAULT_STATE, bearer, new_player
+from tests.sync_helpers import DEFAULT_STATE, bearer, new_player, rev_and_state
 
 KEY = "device-made-key_0123456789"
 OTHER_KEY = "another-device-key-ABCDEFGH"
@@ -69,7 +69,7 @@ async def test_repeat_returns_current_rev_and_state_and_ignores_the_sent_state(c
     assert repeat.json()["rev"] == 2
     assert repeat.json()["state"] == moved
     r = await client.get("/api/sync/state", headers=bearer(repeat.json()["device_token"]))
-    assert r.json() == {"rev": 2, "state": moved}
+    assert rev_and_state(r) == {"rev": 2, "state": moved}
 
 
 async def test_concurrent_creates_with_one_key_make_one_player(client, sync_db):
@@ -200,7 +200,7 @@ async def test_startup_upgrades_a_file_from_the_previous_schema(client, tmp_path
     await sync_storage.init_sync_db()  # and again, on the upgraded file
 
     r = await client.get("/api/sync/state", headers=bearer(old_token))
-    assert r.json() == {"rev": 3, "state": {"lessons": ["kept"]}}
+    assert rev_and_state(r) == {"rev": 3, "state": {"lessons": ["kept"]}}
 
     first = await _create(client)
     repeat = await _create(client)

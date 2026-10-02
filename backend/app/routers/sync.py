@@ -13,7 +13,8 @@ DELETE /api/sync/games/{id}              remove a replay
 DELETE /api/sync/devices/current         revoke this device's token
 
 A linked device sends `Authorization: Bearer <device_token>`. Every query a
-token reaches is scoped to that token's player.
+token reaches is scoped to that token's player; the admin routes
+(app.routers.sync_admin) are the one exception, for an admin profile.
 """
 
 from __future__ import annotations
@@ -54,7 +55,10 @@ _HOUR = 3600.0
 # 60, not 10: every device creates a profile at first launch, and a room of
 # devices can do that at once from behind one address.
 create_limiter = RateLimiter(limit=60, window_s=_HOUR)
-redeem_limiter = RateLimiter(limit=20, window_s=_HOUR)
+# 60, not 20: a class logs in with codes at the start of a lesson from behind
+# one school address. Only a profile's newest code is live, and there are
+# 27^8 codes, so 60 guesses an hour still cannot find one.
+redeem_limiter = RateLimiter(limit=60, window_s=_HOUR)
 
 
 def current_time() -> float:
@@ -69,6 +73,7 @@ def current_time() -> float:
 class Device:
     player_id: str
     token: str
+    device_id: str  # public: safe to send, unlike the token or its hash
 
 
 def _unauthorized() -> HTTPException:
@@ -79,15 +84,18 @@ def _unauthorized() -> HTTPException:
     )
 
 
-async def current_device(authorization: Optional[str] = Header(None)) -> Device:
+async def current_device(
+    authorization: Optional[str] = Header(None), now: float = Depends(current_time)
+) -> Device:
     scheme, _, token = (authorization or "").partition(" ")
     token = token.strip()
     if scheme.lower() != "bearer" or not token:
         raise _unauthorized()
-    player_id = await storage.player_for_token(token)
-    if player_id is None:
+    found = await storage.authenticate(token, now)
+    if found is None:
         raise _unauthorized()
-    return Device(player_id=player_id, token=token)
+    player_id, device_id = found
+    return Device(player_id=player_id, token=token, device_id=device_id)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -104,6 +112,14 @@ def trusted_proxy_hops() -> int:
         _log.warning("SYNC_TRUSTED_PROXY_HOPS=%r is not an integer; trusting no proxy", raw)
         return 0
     return max(hops, 0)
+
+
+def admin_player_ids() -> frozenset[str]:
+    """SYNC_ADMIN_PLAYER_IDS: the profiles whose devices may call the admin
+    routes, comma-separated, spaces ignored. Read per request so tests can
+    change it. Unset or empty means no admins."""
+    raw = os.environ.get("SYNC_ADMIN_PLAYER_IDS", "")
+    return frozenset("".join(entry.split()) for entry in raw.split(",")) - {""}
 
 
 def client_address(request: Request) -> str:
@@ -286,8 +302,11 @@ async def redeem_pairing_code(
 
 
 @router.delete("/devices/current", status_code=204)
-async def revoke_current_device(device: Device = Depends(current_device)):
-    await storage.revoke_device(device.token)
+async def revoke_current_device(
+    device: Device = Depends(current_device), now: float = Depends(current_time)
+):
+    # Never deletes the profile, even from its last device.
+    await storage.revoke_device(device.token, now)
     return Response(status_code=204)
 
 
@@ -301,7 +320,12 @@ async def get_state(device: Device = Depends(current_device)):
         # A token whose player row is gone is as good as revoked.
         raise _unauthorized()
     rev, state_json = found
-    return {"rev": rev, "state": json.loads(state_json)}
+    return {
+        "rev": rev,
+        "state": json.loads(state_json),
+        "admin": device.player_id in admin_player_ids(),
+        "device_id": device.device_id,
+    }
 
 
 @router.put("/state")

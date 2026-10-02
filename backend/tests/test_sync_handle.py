@@ -7,7 +7,7 @@ exactly as written.
 
 import pytest
 
-from tests.sync_helpers import DEFAULT_STATE, new_player
+from tests.sync_helpers import DEFAULT_STATE, new_player, rev_and_state
 
 JSON = {"Content-Type": "application/json"}
 
@@ -45,7 +45,7 @@ async def test_valid_handle_round_trips_through_create_get_put_and_409(client):
     assert created["state"]["handle"] == [0, 63]
 
     r = await client.get("/api/sync/state", headers=auth)
-    assert r.json() == {"rev": 1, "state": state}
+    assert rev_and_state(r) == {"rev": 1, "state": state}
 
     renamed = {**state, "handle": [63, 0]}
     r = await client.put("/api/sync/state", json={"base_rev": 1, "state": renamed}, headers=auth)
@@ -90,7 +90,7 @@ async def test_put_state_refuses_invalid_handle(client, handle):
     assert r.status_code == 422
 
     r = await client.get("/api/sync/state", headers=auth)
-    assert r.json() == {"rev": 2, "state": named}
+    assert rev_and_state(r) == {"rev": 2, "state": named}
 
 
 async def test_display_name_is_still_refused_beside_a_valid_handle(client):

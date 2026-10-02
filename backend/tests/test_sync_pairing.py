@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.uploads.storage import SHARE_ID_ALPHABET
-from tests.sync_helpers import DEFAULT_STATE, bearer, new_player
+from tests.sync_helpers import DEFAULT_STATE, bearer, new_player, rev_and_state
 
 CODE_RE = re.compile(f"^[{SHARE_ID_ALPHABET}]{{8}}$")
 
@@ -55,7 +55,7 @@ async def test_redeem_links_a_device_to_the_same_record(client):
     )
     assert r.json() == {"rev": 3}
     r = await client.get("/api/sync/state", headers=first)
-    assert r.json() == {"rev": 3, "state": {"lessons": ["x", "y"]}}
+    assert rev_and_state(r) == {"rev": 3, "state": {"lessons": ["x", "y"]}}
 
 
 async def test_redeemed_code_is_refused_the_second_time(client):

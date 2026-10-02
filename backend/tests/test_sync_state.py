@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from tests.sync_helpers import DEFAULT_STATE, bearer, new_player
+from tests.sync_helpers import DEFAULT_STATE, bearer, new_player, rev_and_state
 
 LADDER = {"byBoardSize": {"9x9": {"rungState": {"rung": 3}, "history": []}}, "undoBank": 3}
 
@@ -25,7 +25,7 @@ async def test_create_player_returns_record_at_rev_1(client):
 
     r = await client.get("/api/sync/state", headers=bearer(body["device_token"]))
     assert r.status_code == 200
-    assert r.json() == {"rev": 1, "state": state}
+    assert rev_and_state(r) == {"rev": 1, "state": state}
 
 
 async def test_two_creates_get_distinct_records_and_tokens(client):
@@ -80,7 +80,7 @@ async def test_put_state_advances_revision(client):
     assert r.json() == {"rev": 3}
 
     r = await client.get("/api/sync/state", headers=auth)
-    assert r.json() == {"rev": 3, "state": {"schema": 1}}
+    assert rev_and_state(r) == {"rev": 3, "state": {"schema": 1}}
 
 
 @pytest.mark.parametrize("stale", [0, 1, 5])
@@ -96,7 +96,7 @@ async def test_put_state_with_wrong_base_rev_returns_servers_copy(client, stale)
     assert r.json() == {"rev": 2, "state": current}
 
     r = await client.get("/api/sync/state", headers=auth)
-    assert r.json() == {"rev": 2, "state": current}
+    assert rev_and_state(r) == {"rev": 2, "state": current}
 
 
 async def test_concurrent_writes_on_same_base_rev_exactly_one_wins(client):
@@ -114,7 +114,7 @@ async def test_concurrent_writes_on_same_base_rev_exactly_one_wins(client):
     assert loser.json() == {"rev": 2, "state": winning_state}
 
     r = await client.get("/api/sync/state", headers=auth)
-    assert r.json() == {"rev": 2, "state": winning_state}
+    assert rev_and_state(r) == {"rev": 2, "state": winning_state}
 
 
 async def test_put_state_refuses_display_name_and_leaves_record_alone(client):
@@ -126,7 +126,7 @@ async def test_put_state_refuses_display_name_and_leaves_record_alone(client):
     )
     assert r.status_code == 422
     r = await client.get("/api/sync/state", headers=auth)
-    assert r.json() == {"rev": 1, "state": DEFAULT_STATE}
+    assert rev_and_state(r) == {"rev": 1, "state": DEFAULT_STATE}
 
 
 async def test_put_state_refuses_oversized_state(client):
@@ -159,9 +159,9 @@ async def test_each_token_reads_and_writes_only_its_own_record(client):
     assert r.json() == {"rev": 2}
 
     r = await client.get("/api/sync/state", headers=a)
-    assert r.json() == {"rev": 1, "state": a_state}
+    assert rev_and_state(r) == {"rev": 1, "state": a_state}
     r = await client.get("/api/sync/state", headers=b)
-    assert r.json() == {"rev": 2, "state": {"lessons": ["b2"]}}
+    assert rev_and_state(r) == {"rev": 2, "state": {"lessons": ["b2"]}}
 
 
 # ── Auth on every token route ────────────────────────────────────────
