@@ -479,6 +479,8 @@ test('a failed action says why beside its row, and a stale or gone one is put ri
   const { log, list } = await fakeSync(page);
   await seedAdminDevice(page);
   let codeTries = 0;
+  let release422!: () => void;
+  const held422 = new Promise<void>((r) => (release422 = r));
   // Remove answers 404 (the device went meanwhile); the code route is down.
   await page.route(
     (url) => /\/api\/sync\/admin\/(devices\/d-a|players\/p-none\/pairing-codes)$/.test(url.pathname),
@@ -488,10 +490,13 @@ test('a failed action says why beside its row, and a stale or gone one is put ri
         list[1].devices = list[1].devices.filter((d) => d.device_id !== 'd-a');
         return route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"unknown device"}' });
       }
-      // The first try finds the server down; the next, a time it refuses.
-      return (codeTries += 1) === 1
-        ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"down"}' })
-        : route.fulfill({ status: 422, contentType: 'application/json', body: '{"detail":"expiry"}' });
+      // The first try finds the server down; the next is refused, its reply
+      // held until the time picked has gone by on this device's clock.
+      if ((codeTries += 1) === 1) {
+        return route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"down"}' });
+      }
+      await held422;
+      return route.fulfill({ status: 422, contentType: 'application/json', body: '{"detail":"expiry"}' });
     },
   );
   await openProfile(page);
@@ -513,6 +518,8 @@ test('a failed action says why beside its row, and a stale or gone one is put ri
   await expect(none.locator('.profile-devices-code')).toHaveCount(0);
   await none.getByRole('button', { name: 'Make code' }).click();
   await expect.poll(() => codeTries).toBe(2);
+  await page.clock.setFixedTime(new Date('2026-10-02T16:31:00-07:00')); // 4:30 pm has gone by
+  release422();
   await expect(none.getByRole('alert')).toHaveText('That time has passed. Pick a later one.');
   await expect(none.locator('.profile-devices-code')).toHaveCount(0);
 
@@ -524,6 +531,33 @@ test('a failed action says why beside its row, and a stale or gone one is put ri
   await expect(none.getByRole('alert')).toHaveText('That time has passed. Pick a later one.');
   await expect(none.locator('select option:checked')).toHaveText(/^5:40\sPM today$/);
   expect(codes()).toBe(sentCodes);
+});
+
+test('a time the server refuses while it is still ahead: says so, never that it has passed', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-02T09:00:00-07:00'));
+  await fakeSync(page);
+  await seedAdminDevice(page);
+  // This device's clock runs fast, so the server finds the last option more
+  // than 24 hours ahead and refuses it.
+  let tries = 0;
+  await page.route(
+    (url) => url.pathname === '/api/sync/admin/players/p-none/pairing-codes',
+    (route) => {
+      tries++;
+      return route.fulfill({ status: 422, contentType: 'application/json', body: '{"detail":"expires_at too far ahead"}' });
+    },
+  );
+  await openProfile(page);
+  const none = row(page, 'p-none');
+  await none.getByRole('button', { name: 'Code for this player' }).click();
+  const select = none.locator('select');
+  await select.selectOption({ label: (await select.locator('option').last().textContent())! });
+  await none.getByRole('button', { name: 'Make code' }).click();
+
+  await expect.poll(() => tries).toBe(1);
+  await expect(none.getByRole('alert')).toHaveText("The server didn't accept that time. Pick an earlier one.");
+  // The pick stays, ready for an earlier one.
+  await expect(select.locator('option:checked')).toHaveText(/^9:00\sAM tomorrow$/);
 });
 
 test('before the server has said which device this is, its 409 explains', async ({ page }) => {
