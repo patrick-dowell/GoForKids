@@ -1,7 +1,9 @@
 /**
- * Sync, revision 4 (feature 32): the Friends section's data and actions —
- * the friend code and New code, each answer to Add a friend, accept and
- * decline, the list and the card, Remove friend — and that the data lives in
+ * Sync, revisions 4 and 5 (feature 32): the Friends section's data and
+ * actions — the friend code and New code, each answer to Add a friend,
+ * accept and decline, the list and the card, Remove friend, the feed, a
+ * friend's replays and opening one in the replay viewer, the loads after a
+ * sync pass and every 30 seconds while watched — and that the data lives in
  * memory only and is dropped on a log out and on a 401. Runs against an
  * in-memory fake of the contract in feature_plans/32_sync_foundation.md
  * behind a mocked `fetch` that records every request whole: URL, every
@@ -12,7 +14,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FriendCard, SyncStateDoc } from '../../api/sync';
+import type { FriendCard, FriendGame, FriendGameEntry, SyncStateDoc } from '../../api/sync';
 
 function installLocalStorage() {
   const store = new Map<string, string>();
@@ -83,6 +85,11 @@ const NEW_CODES = ['PX5R3TGA', 'QY6T4VHC', 'CF7V5WJD'];
 class FakeServer {
   players = new Map<string, FakePlayer>();
   rows: Row[] = [];
+  /** Each player's replays as `GET /friends/{id}/games` lists them, and the
+   *  payload `GET /friends/{id}/games/{game_id}` serves. */
+  replays = new Map<string, Array<FriendGameEntry & { payload: FriendGame['payload'] }>>();
+  /** Who is online now. */
+  online = new Set<string>();
   sent: Sent[] = [];
   intercept?: (s: Sent) => Response | Promise<Response> | undefined;
   private newCodes = [...NEW_CODES];
@@ -233,6 +240,31 @@ class FakeServer {
       pending.status = 'declined';
       return json(204);
     }
+    if (s.path === '/sync/friends/feed' && s.method === 'GET') {
+      const ids = this.rows
+        .filter((r) => r.status === 'accepted' && (r.from === me || r.to === me))
+        .reverse()
+        .map((r) => (r.from === me ? r.to : r.from));
+      const friends = ids.map((id) => {
+        const c = this.players.get(id)!.card;
+        return { ...this.entry(id), active_recently: this.online.has(id), boards: clone(c.boards) };
+      });
+      const events = ids
+        .flatMap((id) =>
+          this.players.get(id)!.card.recent.map((r) => ({ kind: 'game', ...this.entry(id), ...r, bot: r.rung })),
+        )
+        .sort((a, b) => b.ts - a.ts);
+      return json(200, { friends, events });
+    }
+    m = /^\/sync\/friends\/([^/]+)\/games(?:\/([^/]+))?$/.exec(s.path);
+    if (m && s.method === 'GET') {
+      const other = decodeURIComponent(m[1]);
+      if (!this.between(me, other).some((r) => r.status === 'accepted')) return json(404, { detail: 'Not Found' });
+      const replays = this.replays.get(other) ?? [];
+      if (!m[2]) return json(200, { games: replays.map(({ payload: _p, ...entry }) => entry) });
+      const found = replays.find((g) => g.id === decodeURIComponent(m![2]));
+      return found ? json(200, { id: found.id, date: found.date, payload: clone(found.payload) }) : json(404, { detail: 'Not Found' });
+    }
     m = /^\/sync\/friends\/([^/]+)$/.exec(s.path);
     if (m) {
       const other = decodeURIComponent(m[1]);
@@ -278,7 +310,8 @@ async function load() {
   const sync = await import('../syncStore');
   const friends = await import('../friendsStore');
   const profile = await import('../profileStore');
-  return { sync, friends, profile };
+  const replay = await import('../replayStore');
+  return { sync, friends, profile, replay };
 }
 type Mods = Awaited<ReturnType<typeof load>>;
 
@@ -722,8 +755,11 @@ function expectDropped(m: Mods) {
   expect(f.code).toBeNull();
   expect(f.friends).toBeNull();
   expect(f.incoming).toBeNull();
+  expect(f.feed).toBeNull();
   expect(f.card).toBeNull();
   expect(f.cardFor).toBeNull();
+  expect(f.cardGames).toBeNull();
+  expect(f.cardGamesFailed).toBe(false);
   expect(f.loading).toBe(false);
   expect(f.loadFailed).toBe(false);
 }
@@ -831,8 +867,9 @@ describe('friends data: in memory only, dropped on a log out and on a 401', () =
       expect(s.firstRunNotice, name).toBe('logged-out');
       expectDropped(m);
       // Nothing more is asked once the device is signed out: no refresh
-      // after the action (a refresh is itself two reads at once).
-      expect(server.sent.filter((x) => x.path.startsWith('/sync/friends')).length, name).toBe(name === 'refresh' ? 2 : 1);
+      // after the action (a refresh is itself three reads at once: the
+      // code, the lists and the feed).
+      expect(server.sent.filter((x) => x.path.startsWith('/sync/friends')).length, name).toBe(name === 'refresh' ? 3 : 1);
     }
   });
 
@@ -890,5 +927,361 @@ describe('nothing typed reaches another player', () => {
       ['POST', '/sync/friends/requests', '{"code":"HT4N9CWE"}'],
     ]);
     expect(server.everything()).not.toContain('ht4n');
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * Revision 5: the feed, the loads after a sync pass and while watched, and a
+ * friend's replays.
+ * ------------------------------------------------------------------------- */
+
+/** A replay as the server serves a friend's: the SGF the app writes. */
+const APP_SGF = '(;GM[1]FF[4]CA[UTF-8]SZ[9]KM[6.5]RU[Japanese]RE[B+5.5];B[ee];W[cc];B[gc];W[])';
+
+function falconReplays(server: FakeServer) {
+  server.replays.set(FALCON, [
+    {
+      id: 'a1b2c3d4',
+      date: '2026-10-01T16:00:00.000Z',
+      board: '9x9',
+      outcome: 'win',
+      opponent: '12k',
+      payload: {
+        sgf: APP_SGF,
+        result: 'Black wins by 5.5',
+        playerColor: 'black',
+        opponentRank: '12k',
+        moveCount: 4,
+        isRanked: true,
+        scoreHistory: [
+          { move: 0, lead: -6.5 },
+          { move: 1, lead: 2 },
+        ],
+        deadStones: [{ row: 2, col: 2, color: 2 }],
+      },
+    },
+    { id: 'e5f6a7b8', date: '2026-09-30T16:00:00.000Z', board: '19x19', outcome: 'loss', opponent: '18k', payload: { sgf: APP_SGF } },
+  ]);
+}
+
+describe('revision 5: the feed', () => {
+  it('loads with the code and the lists: every friend, and what they did', async () => {
+    const { server, f } = await friendsDevice();
+    server.online.add(FALCON);
+    await f().refresh();
+    expect(f().feed!.friends).toEqual([
+      expect.objectContaining({ player_id: FALCON, handle: [3, 3], active_recently: true }),
+    ]);
+    expect(f().feed!.events.map((e) => [e.kind, e.player_id, e.ts])).toEqual([
+      ['game', FALCON, 1759363200000],
+      ['game', FALCON, 1759276800000],
+    ]);
+    const feeds = server.find('GET', '/sync/friends/feed');
+    expect(feeds.length).toBeGreaterThanOrEqual(2);
+    for (const r of feeds) expect(r.headers.Authorization).toBe('Bearer tok-1');
+  });
+
+  it('a feed that fails is flagged and keeps the feed it had; the lists still land', async () => {
+    const { server, f } = await friendsDevice();
+    const before = f().feed;
+    expect(before).not.toBeNull();
+    server.intercept = (s) => (s.path === '/sync/friends/feed' ? json(429, { detail: 'slow down' }) : undefined);
+    server.befriend(KOALA);
+    await f().refresh();
+    expect(f().loadFailed).toBe(true);
+    expect(f().feed).toBe(before);
+    expect(ids(f().friends)).toEqual([KOALA, FALCON]);
+    server.intercept = undefined;
+    await f().refresh();
+    expect(f().loadFailed).toBe(false);
+    expect(f().feed!.friends.map((x) => x.player_id)).toEqual([KOALA, FALCON]);
+  });
+
+  it('an older feed never lands over a newer one', async () => {
+    const { server, f } = await friendsDevice();
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let calls = 0;
+    server.intercept = (s) => {
+      if (s.path !== '/sync/friends/feed' || ++calls > 1) return undefined;
+      const stale = server.handle(s);
+      return held.then(() => stale);
+    };
+    const slow = f().refresh();
+    server.befriend(KOALA);
+    await f().refresh();
+    release();
+    await slow;
+    expect(f().feed!.friends.map((x) => x.player_id)).toEqual([KOALA, FALCON]);
+  });
+
+  it('refreshList asks for the lists only', async () => {
+    const { server, f } = await friendsDevice();
+    server.sent = [];
+    server.requestFrom(KOALA);
+    await f().refreshList();
+    expect(server.sent.map((x) => `${x.method} ${x.path}`)).toEqual(['GET /sync/friends']);
+    expect(ids(f().incoming)).toEqual([KOALA, OTTER]);
+  });
+
+  it('not logged in: no feed, no replays, no game, and a watch asks nothing', async () => {
+    vi.useFakeTimers();
+    try {
+      const m = await load();
+      const server = new FakeServer(m.sync.buildLocalDoc());
+      vi.stubGlobal('fetch', server.fetch);
+      m.sync.useSyncStore.setState({ deviceToken: null, pendingCreate: 'new' });
+      const f = m.friends.useFriendsStore.getState();
+      await f.refreshList();
+      await expect(f.openGame(FALCON, 'a1b2c3d4')).rejects.toThrow();
+      const stop = m.friends.watchFriends(['code', 'list', 'feed']);
+      await vi.advanceTimersByTimeAsync(5 * 30_000);
+      stop();
+      expect(server.sent).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('revision 5: the lists load after every sync pass that ends logged in', () => {
+  async function launched() {
+    const m = await load();
+    m.profile.useProfileStore.getState().setHandle([2, 9]);
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    server.requestFrom(OTTER);
+    vi.stubGlobal('fetch', server.fetch);
+    loggedIn(m);
+    return { m, server, f: () => m.friends.useFriendsStore.getState() };
+  }
+
+  it('a pass that ends logged in loads the lists, so the requests received are known', async () => {
+    const { m, server, f } = await launched();
+    expect(f().incoming).toBeNull();
+    await m.sync.useSyncStore.getState().sync();
+    await vi.waitFor(() => expect(ids(f().incoming)).toEqual([OTTER]));
+    expect(server.count('GET', '/sync/friends')).toBe(1);
+    // The lists only: the code and the feed wait for the Friends section.
+    expect(server.count('GET', '/sync/friends/code')).toBe(0);
+    expect(server.count('GET', '/sync/friends/feed')).toBe(0);
+    // Every later pass catches up again.
+    server.requestFrom(KOALA);
+    await m.sync.useSyncStore.getState().sync();
+    await vi.waitFor(() => expect(ids(f().incoming)).toEqual([KOALA, OTTER]));
+    expect(server.count('GET', '/sync/friends')).toBe(2);
+  });
+
+  it('a pass that ends logged out asks nothing', async () => {
+    const { m, server } = await launched();
+    server.players.get(ME)!.token = null; // logged out elsewhere: the pass meets a 401
+    await m.sync.useSyncStore.getState().sync();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(m.sync.useSyncStore.getState().deviceToken).toBeNull();
+    expect(server.sent.filter((x) => x.path.startsWith('/sync/friends'))).toEqual([]);
+    expectDropped(m);
+  });
+
+  it('a device waiting for its profile asks nothing after a failed create', async () => {
+    const m = await load();
+    const server = new FakeServer(m.sync.buildLocalDoc());
+    vi.stubGlobal('fetch', server.fetch);
+    m.sync.useSyncStore.setState({ deviceToken: null, pendingCreate: 'new' });
+    await m.sync.useSyncStore.getState().sync();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(server.count('POST', '/sync/players')).toBe(1);
+    expect(server.sent.filter((x) => x.path.startsWith('/sync/friends'))).toEqual([]);
+  });
+});
+
+describe('revision 5: watching', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('refreshes what is watched every 30 seconds, and stops when nothing is', async () => {
+    const { m, server } = await friendsDevice();
+    const reads = () => ['/sync/friends/code', '/sync/friends', '/sync/friends/feed'].map((p) => server.count('GET', p));
+    const start = reads();
+    const stopBadge = m.friends.watchFriends(['list']);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(reads()).toEqual([start[0], start[1] + 1, start[2]]);
+    const stopSection = m.friends.watchFriends(['code', 'list', 'feed']);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(reads()).toEqual([start[0] + 1, start[1] + 2, start[2] + 1]);
+    stopSection();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(reads()).toEqual([start[0] + 1, start[1] + 3, start[2] + 1]);
+    stopBadge();
+    await vi.advanceTimersByTimeAsync(10 * 30_000);
+    expect(reads()).toEqual([start[0] + 1, start[1] + 3, start[2] + 1]);
+  });
+
+  it('a refresh shows a friend who accepted, and a request that arrived', async () => {
+    const { m, server, f } = await friendsDevice();
+    const stop = m.friends.watchFriends(['code', 'list', 'feed']);
+    server.befriend(KOALA);
+    server.requestFrom(STRANGER);
+    await vi.advanceTimersByTimeAsync(30_000);
+    stop();
+    expect(ids(f().friends)).toEqual([KOALA, FALCON]);
+    expect(ids(f().incoming)).toEqual([STRANGER, OTTER]);
+  });
+
+  it('stops asking once the device logs out, while still watched', async () => {
+    const { m, server } = await friendsDevice();
+    const stop = m.friends.watchFriends(['code', 'list', 'feed']);
+    m.sync.useSyncStore.setState({ deviceToken: null });
+    server.sent = [];
+    await vi.advanceTimersByTimeAsync(3 * 30_000);
+    stop();
+    expect(server.sent).toEqual([]);
+  });
+});
+
+describe("revision 5: a friend's replays", () => {
+  it('load once the card has come, newest first', async () => {
+    const { server, f } = await friendsDevice();
+    falconReplays(server);
+    await f().openCard(FALCON);
+    await vi.waitFor(() => expect(f().cardGames).not.toBeNull());
+    expect(f().cardGames!.map((g) => g.id)).toEqual(['a1b2c3d4', 'e5f6a7b8']);
+    expect(f().cardGamesFailed).toBe(false);
+    expect(server.find('GET', `/sync/friends/${FALCON}/games`)[0].headers.Authorization).toBe('Bearer tok-1');
+  });
+
+  it('a friend with no replays has an empty list; a failure is flagged and the card stays', async () => {
+    const { server, f } = await friendsDevice();
+    await f().openCard(FALCON);
+    await vi.waitFor(() => expect(f().cardGames).toEqual([]));
+    server.intercept = (s) => (s.path.endsWith('/games') ? json(503, {}) : undefined);
+    f().closeCard();
+    await f().openCard(FALCON);
+    await vi.waitFor(() => expect(f().cardGamesFailed).toBe(true));
+    expect(f().cardGames).toBeNull();
+    expect(f().cardFor).toBe(FALCON);
+    expect(f().card!.player_id).toBe(FALCON);
+  });
+
+  it("another card opened meanwhile never shows the last one's replays", async () => {
+    const { server, f } = await friendsDevice();
+    falconReplays(server);
+    server.befriend(KOALA);
+    await f().refresh();
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    server.intercept = (s) => (s.path === `/sync/friends/${FALCON}/games` ? held.then(() => server.handle(s)) : undefined);
+    await f().openCard(FALCON);
+    await f().openCard(KOALA);
+    await vi.waitFor(() => expect(f().cardGames).toEqual([]));
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f().cardFor).toBe(KOALA);
+    expect(f().cardGames).toEqual([]);
+  });
+
+  it('a friend removed while their card is open: the replays answer 404 and the card closes', async () => {
+    const { server, f } = await friendsDevice();
+    falconReplays(server);
+    server.intercept = (s) => {
+      if (s.path !== `/sync/friends/${FALCON}/games`) return undefined;
+      server.rows = server.rows.filter((r) => r.from !== FALCON); // removed from the other side
+      return undefined;
+    };
+    await f().openCard(FALCON);
+    await vi.waitFor(() => expect(f().cardFor).toBeNull());
+    expect(f().card).toBeNull();
+    expect(f().friends).toEqual([]);
+  });
+
+  it("opens one in the replay viewer with the Library's meta and no library id", async () => {
+    const { m, server, f } = await friendsDevice();
+    falconReplays(server);
+    await f().openCard(FALCON);
+    await f().openGame(FALCON, 'a1b2c3d4');
+    const r = m.replay.useReplayStore.getState();
+    expect(r.active).toBe(true);
+    expect(r.sgf).toBe(APP_SGF);
+    expect(r.boardSize).toBe(9);
+    expect(r.totalMoves).toBe(4);
+    expect(r.gameResult).toBe('Black wins by 5.5');
+    expect(r.opponentRank).toBe('12k');
+    expect(r.playerColor).toBe('black');
+    expect(r.scoreHistory).toEqual([
+      { move: 0, lead: -6.5 },
+      { move: 1, lead: 2 },
+    ]);
+    expect(r.libraryId).toBeNull();
+    expect(r.sharedId).toBeNull();
+    // Nothing of it reaches this device's Library or storage.
+    expect(storage()).not.toContain('a1b2c3d4');
+  });
+
+  it('a game that is gone: the 404 reaches the caller, the replays reload, nothing opens', async () => {
+    const { m, server, f } = await friendsDevice();
+    falconReplays(server);
+    await f().openCard(FALCON);
+    await vi.waitFor(() => expect(f().cardGames).toHaveLength(2));
+    server.replays.set(FALCON, server.replays.get(FALCON)!.slice(1)); // deleted on their device
+    await expect(f().openGame(FALCON, 'a1b2c3d4')).rejects.toMatchObject({ status: 404 });
+    expect(f().cardFor).toBe(FALCON);
+    expect(f().cardGames!.map((g) => g.id)).toEqual(['e5f6a7b8']);
+    expect(m.replay.useReplayStore.getState().active).toBe(false);
+  });
+
+  it('a friend who is gone: the 404 reaches the caller and the card closes', async () => {
+    const { m, server, f } = await friendsDevice();
+    falconReplays(server);
+    await f().openCard(FALCON);
+    server.rows = server.rows.filter((r) => r.from !== FALCON);
+    await expect(f().openGame(FALCON, 'a1b2c3d4')).rejects.toMatchObject({ status: 404 });
+    expect(f().cardFor).toBeNull();
+    expect(f().friends).toEqual([]);
+    expect(m.replay.useReplayStore.getState().active).toBe(false);
+  });
+
+  it('a replay the viewer cannot take opens nothing', async () => {
+    const { m, server, f } = await friendsDevice();
+    for (const payload of [
+      { sgf: APP_SGF.replace(';B[ee]', ';B[ee]C[INJ]') },
+      { sgf: '(;GM[1]FF[4]CA[UTF-8]SZ[9]PB[INJ]RU[Japanese];B[ee])' },
+      { sgf: 7 },
+      {},
+    ]) {
+      server.replays.set(FALCON, [
+        { id: 'x1', date: '2026-10-01T16:00:00.000Z', board: '9x9', outcome: 'win', opponent: null, payload: payload as never },
+      ]);
+      await expect(f().openGame(FALCON, 'x1')).rejects.toBeInstanceOf(m.friends.FriendReplayUnreadable);
+    }
+    expect(m.replay.useReplayStore.getState().active).toBe(false);
+  });
+
+  it('logged out while a game is on its way: nothing opens', async () => {
+    const { m, server, f } = await friendsDevice();
+    falconReplays(server);
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    server.intercept = (s) =>
+      s.path === `/sync/friends/${FALCON}/games/a1b2c3d4` ? held.then(() => server.handle(s)) : undefined;
+    const slow = f().openGame(FALCON, 'a1b2c3d4');
+    await m.sync.useSyncStore.getState().logOut();
+    server.players.get(ME)!.token = 'tok-1';
+    release();
+    await slow;
+    expect(m.replay.useReplayStore.getState().active).toBe(false);
+    expectDropped(m);
+  });
+
+  it('ids go into the path encoded', async () => {
+    const { server, f } = await friendsDevice();
+    const odd = 'a b/c?d';
+    await f().openGame(odd, odd).catch(() => undefined);
+    const enc = encodeURIComponent(odd);
+    expect(server.sent.filter((s) => s.url.includes(enc)).map((s) => `${s.method} ${s.path}`)).toEqual([
+      `GET /sync/friends/${enc}/games/${enc}`,
+    ]);
+    expect(server.sent.some((s) => s.url.includes(odd))).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { ApiError } from '../api/client';
 import {
   cardView,
@@ -9,31 +9,48 @@ import {
   type CardView,
   type SendOutcome,
 } from '../profile/friends';
-import { useFriendsStore } from '../store/friendsStore';
+import {
+  feedLines,
+  friendStatuses,
+  gameLines,
+  onlineLines,
+  ranksText,
+  type FriendStatus,
+  type GameLine,
+} from '../profile/friendsFeed';
+import { FriendReplayUnreadable, useFriendsStore, useFriendsWatch } from '../store/friendsStore';
 import { Avatar } from './Avatar';
+import './FriendsSection.css';
 
 /**
- * Profile → Friends (feature 32, revision 4). Shown after Devices and before
- * Admin, only on a device that is logged in.
+ * Profile → Friends (feature 32, revisions 4 and 5). Shown after Devices and
+ * before Admin, only on a device that is logged in.
  *
- * Your friend code (two groups of four) with "New code" after one confirm;
- * "Add a friend" (one field: spaces, a hyphen and either case are fine);
- * the requests sent to you, each with Accept and Decline; your friends,
- * each opening their card (name, avatar, rank per board, games, recent
- * results with board, win or loss and the date), with "Remove friend"
- * after one confirm. Confirms are inline, as elsewhere on this page:
- * window.confirm does nothing in WKWebView.
+ * Revision 5 puts a feed first: who is online now, then what friends did
+ * lately in sentences a child reads ("Swift Raven beat the 12k bot on 9×9",
+ * "Quiet Volcano was promoted to 9k on 9×9"), newest first. Then, as before:
+ * your friend code (two groups of four) with "New code" after one confirm;
+ * "Add a friend"; the requests sent to you, each with Accept and Decline;
+ * your friends, each with an online dot and their ranks, opening their card
+ * (name, avatar, rank per board, games, recent results, and now their recent
+ * games, each opening in the replay viewer), with "Remove friend" after one
+ * confirm. Confirms are inline, as elsewhere on this page: window.confirm
+ * does nothing in WKWebView.
  *
- * Everything shown about another player is read through profile/friends.ts:
- * a generated name, an avatar from the app's set, ranks, counts, results.
- * Nothing another player typed can reach this screen.
+ * Everything shown about another player is read through profile/friends.ts
+ * and profile/friendsFeed.ts: a generated name, an avatar from the app's set,
+ * ranks, counts, results. Nothing another player typed can reach this screen.
  *
- * Refreshes when the Profile page opens and after each action; no polling.
+ * Refreshes when it opens, after each action, from the Refresh button, every
+ * 30 seconds while it is open, and when the app comes back to the screen.
  */
 
-type Where = 'code' | 'requests' | 'friends';
+type Where = 'code' | 'requests' | 'friends' | 'games';
 
 const CONNECT = "Couldn't connect. Try again in a minute.";
+const NOT_A_FRIEND = "That player isn't your friend any more.";
+/** Feed lines shown before "Show more". */
+const FEED_SHOWN = 8;
 
 function errorText(e: unknown, notThere: string): string {
   return e instanceof ApiError && e.status === 404 ? notThere : CONNECT;
@@ -43,26 +60,34 @@ export function FriendsSection() {
   const code = useFriendsStore((s) => s.code);
   const rawFriends = useFriendsStore((s) => s.friends);
   const rawIncoming = useFriendsStore((s) => s.incoming);
+  const feed = useFriendsStore((s) => s.feed);
   const cardFor = useFriendsStore((s) => s.cardFor);
   const card = useFriendsStore((s) => s.card);
+  const cardGames = useFriendsStore((s) => s.cardGames);
+  const cardGamesFailed = useFriendsStore((s) => s.cardGamesFailed);
   const loading = useFriendsStore((s) => s.loading);
   const loadFailed = useFriendsStore((s) => s.loadFailed);
 
   const friends = rawFriends ? personLines(rawFriends) : null;
   const incoming = rawIncoming ? personLines(rawIncoming) : [];
+  const statuses = friendStatuses(feed);
 
   const [askNewCode, setAskNewCode] = useState(false);
   const [askRemove, setAskRemove] = useState(false);
   const [typed, setTyped] = useState('');
   const [outcome, setOutcome] = useState<SendOutcome | null>(null);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<{ where: Where; text: string } | null>(null);
 
   useEffect(() => {
-    // The Profile page opened: start from the list, freshly loaded.
+    // The section opened: start from the list, freshly loaded.
     useFriendsStore.getState().closeCard();
     void useFriendsStore.getState().refresh();
   }, []);
+  // Every 30 seconds while open, and when the app comes back to the screen.
+  useFriendsWatch(['code', 'list', 'feed']);
 
   /** Run an action; on failure say why beside the part it came from. */
   const run = async (where: Where, fn: () => Promise<void>, notThere = CONNECT) => {
@@ -74,6 +99,15 @@ export function FriendsSection() {
       setError({ where, text: errorText(e, notThere) });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const refreshNow = async () => {
+    setRefreshing(true);
+    try {
+      await useFriendsStore.getState().refresh();
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -100,7 +134,7 @@ export function FriendsSection() {
       useFriendsStore.getState().closeCard();
       return;
     }
-    void run('friends', () => useFriendsStore.getState().openCard(playerId), "That player isn't your friend any more.");
+    void run('friends', () => useFriendsStore.getState().openCard(playerId), NOT_A_FRIEND);
   };
 
   const confirmRemove = (playerId: string) =>
@@ -108,6 +142,31 @@ export function FriendsSection() {
       // The card closes with the friend; the next card opens unarmed.
       await useFriendsStore.getState().remove(playerId);
     });
+
+  /** Open one of the friend's games in the replay viewer (the Library's
+   *  viewer: the Profile page gives way to it, and Close goes home). */
+  const watchGame = async (playerId: string, gameId: string) => {
+    setBusy(true);
+    setOpening(gameId);
+    setError(null);
+    try {
+      await useFriendsStore.getState().openGame(playerId, gameId);
+    } catch (e) {
+      if (e instanceof FriendReplayUnreadable) {
+        setError({ where: 'games', text: "That game can't be shown." });
+      } else if (e instanceof ApiError && e.status === 404) {
+        // Still friends (the card is open): the game is gone. Otherwise the
+        // card has closed with the friend.
+        const stillOpen = useFriendsStore.getState().cardFor === playerId;
+        setError(stillOpen ? { where: 'games', text: "That game isn't there any more." } : { where: 'friends', text: NOT_A_FRIEND });
+      } else {
+        setError({ where: 'games', text: CONNECT });
+      }
+    } finally {
+      setOpening(null);
+      setBusy(false);
+    }
+  };
 
   const errorLine = (where: Where) =>
     error && error.where === where ? (
@@ -118,7 +177,18 @@ export function FriendsSection() {
 
   return (
     <section className="profile-section profile-friends">
-      <div className="profile-section-eyebrow">Friends</div>
+      <div className="profile-friends-head">
+        <div className="profile-section-eyebrow">Friends</div>
+        <button
+          className="profile-devices-btn profile-devices-btn-quiet profile-friends-refresh"
+          onClick={() => void refreshNow()}
+          disabled={refreshing}
+        >
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
+
+      <FeedBlock feed={feed} loading={loading} />
 
       <div className="profile-friends-block">
         <div className="profile-friends-label">Your friend code</div>
@@ -251,11 +321,15 @@ export function FriendsSection() {
           <ul className="profile-friends-list">
             {friends.map((f) => {
               const open = cardFor === f.playerId;
+              const status = statuses.get(f.playerId);
               return (
                 <li key={f.playerId} className="profile-friends-friend" data-player-id={f.playerId}>
                   <button className="profile-friends-person" onClick={() => toggleCard(f.playerId)} aria-expanded={open}>
-                    <Avatar type={f.avatar} size={44} />
-                    <span className="profile-friends-name">{f.name}</span>
+                    <AvatarWithDot avatar={f.avatar} size={44} active={!!status?.active} />
+                    <span className="profile-friends-who">
+                      <span className="profile-friends-name">{f.name}</span>
+                      <FriendStatusLine status={status} />
+                    </span>
                     <span className="profile-friends-chevron" aria-hidden="true">
                       {open ? '▾' : '▸'}
                     </span>
@@ -263,8 +337,13 @@ export function FriendsSection() {
                   {open && (
                     <FriendCardPanel
                       view={card ? cardView(card) : null}
+                      games={cardGames === null ? null : gameLines(cardGames)}
+                      gamesFailed={cardGamesFailed}
+                      opening={opening}
+                      gamesError={errorLine('games')}
                       askRemove={askRemove}
                       busy={busy}
+                      onWatch={(gameId) => void watchGame(f.playerId, gameId)}
                       onAskRemove={() => setAskRemove(true)}
                       onCancelRemove={() => setAskRemove(false)}
                       onRemove={() => void confirmRemove(f.playerId)}
@@ -286,17 +365,107 @@ export function FriendsSection() {
   );
 }
 
+/** An avatar, with a green dot when that friend is online now. */
+function AvatarWithDot({ avatar, size, active }: { avatar: CardView['avatar']; size: number; active: boolean }) {
+  return (
+    <span className="profile-friends-avatar">
+      <Avatar type={avatar} size={size} />
+      {active && <span className="profile-friends-dot" role="img" aria-label="Online now" />}
+    </span>
+  );
+}
+
+/** Under a friend's name in the list: online now, and their ranks. */
+function FriendStatusLine({ status }: { status: FriendStatus | undefined }) {
+  if (!status || (!status.active && status.ranks.length === 0)) return null;
+  return (
+    <span className="profile-friends-status">
+      {status.active && <span className="profile-friends-online">Online now</span>}
+      {status.active && status.ranks.length > 0 && ' · '}
+      {status.ranks.length > 0 && ranksText(status.ranks)}
+    </span>
+  );
+}
+
+/** The feed: who is online now, then what friends did lately. */
+function FeedBlock({ feed, loading }: { feed: unknown; loading: boolean }) {
+  const [showAll, setShowAll] = useState(false);
+  const online = onlineLines(feed);
+  const lines = feedLines(feed);
+  const shown = showAll ? lines : lines.slice(0, FEED_SHOWN);
+  const hasFriends = !!feed && Array.isArray((feed as { friends?: unknown }).friends) && (feed as { friends: unknown[] }).friends.length > 0;
+
+  return (
+    <div className="profile-friends-block profile-friends-feed">
+      <div className="profile-friends-label">What your friends are up to</div>
+      {feed === null ? (
+        <p className="profile-friends-feed-empty">{loading ? 'Loading…' : ''}</p>
+      ) : online.length === 0 && lines.length === 0 ? (
+        <p className="profile-friends-feed-empty">
+          {hasFriends
+            ? "Your friends haven't played any ranked games yet."
+            : "When you have friends, you'll see their games here."}
+        </p>
+      ) : (
+        <ul className="profile-friends-feed-list">
+          {online.map((o) => (
+            <li key={`online-${o.playerId}`} className="profile-friends-feed-item profile-friends-feed-online" data-player-id={o.playerId}>
+              <AvatarWithDot avatar={o.avatar} size={36} active />
+              <span className="profile-friends-feed-text">{o.text}</span>
+            </li>
+          ))}
+          {shown.map((l) => (
+            <li
+              key={l.key}
+              className={'profile-friends-feed-item' + (l.good ? ' profile-friends-feed-good' : '')}
+              data-player-id={l.playerId}
+            >
+              <AvatarWithDot avatar={l.avatar} size={36} active={l.active} />
+              <span className="profile-friends-feed-text">{l.text}</span>
+              <span className="profile-friends-feed-when">{l.when}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {lines.length > FEED_SHOWN && (
+        <button className="profile-devices-btn profile-devices-btn-quiet profile-friends-more" onClick={() => setShowAll(!showAll)}>
+          {showAll ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 interface FriendCardPanelProps {
   view: CardView | null;
+  games: GameLine[] | null;
+  gamesFailed: boolean;
+  /** The id of the game on its way to the viewer, if any. */
+  opening: string | null;
+  gamesError: ReactNode;
   askRemove: boolean;
   busy: boolean;
+  onWatch: (gameId: string) => void;
   onAskRemove: () => void;
   onCancelRemove: () => void;
   onRemove: () => void;
   onClose: () => void;
 }
 
-function FriendCardPanel({ view, askRemove, busy, onAskRemove, onCancelRemove, onRemove, onClose }: FriendCardPanelProps) {
+function FriendCardPanel({
+  view,
+  games,
+  gamesFailed,
+  opening,
+  gamesError,
+  askRemove,
+  busy,
+  onWatch,
+  onAskRemove,
+  onCancelRemove,
+  onRemove,
+  onClose,
+}: FriendCardPanelProps) {
   if (!view) {
     return (
       <div className="profile-devices-panel profile-friends-card">
@@ -349,6 +518,35 @@ function FriendCardPanel({ view, askRemove, busy, onAskRemove, onCancelRemove, o
           </ul>
         </>
       )}
+
+      <div className="profile-friends-label">Recent games</div>
+      {games === null ? (
+        <p className="profile-admin-muted profile-friends-games-note">
+          {gamesFailed ? "Couldn't load their games." : 'Loading games…'}
+        </p>
+      ) : games.length === 0 ? (
+        <p className="profile-admin-muted profile-friends-games-note">No saved games yet.</p>
+      ) : (
+        <ul className="profile-friends-games">
+          {games.map((g) => (
+            <li key={g.id}>
+              <button
+                className={'profile-friends-game' + (g.outcome === 'win' ? ' profile-friends-game-win' : '')}
+                onClick={() => onWatch(g.id)}
+                disabled={busy}
+                aria-label={`Watch: ${g.text}, ${g.when}`}
+              >
+                <span className="profile-friends-game-text">{g.text}</span>
+                <span className="profile-friends-game-when">{opening === g.id ? 'Opening…' : g.when}</span>
+                <span className="profile-friends-game-play" aria-hidden="true">
+                  ▶
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {gamesError}
 
       {askRemove ? (
         <>

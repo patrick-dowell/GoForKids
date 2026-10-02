@@ -419,9 +419,11 @@ test('profile with the Admin section (an admin device): everything reachable, no
 });
 
 test('profile with the Friends section (a logged-in device): everything reachable, nothing wider than the screen', async ({ page }) => {
-  // Feature 32, revision 4: a code, two requests and four friends with the
-  // longest generated names, a send answered and a card open. Answered
-  // here; nothing leaves the browser.
+  // Feature 32, revisions 4 and 5: a feed with two friends online and its
+  // first eight lines, a code, two requests and four friends with the
+  // longest generated names (online dots and three ranks each), a send
+  // answered and a card open with its recent games. Answered here; nothing
+  // leaves the browser.
   const person = (n: number, handle: [number, number], avatar: string) => ({
     player_id: `0a0a0a0a-0000-4000-8000-00000000000${n}`,
     handle,
@@ -448,13 +450,40 @@ test('profile with the Friends section (a logged-in device): everything reachabl
       ts: Date.UTC(2025, 11, 31 - i, 18),
     })),
   };
+  const feed = {
+    friends: friends.map((f, i) => ({ ...f, active_recently: i < 2, boards: card.boards })),
+    events: Array.from({ length: 12 }, (_, i) => ({
+      kind: i % 4 === 0 ? 'promotion' : 'game',
+      ...friends[i % 4],
+      board: ['9x9', '13x13', '19x19'][i % 3],
+      result: i % 2 ? 'loss' : 'win',
+      rung: '15k',
+      bot: '12k',
+      from: '16k',
+      to: '15k',
+      ts: Date.UTC(2025, 11, 31 - i, 18),
+    })),
+  };
+  const replays = {
+    games: Array.from({ length: 20 }, (_, i) => ({
+      id: `g${i}`,
+      date: new Date(Date.UTC(2025, 11, 31 - i, 18)).toISOString(),
+      board: ['9x9', '13x13', '19x19'][i % 3],
+      outcome: ['win', 'loss', 'watched'][i % 3],
+      opponent: '12k',
+    })),
+  };
   await page.route(
     (url) => url.pathname.startsWith('/api/sync/'),
     (route) => {
       const path = new URL(route.request().url()).pathname;
       const method = route.request().method();
       const body =
-        path === '/api/sync/state'
+        path === '/api/sync/friends/feed'
+          ? feed
+          : path === `/api/sync/friends/${card.player_id}/games`
+            ? replays
+            : path === '/api/sync/state'
           ? { rev: 1, state: { schema: 1, ladder: { byBoardSize: {} }, lessons: [], avatar: 'tide', avatarPicked: true, handle: [26, 33] }, admin: false, device_id: 'd-self' }
           : path === '/api/sync/games'
             ? { games: [] }
@@ -483,10 +512,14 @@ test('profile with the Friends section (a logged-in device): everything reachabl
   await page.locator('.profile-friends-outcome').waitFor();
   await page.locator('.profile-friends-person').first().click();
   await page.locator('.profile-friends-result').nth(9).waitFor();
+  await page.locator('.profile-friends-game').nth(19).waitFor();
   await page.locator('.profile-friends-card').getByRole('button', { name: 'Remove friend' }).click();
   await sweep(page, 'profile-friends', {
     reachable: [
       '.profile-devices',
+      'btn:Refresh',
+      '.profile-friends-feed-item:last-child',
+      'btn:Show more',
       '.profile-friends-code',
       'btn:New code',
       '.profile-friends-input',
@@ -495,6 +528,7 @@ test('profile with the Friends section (a logged-in device): everything reachabl
       '.profile-friends-request:last-child',
       '.profile-friends-card-ranks',
       '.profile-friends-result:last-child',
+      '.profile-friends-games li:last-child',
       'btn:Yes, remove',
       '.profile-friends-friend:last-child',
     ],

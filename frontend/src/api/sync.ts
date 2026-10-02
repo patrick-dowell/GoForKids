@@ -126,6 +126,68 @@ export interface FriendCard {
   recent: FriendResult[];
 }
 
+/** One friend in `GET /friends/feed` (revision 5): the list entry's name
+ *  and avatar, the card's boards, and whether a device of theirs was seen
+ *  in the last ten minutes. */
+export interface FeedFriend {
+  player_id: string;
+  handle: [number, number] | null;
+  avatar: string;
+  active_recently: boolean;
+  boards: Record<string, AdminBoard>;
+}
+
+/** One feed event: a ranked result (`bot` is the rung of the bot played, or
+ *  null) or a promotion (`to` is the new rung). `ts` is epoch ms. */
+export type FeedEvent =
+  | {
+      kind: 'game';
+      player_id: string;
+      handle: [number, number] | null;
+      avatar: string;
+      board: string;
+      result: 'win' | 'loss';
+      rung: string | null;
+      bot: string | null;
+      ts: number;
+    }
+  | {
+      kind: 'promotion';
+      player_id: string;
+      handle: [number, number] | null;
+      avatar: string;
+      board: string;
+      from: string | null;
+      to: string;
+      ts: number;
+    };
+
+/** `GET /friends/feed`: every friend, and the newest 50 events across them. */
+export interface FriendsFeed {
+  friends: FeedFriend[];
+  events: FeedEvent[];
+}
+
+/** One of a friend's replays in `GET /friends/{id}/games`: `board` is a
+ *  card board key or null, `outcome` is for the friend (`watched` for a bot
+ *  game they watched), `opponent` the bot's rung. */
+export interface FriendGameEntry {
+  id: string;
+  /** ISO 8601. */
+  date: string;
+  board: string | null;
+  outcome: 'win' | 'loss' | 'watched' | null;
+  opponent: string | null;
+}
+
+/** `GET /friends/{id}/games/{game_id}`: the replay rebuilt from checked
+ *  values (no share code, no backend game id, no diagnostic log). */
+export interface FriendGame {
+  id: string;
+  date: string;
+  payload: Partial<SavedGame>;
+}
+
 /** What `POST /players` and `POST /pairing-codes/redeem` hand back. */
 export interface DeviceGrant extends RemoteState {
   player_id: string;
@@ -310,9 +372,9 @@ export const adminApi = {
 };
 
 /**
- * The friends routes (revision 4), for a logged-in device. The only thing a
- * player types here is a friend code, and it goes only into the body of
- * `POST /friends/requests`.
+ * The friends routes (revision 4, and revision 5's feed and a friend's
+ * replays), for a logged-in device. The only thing a player types here is a
+ * friend code, and it goes only into the body of `POST /friends/requests`.
  */
 export const friendsApi = {
   getCode: (token: string): Promise<{ code: string }> =>
@@ -354,6 +416,30 @@ export const friendsApi = {
 
   remove: (token: string, playerId: string): Promise<void> =>
     request<void>(`${BASE}/friends/${encodeURIComponent(playerId)}`, authed(token, { method: 'DELETE' })),
+
+  /** Revision 5: what friends did lately. */
+  feed: async (token: string): Promise<FriendsFeed> => {
+    const res = await request<Partial<FriendsFeed>>(`${BASE}/friends/feed`, authed(token));
+    return {
+      friends: Array.isArray(res?.friends) ? res.friends : [],
+      events: Array.isArray(res?.events) ? res.events : [],
+    };
+  },
+
+  /** A friend's replays, newest 20. 404 for anyone who is not a friend. */
+  games: async (token: string, playerId: string): Promise<FriendGameEntry[]> => {
+    const res = await request<{ games?: unknown }>(
+      `${BASE}/friends/${encodeURIComponent(playerId)}/games`,
+      authed(token),
+    );
+    return Array.isArray(res?.games) ? (res.games as FriendGameEntry[]) : [];
+  },
+
+  game: (token: string, playerId: string, gameId: string): Promise<FriendGame> =>
+    request<FriendGame>(
+      `${BASE}/friends/${encodeURIComponent(playerId)}/games/${encodeURIComponent(gameId)}`,
+      authed(token),
+    ),
 };
 
 /** The create key's alphabet (64 symbols, so a random byte's low six bits
