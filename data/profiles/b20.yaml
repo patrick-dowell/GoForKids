@@ -163,21 +163,72 @@ profiles:
       pass_threshold: 0.10
       clarity_prior: 1.1
       clarity_score_gap: 999.0
-    "15k":
-      max_point_loss: 22.0
-      mistake_freq: 0.55
-      policy_weight: 0.18
-      randomness: 0.75
-      random_move_chance: 0.12
-      local_bias: 0.45
-      local_bias_in_opening: true
+    # 18k/15k/12k: b28.yaml 9x9 knobs on the b20 net, policy_temp tuned to match the b28 rung
+    # (measured on branch calib-b20-9x9; steps and checks in its data/calibration_logs_b20_9x9/tuning_2026-10-02.txt).
+    "18k":
+      # tuned: policy_temp 3.5 -> 2.8 (tuning_2026-10-02.txt)
+      max_point_loss: 30.0
+      mistake_freq: 0.8
+      policy_weight: 0.12
+      randomness: 0.78
+      random_move_chance: 0.3
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.03
+      policy_temp: 2.8
+      wide_root_noise: 0.8
       first_line_chance: 0.0
-      visits: 8
+      visits: 16
       min_candidates: 10
       opening_moves: 3
-      pass_threshold: 0.10
-      clarity_prior: 1.1
-      clarity_score_gap: 999.0
+      pass_threshold: 0.1
+      clarity_prior: 0.95
+      clarity_score_gap: 25.0
+    "15k":
+      # tuned: policy_temp 2.6 -> 1.15 (tuning_2026-10-02.txt)
+      max_point_loss: 28.0
+      mistake_freq: 0.75
+      policy_weight: 0.12
+      randomness: 0.78
+      random_move_chance: 0.1
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.05
+      policy_temp: 1.15
+      wide_root_noise: 0.7
+      sample_lapse: 0.45
+      sample_loss_cap: 7.0
+      first_line_chance: 0.0
+      visits: 16
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.1
+      clarity_prior: 0.9
+      clarity_score_gap: 18.0
+    "12k":
+      # tuned: policy_temp 2.45 -> 1.35; residual same-positions gap, see tuning_2026-10-02.txt
+      max_point_loss: 27.0
+      mistake_freq: 0.74
+      policy_weight: 0.12
+      randomness: 0.78
+      random_move_chance: 0.08
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.072
+      policy_temp: 1.35
+      wide_root_noise: 0.7
+      sample_lapse: 0.375
+      sample_loss_cap: 6.5
+      first_line_chance: 0.0
+      visits: 16
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.1
+      clarity_prior: 0.885
+      clarity_score_gap: 16.5
     "6k":
       max_point_loss: 18.0
       mistake_freq: 0.45
