@@ -193,6 +193,9 @@ async def init_sync_db(now: Optional[float] = None) -> None:
 _HAS_NO_DEVICE = (
     "NOT EXISTS (SELECT 1 FROM sync_devices d WHERE d.player_id = sync_players.id)"
 )
+# True of a profile the cleanup may delete, given the cutoff: its last device
+# went at or before it, and it has no device now.
+_ABANDONED = f"no_device_since <= ? AND {_HAS_NO_DEVICE}"
 
 
 async def _stamp_if_deviceless(db: aiosqlite.Connection, player_id: str, now: float) -> None:
@@ -583,21 +586,34 @@ async def remove_player_devices(player_id: str, now: float) -> bool:
 # ── Retention ────────────────────────────────────────────────────────
 
 
-async def delete_abandoned_players(now: float) -> int:
-    """Delete each profile whose last device went RETENTION_S or more ago and
-    that has no device now, with its replays and codes. The selection and the
-    deletes share one write transaction, so a login that lands first keeps
-    its profile and one that comes after finds it gone. Returns the count."""
-    cutoff = now - RETENTION_S
-    async with _write_txn() as db:
+async def abandoned_player_ids(now: float) -> list[str]:
+    """The cleanup's candidates: profiles whose last device went RETENTION_S
+    or more ago and that have no device. A read only; the deleting
+    transaction checks each one again."""
+    async with _connect() as db:
         async with db.execute(
-            f"""SELECT id FROM sync_players
-                WHERE no_device_since <= ? AND {_HAS_NO_DEVICE}""",
-            (cutoff,),
+            f"SELECT id FROM sync_players WHERE {_ABANDONED}", (now - RETENTION_S,)
         ) as cur:
-            doomed = [row[0] for row in await cur.fetchall()]
-        for player_id in doomed:
+            return [row[0] for row in await cur.fetchall()]
+
+
+async def delete_abandoned_players(now: float) -> int:
+    """Delete each abandoned profile with its replays and codes. The deleting
+    transaction re-checks both conditions per profile, so a login (or any
+    new device row) that lands after the candidates were chosen keeps its
+    profile. Returns the count deleted."""
+    cutoff = now - RETENTION_S
+    candidates = await abandoned_player_ids(now)
+    deleted = 0
+    async with _write_txn() as db:
+        for player_id in candidates:
+            cur = await db.execute(
+                f"DELETE FROM sync_players WHERE id = ? AND {_ABANDONED}",
+                (player_id, cutoff),
+            )
+            if cur.rowcount != 1:
+                continue
             await db.execute("DELETE FROM sync_games WHERE player_id = ?", (player_id,))
             await db.execute("DELETE FROM sync_pairing_codes WHERE player_id = ?", (player_id,))
-            await db.execute("DELETE FROM sync_players WHERE id = ?", (player_id,))
-    return len(doomed)
+            deleted += 1
+    return deleted
