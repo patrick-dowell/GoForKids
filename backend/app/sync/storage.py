@@ -916,3 +916,79 @@ async def friend_state(player_id: str, other_id: str) -> Optional[str]:
         ) as cur:
             row = await cur.fetchone()
     return row[0] if row else None
+
+
+# ── Friends: the feed and a friend's replays (plan 32, Revision 5) ───
+#
+# Added for the friends feed; the functions above are unchanged. Every read
+# here is scoped by the friendship itself, in the same query, so a player who
+# is not an accepted friend reads nothing.
+
+# True when the two players `?, ?, ?, ?` (a, b, b, a) are accepted friends.
+_ARE_FRIENDS = f"""EXISTS (
+    SELECT 1 FROM sync_friendships WHERE status = '{ACCEPTED}' AND (
+        (requester_id = ? AND addressee_id = ?)
+     OR (requester_id = ? AND addressee_id = ?)))"""
+
+
+@dataclass
+class FeedFriendRow:
+    player_id: str
+    state_json: str
+    # The newest `last_seen_at` among the friend's devices (epoch seconds),
+    # or None when it has no device or none has been seen.
+    last_seen_at: Optional[float]
+
+
+async def friends_for_feed(player_id: str) -> list[FeedFriendRow]:
+    """The player's accepted friends, newest friendship first (the order of
+    `list_friends`), each with its state and when one of its devices was
+    last seen."""
+    async with _connect() as db:
+        async with db.execute(
+            """SELECT p.id, p.state,
+                      (SELECT MAX(d.last_seen_at) FROM sync_devices d WHERE d.player_id = p.id)
+               FROM sync_friendships f
+               JOIN sync_players p ON p.id = CASE WHEN f.requester_id = ?
+                   THEN f.addressee_id ELSE f.requester_id END
+               WHERE f.status = ? AND (f.requester_id = ? OR f.addressee_id = ?)
+               ORDER BY f.updated_at DESC""",
+            (player_id, ACCEPTED, player_id, player_id),
+        ) as cur:
+            return [FeedFriendRow(*row) for row in await cur.fetchall()]
+
+
+async def friend_games(
+    player_id: str, other_id: str, limit: int
+) -> Optional[list[tuple[str, str, str]]]:
+    """[(game_id, date, payload_json)] of the other player's replays, newest
+    first, at most `limit`, when the two are friends; None when they are not
+    (whatever else lies between them)."""
+    async with _connect() as db:
+        async with db.execute(
+            f"SELECT 1 FROM sync_players WHERE id = ? AND {_ARE_FRIENDS}",
+            (other_id, player_id, other_id, other_id, player_id),
+        ) as cur:
+            if await cur.fetchone() is None:
+                return None
+        async with db.execute(
+            f"""SELECT game_id, date, payload FROM sync_games WHERE player_id = ?
+                {_NEWEST_FIRST} LIMIT ?""",
+            (other_id, limit),
+        ) as cur:
+            return [(r[0], r[1], r[2]) for r in await cur.fetchall()]
+
+
+async def friend_game(
+    player_id: str, other_id: str, game_id: str
+) -> Optional[tuple[str, str]]:
+    """(date, payload_json) of one of the other player's replays when the two
+    are friends; None when they are not, or there is no such replay."""
+    async with _connect() as db:
+        async with db.execute(
+            f"""SELECT date, payload FROM sync_games
+                WHERE player_id = ? AND game_id = ? AND {_ARE_FRIENDS}""",
+            (other_id, game_id, player_id, other_id, other_id, player_id),
+        ) as cur:
+            row = await cur.fetchone()
+    return (row[0], row[1]) if row else None
