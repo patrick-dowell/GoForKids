@@ -418,6 +418,90 @@ test('profile with the Admin section (an admin device): everything reachable, no
   });
 });
 
+test('profile with the Friends section (a logged-in device): everything reachable, nothing wider than the screen', async ({ page }) => {
+  // Feature 32, revision 4: a code, two requests and four friends with the
+  // longest generated names, a send answered and a card open. Answered
+  // here; nothing leaves the browser.
+  const person = (n: number, handle: [number, number], avatar: string) => ({
+    player_id: `0a0a0a0a-0000-4000-8000-00000000000${n}`,
+    handle,
+    avatar,
+  });
+  const friends = [
+    person(1, [22, 25], 'tide'), // Twinkling Satellite
+    person(2, [20, 34], 'nova'), // Sparkling Explorer
+    person(3, [40, 26], 'comet'), // Wandering Asteroid
+    person(4, [3, 3], 'prism'),
+  ].map((p) => ({ ...p, since: '2026-10-01T16:00:00Z' }));
+  const incoming = [person(5, [21, 4], 'eclipse'), person(6, [41, 25], 'blackhole')].map((p) => ({
+    ...p,
+    sent_at: '2026-10-02T15:00:00Z',
+  }));
+  const card = {
+    ...friends[0],
+    boards: { '9x9': { rung: '15k', games: 120 }, '13x13': { rung: '18k', games: 40 }, '19x19': { rung: '20k', games: 40 } },
+    games: 200,
+    recent: Array.from({ length: 10 }, (_, i) => ({
+      board: ['9x9', '13x13', '19x19'][i % 3],
+      result: i % 2 ? 'loss' : 'win',
+      rung: '15k',
+      ts: Date.UTC(2025, 11, 31 - i, 18),
+    })),
+  };
+  await page.route(
+    (url) => url.pathname.startsWith('/api/sync/'),
+    (route) => {
+      const path = new URL(route.request().url()).pathname;
+      const method = route.request().method();
+      const body =
+        path === '/api/sync/state'
+          ? { rev: 1, state: { schema: 1, ladder: { byBoardSize: {} }, lessons: [], avatar: 'tide', avatarPicked: true, handle: [26, 33] }, admin: false, device_id: 'd-self' }
+          : path === '/api/sync/games'
+            ? { games: [] }
+            : path === '/api/sync/friends/code'
+              ? { code: 'K7QX2MPD' }
+              : path === '/api/sync/friends'
+                ? { friends, incoming }
+                : path === '/api/sync/friends/requests' && method === 'POST'
+                  ? {}
+                  : path === `/api/sync/friends/${card.player_id}`
+                    ? card
+                    : null;
+      if (!body) return route.abort();
+      return route.fulfill({ status: path.endsWith('/requests') ? 202 : 200, contentType: 'application/json', body: JSON.stringify(body) });
+    },
+  );
+  await page.addInitScript(() => {
+    localStorage.setItem('goforkids.profile.v1', JSON.stringify({ avatar: 'tide', avatarPicked: true, handle: [26, 33] }));
+    localStorage.setItem('goforkids.sync.v1', JSON.stringify({ playerId: 'p-own', deviceToken: 'layout-probe', baseRev: 1 }));
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /Profile/ }).click();
+  await page.locator('.profile-friends-friend').nth(3).waitFor();
+  await page.locator('.profile-friends-input').fill('ra3v-8ygf');
+  await page.locator('.profile-friends').getByRole('button', { name: 'Send' }).click();
+  await page.locator('.profile-friends-outcome').waitFor();
+  await page.locator('.profile-friends-person').first().click();
+  await page.locator('.profile-friends-result').nth(9).waitFor();
+  await page.locator('.profile-friends-card').getByRole('button', { name: 'Remove friend' }).click();
+  await sweep(page, 'profile-friends', {
+    reachable: [
+      '.profile-devices',
+      '.profile-friends-code',
+      'btn:New code',
+      '.profile-friends-input',
+      'btn:Send',
+      '.profile-friends-outcome',
+      '.profile-friends-request:last-child',
+      '.profile-friends-card-ranks',
+      '.profile-friends-result:last-child',
+      'btn:Yes, remove',
+      '.profile-friends-friend:last-child',
+    ],
+    noBodyScroll: true,
+  });
+});
+
 test('first-run choice: fits without scrolling at every viewport, all three steps', async ({ page }) => {
   // Fresh install: nothing stored, so the first-run choice is the first screen.
   await page.goto('/');

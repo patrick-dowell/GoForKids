@@ -48,6 +48,10 @@ import { useProfileStore } from './profileStore';
  * adminStore.ts) shows only while the latest pass said admin; its requests
  * go through `adminRequest`. Log out and a 401 clear both, and the admin's
  * labels with them.
+ *
+ * Revision 4: the Friends section's requests go through `friendsRequest`,
+ * which takes the 401 path on a 401. Its data lives in friendsStore.ts, in
+ * memory only, and is dropped whenever this device's token changes.
  */
 
 const STORAGE_KEY = 'goforkids.sync.v1';
@@ -148,6 +152,9 @@ interface SyncState extends PersistedSync {
    *  takes the 401 path; a 403 hides the Admin section and never signs the
    *  device out. Throws without a request when this device isn't an admin. */
   adminRequest: <T>(call: (token: string) => Promise<T>) => Promise<T>;
+  /** Make a friends request with this device's token (revision 4). A 401
+   *  takes the 401 path. Throws without a request when not logged in. */
+  friendsRequest: <T>(call: (token: string) => Promise<T>) => Promise<T>;
 }
 
 /* ------------------------------------------------------------------------- *
@@ -780,6 +787,17 @@ export const useSyncStore = create<SyncState>((set, get) => {
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) handleUnauthorized(token);
         else if (e instanceof ApiError && e.status === 403) update({ admin: false });
+        throw e;
+      }
+    },
+
+    friendsRequest: async <T,>(call: (token: string) => Promise<T>): Promise<T> => {
+      const token = get().deviceToken;
+      if (!token) throw new Error('sync: not logged in');
+      try {
+        return await call(token);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) handleUnauthorized(token);
         throw e;
       }
     },

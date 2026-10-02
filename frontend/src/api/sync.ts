@@ -1,6 +1,7 @@
 /**
- * Sync API (feature 32): the ten routes under `/api/sync`, and revision 3's
- * five admin routes under `/api/sync/admin`, coded to the contract in
+ * Sync API (feature 32): the ten routes under `/api/sync`, revision 3's five
+ * admin routes under `/api/sync/admin`, and revision 4's eight friends
+ * routes under `/api/sync/friends`, coded to the contract in
  * feature_plans/32_sync_foundation.md. Rides the shared
  * `request` helper in client.ts (base URL, timeout, network retry); a non-OK
  * response arrives as an `ApiError` carrying its status and JSON body.
@@ -70,6 +71,48 @@ export interface AdminPlayer {
   /** Null while the profile has a device; otherwise whole days left before
    *  the cleanup deletes it, rounded up, never below 0. */
   days_left: number | null;
+}
+
+/** One accepted friend in `GET /friends` (revision 4). `since` is when the
+ *  request was accepted, `YYYY-MM-DDTHH:MM:SSZ`. */
+export interface FriendEntry {
+  player_id: string;
+  handle: [number, number] | null;
+  avatar: string;
+  since: string;
+}
+
+/** One pending request to this player in `GET /friends`. `sent_at` is when
+ *  the request was first sent. */
+export interface FriendRequestEntry {
+  player_id: string;
+  handle: [number, number] | null;
+  avatar: string;
+  sent_at: string;
+}
+
+export interface FriendsList {
+  friends: FriendEntry[];
+  incoming: FriendRequestEntry[];
+}
+
+/** One ranked result on a friend's card: `ts` is epoch ms. */
+export interface FriendResult {
+  board: string;
+  result: 'win' | 'loss';
+  rung: string | null;
+  ts: number;
+}
+
+/** `GET /friends/{player_id}`: only values the server has checked. `boards`
+ *  has the admin list's shape (a rung or null, and a game count). */
+export interface FriendCard {
+  player_id: string;
+  handle: [number, number] | null;
+  avatar: string;
+  boards: Record<string, AdminBoard>;
+  games: number;
+  recent: FriendResult[];
 }
 
 /** What `POST /players` and `POST /pairing-codes/redeem` hand back. */
@@ -228,6 +271,53 @@ export const adminApi = {
       `${BASE}/admin/players/${encodeURIComponent(playerId)}/devices`,
       authed(token, { method: 'DELETE' }),
     ),
+};
+
+/**
+ * The friends routes (revision 4), for a logged-in device. The only thing a
+ * player types here is a friend code, and it goes only into the body of
+ * `POST /friends/requests`.
+ */
+export const friendsApi = {
+  getCode: (token: string): Promise<{ code: string }> =>
+    request<{ code: string }>(`${BASE}/friends/code`, authed(token)),
+
+  /** A new code; the old one stops working at once. */
+  newCode: (token: string): Promise<{ code: string }> =>
+    request<{ code: string }>(`${BASE}/friends/code`, authed(token, { method: 'POST' })),
+
+  /** `code` is sent as given: the caller normalises it first. 202 whatever
+   *  the state between the two players. */
+  sendRequest: (token: string, code: string): Promise<void> =>
+    request<unknown>(`${BASE}/friends/requests`, authed(token, { method: 'POST', body: JSON.stringify({ code }) })).then(
+      () => undefined,
+    ),
+
+  list: async (token: string): Promise<FriendsList> => {
+    const res = await request<Partial<FriendsList>>(`${BASE}/friends`, authed(token));
+    return {
+      friends: Array.isArray(res?.friends) ? res.friends : [],
+      incoming: Array.isArray(res?.incoming) ? res.incoming : [],
+    };
+  },
+
+  accept: (token: string, playerId: string): Promise<void> =>
+    request<void>(
+      `${BASE}/friends/requests/${encodeURIComponent(playerId)}/accept`,
+      authed(token, { method: 'POST' }),
+    ),
+
+  decline: (token: string, playerId: string): Promise<void> =>
+    request<void>(
+      `${BASE}/friends/requests/${encodeURIComponent(playerId)}/decline`,
+      authed(token, { method: 'POST' }),
+    ),
+
+  card: (token: string, playerId: string): Promise<FriendCard> =>
+    request<FriendCard>(`${BASE}/friends/${encodeURIComponent(playerId)}`, authed(token)),
+
+  remove: (token: string, playerId: string): Promise<void> =>
+    request<void>(`${BASE}/friends/${encodeURIComponent(playerId)}`, authed(token, { method: 'DELETE' })),
 };
 
 /** The create key's alphabet (64 symbols, so a random byte's low six bits
