@@ -56,10 +56,16 @@ function whenText(iso: string): string {
 }
 
 const PASSED = 'That time has passed. Pick a later one.';
+const REFUSED_TIME = "The server didn't accept that time. Pick an earlier one.";
 
-function actionError(e: unknown): string {
+/** Why an action failed. A 422 on a code is about its expiry: it has passed
+ *  only when it is no longer ahead of this device's clock; otherwise the
+ *  server found it too far ahead (this clock runs fast). */
+function actionError(e: unknown, expiry?: Date): string {
   if (e instanceof ApiError && e.status === 404) return 'That player or device is gone. The list is up to date now.';
-  if (e instanceof ApiError && e.status === 422) return PASSED;
+  if (e instanceof ApiError && e.status === 422) {
+    return expiry && expiry.getTime() > Date.now() ? REFUSED_TIME : PASSED;
+  }
   if (e instanceof ApiError && e.status === 409) return 'This device signs out with Log out, above.';
   return "Couldn't connect. Try again in a minute.";
 }
@@ -89,13 +95,13 @@ export function AdminSection() {
   };
 
   /** Run an action; on failure say why beside the row it came from. */
-  const act = async (rowId: string | null, fn: () => Promise<void>) => {
+  const act = async (rowId: string | null, fn: () => Promise<void>, expiry?: Date) => {
     setBusy(true);
     setError(null);
     try {
       await fn();
     } catch (e) {
-      setError({ playerId: rowId, text: actionError(e) });
+      setError({ playerId: rowId, text: actionError(e, expiry) });
       if (e instanceof ApiError && e.status === 404) void useAdminStore.getState().refresh();
     } finally {
       setBusy(false);
@@ -117,10 +123,15 @@ export function AdminSection() {
       setError({ playerId: p.playerId, text: PASSED });
       return;
     }
-    return act(p.playerId, async () => {
-      const code = await useAdminStore.getState().mintCode(p.playerId, p.options[p.choice]);
-      setPanel({ ...p, code });
-    });
+    const expiry = p.options[p.choice];
+    return act(
+      p.playerId,
+      async () => {
+        const code = await useAdminStore.getState().mintCode(p.playerId, expiry);
+        setPanel({ ...p, code });
+      },
+      expiry,
+    );
   };
 
   const signOut = (id: string) =>
