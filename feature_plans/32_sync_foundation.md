@@ -519,3 +519,148 @@ On the Profile page, below Devices, shown only to an admin:
   logging into an admin-created profile.
 - Together: two browser origins against a local backend with one of them
   made an admin.
+
+---
+
+## Revision 4 — friends, a first view
+
+A player adds a friend with the friend's code. Once the friend accepts,
+each can see the other's card. Playing a friend comes later and is not in
+this revision. Where this section and an earlier one disagree, this
+section wins.
+
+### What a player can do
+
+- See their own **friend code** and give it to a friend.
+- **Add a friend** by typing the friend's code. That sends a request.
+- See the requests sent to them and **accept** or **decline** each one.
+- See their **friends** and open a **friend's card**: the generated name,
+  the avatar, the rank on each board, ranked games played and the last
+  ten ranked results.
+- **Remove a friend.**
+
+Nothing a player types is ever shown to another player: the only typed
+input is a friend code, and it is used only to find the player it
+belongs to. There is no grown-up gate on these screens in this revision,
+and accepting is required before anything is shared.
+
+### Friend codes
+
+- Each profile has one friend code: 8 characters of the share-code
+  alphabet (`23456789ACDEFGHJKMNPQRTVWXY`), unique across profiles, shown
+  in two groups of four. It does not expire. It is assigned when the
+  profile is created; profiles from before this revision get one at
+  start-up.
+- Lookup normalises case, surrounding space and one space or hyphen
+  between the two groups, as pairing codes do.
+- A friend code is not a pairing code and never logs a device in; a
+  pairing code is never accepted as a friend code.
+
+### Storage
+
+One table, `sync_friendships`: requester id, addressee id, status
+(`pending`, `accepted` or `declined`), created and updated times; one row
+per ordered pair. The 30-day cleanup (Revision 3) deletes a profile's
+rows in both directions with the profile.
+
+### Routes
+
+All under `/api/sync`, all with `Authorization: Bearer <device_token>`. A
+missing, unknown or revoked token answers **401**.
+
+| Method and path | Request | Success | Errors |
+|---|---|---|---|
+| `GET /friends/code` | — | **200** `{ "code" }` | 401 |
+| `POST /friends/requests` | `{ "code" }` | **202** `{}` | 401, **404** no profile has that code, **422** a malformed code or the requester's own code, **429** over a rate limit |
+| `GET /friends` | — | **200** `{ "friends": [...], "incoming": [...] }` | 401 |
+| `POST /friends/requests/{player_id}/accept` | — | **200** `{}` | 401, **404** no pending request from that player to the requester |
+| `POST /friends/requests/{player_id}/decline` | — | **204** | 401, **404** as for accept |
+| `GET /friends/{player_id}` | — | **200** the card | 401, **404** for every player who is not an accepted friend |
+| `DELETE /friends/{player_id}` | — | **204**, also when the two are not friends | 401 |
+
+- **`POST /friends/requests`** answers the same **202** whatever the state
+  between the two players: a new request, a repeat of a pending one,
+  one the other side declined earlier (it stays declined and the
+  addressee is not shown it again), or players who are already friends.
+  When the other player already has a pending request to the requester,
+  the two become friends at once. The reply never says which case it
+  was.
+- **Rate limits**, in memory, on `POST /friends/requests` (every attempt
+  counts, a 404 included): 20 an hour per player, and 60 an hour per
+  client address keyed exactly as the existing limits are (through
+  `SYNC_TRUSTED_PROXY_HOPS`, so a client-supplied `X-Forwarded-For` moves
+  nothing when no proxy is trusted). Over either answers **429**.
+- **`GET /friends`**: `friends` is `[{ "player_id", "handle", "avatar",
+  "since" }]` for accepted friends, newest first; `incoming` is
+  `[{ "player_id", "handle", "avatar", "sent_at" }]` for pending requests
+  to the requester, newest first. Requests the requester sent are not
+  listed, so a pending or declined request reveals nothing.
+- **Accepting** makes the two friends both ways. **Declining** marks the
+  request declined; nothing tells the requester.
+- **Removing** a friend deletes the friendship both ways; either player
+  may send a new request afterwards.
+- **A friend's card** (`GET /friends/{player_id}`):
+
+  ```json
+  {
+    "player_id": "…",
+    "handle": [4, 2],
+    "avatar": "nova",
+    "boards": { "9x9": { "rung": "18k", "games": 12 } },
+    "games": 12,
+    "recent": [{ "board": "9x9", "result": "win", "rung": "18k", "ts": 1759363200000 }]
+  }
+  ```
+
+  The server builds it from the friend's stored state and passes on only
+  values it has checked, so nothing a tampered client wrote reaches
+  another player as text: `handle` as in Revision 2 or `null`; `avatar`
+  one of the app's avatar names (`blackhole`, `nova`, `nebula`, `tide`,
+  `eclipse`, `prism`, `comet`) or `blackhole`; board keys `9x9`, `13x13`
+  or `19x19` only; `rung` matching `^[0-9]{1,2}[kdp]$` or `null`; `result`
+  `win` or `loss`; `ts` a number. `games` is the ranked games across
+  boards; `recent` is the newest ten ranked results across boards by
+  `ts`, skipping any entry that fails a check. The friend's replays,
+  lessons and devices are not on the card.
+- A 404 from the card or from accept looks the same for a stranger, a
+  pending or declined request either way, an unknown id and the
+  requester's own id.
+
+### The client's Friends section
+
+On the Profile page, below Devices, for a device that is logged in:
+
+- **Your friend code**, in two groups of four.
+- **Add a friend**: one field for a code (it accepts the code with or
+  without the space and in either case), and a Send button. After a send:
+  "Request sent" for a 202, "No player has that code" for a 404, "That's
+  your own code" or "That isn't a friend code" for a 422, and a plain
+  try-later line for a 429.
+- **Requests**: each incoming request with the sender's generated name
+  and avatar, and Accept and Decline.
+- **Friends**: each friend's generated name and avatar; tapping one opens
+  the friend's card (name, avatar, rank per board, games, the recent
+  results with board, win or loss and date) with **Remove friend** after
+  one confirm.
+- The section refreshes when the Profile page opens and after each
+  action; it does not poll. Friends data is held in memory only, never
+  persisted, and is dropped on a log out and on a 401.
+- A device that is not logged in shows no Friends section.
+
+### Verification for Revision 4
+
+- Backend: codes assigned at creation and at start-up, unique, normalised;
+  each route's success and errors; a stranger, a pending request (either
+  way), a declined request and a removed friend all get the same 404 for
+  the card; the 202 identical across cases; the mutual request; the
+  card's checks against a state with injected text in `bot`, `rung`,
+  `avatar`, board keys and `result`; both rate limits, including a
+  rotating `X-Forwarded-For` with no trusted proxy and with one; the
+  cleanup removing friendships; no token hash or friend code of another
+  player in any reply.
+- Frontend: `npm run build`, `npm test`, `npm run test:layout`. Tests for
+  each send outcome, accept and decline, the list and the card, remove
+  with its confirm, the section hidden when not logged in, and friends
+  data dropped on log out and on a 401.
+- Together: two browser origins against a local backend become friends
+  by code and each reads the other's card; a third cannot.
