@@ -85,7 +85,7 @@ class FakeServer {
   calls: Call[] = [];
   /** Return (or resolve to) a Response to take over a request; throw to
    *  simulate a network failure; return undefined for the default. */
-  intercept?: (c: Call) => Response | Promise<Response> | undefined;
+  intercept?: (c: Call) => Response | undefined | Promise<Response | undefined>;
   /** When set, GET /state waits on it. */
   gate?: Promise<void>;
   inFlight = 0;
