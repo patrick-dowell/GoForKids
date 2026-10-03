@@ -1014,3 +1014,101 @@ Devices. `admin.spec.ts` is unchanged (the avatar's accessible name is
   the Friends page makes three (not edited here).
 - Whether the avatar should carry the player's name on the home screen
   (built: the icon alone).
+
+## Revision 8 — watching from the feed, playing on opening, Close back to Friends
+
+The owner's notes after trying the live build on a tablet (2026-10-02): the
+feed is the place to watch from; a friend's replay should start on its own;
+the viewer's back should return to the page he was on. Where this section
+and an earlier one disagree, this section wins (it replaces Revision 5's
+"Close goes home" for a friend's game, and settles that open item).
+
+### The link from a result to its game
+
+- **What the app writes.** Every ranked game that finishes is saved to the
+  Library by `gameStore` (`autoSaveGame`) as it sets the final result, before
+  App's game-end effect records the result, under the backend game id (8
+  hex digits) or `local-<ms>` when the backend was out of reach at the start.
+  The store now keeps that id (`savedGameId`, reset by `newGame`) and App
+  passes it to `recordResult`, which writes `gameId` on the history entry
+  (and on the queued `RankedResult`, so sync's re-apply keeps it; a non-string
+  read back from storage is dropped). Older entries have no `gameId` and stay
+  valid. One path saves nothing: a pass whose server reply carries no result
+  records the result unsaved, so that entry has no id and nothing to match.
+- **What the server sends.** Each `kind: "game"` event in `GET /friends/feed`
+  carries `game_id`, a string or null; promotions carry none.
+  (`app/sync/feed_games.py`.)
+  - A result whose entry names an id gets it when that friend has the
+    replay and it passes the replay check; otherwise null, never a time
+    match. A replay named twice goes to the newer result.
+  - A result with no id is matched by time: a replay of the same friend, on
+    the same board, whose outcome for its owner is the result's (so a game
+    they watched never matches), with `date` within **60 seconds** of `ts`
+    either side. Every fitting pair is ranked by the gap, nearest first;
+    each replay is used once, named ones first.
+  - **Why a minute.** The replay's `date` is `new Date().toISOString()` at
+    the save and the result's `ts` is `Date.now()` at the record that
+    follows, on the same device's clock: milliseconds apart. The minute is
+    room for a game-end render the system held back (the app sent to the
+    background as a game ends). Two games inside a minute keep their own
+    replays because each pair's own gap is the smallest.
+  - Matching runs for each friend with a result in the 50 shown, across all
+    of that friend's results (so one past the cut keeps its own replay),
+    over their replays read through the friendship check, as the replay
+    list reads them. Nobody else's replays are ever considered.
+
+### The client
+
+- **Feed line.** A result line with a `game_id` is a button ("Watch: Swift
+  Raven beat the 12k bot on 9×9, Today", with the card's ▶) that opens the
+  game through the card's `openGame`, showing "Opening…" meanwhile. Lines
+  without one, and every promotion, are not buttons. A failure is said
+  under the feed in the card's words: "That game can't be shown.", "That
+  game isn't there any more." (the feed reloads, and the line stops being a
+  button), "That player isn't your friend any more." (their lines leave),
+  or the connect line.
+- **Playing on opening.** A friend's game, from the feed or a card, opens
+  at move 0 and plays at the viewer's playback speed (Normal, 600 ms a move,
+  unless the player changed it this session), with ⏸ to stop. A Library or
+  share-link replay opens paused, as before.
+- **Close.** The replay carries its return target (`returnTo`, set only by
+  the `loadGame` that opened it, cleared by close and by any later
+  `loadGame`). Close on a friend's game goes back to the Friends page with
+  the card that was open when the game opened, still loaded as it was (it is
+  opened again if it closed meanwhile), its row scrolled to the top of the
+  page's scroll container. From the Library it goes home as before. The
+  viewer's Home button always goes home; arriving at Friends from Home
+  starts from the list.
+
+### Open (the owner's call)
+
+- The window (a minute either side).
+- Whether a replay should start at Normal speed even when the player chose
+  another this session (built: their choice stays).
+- Close returns to the card's row, not the exact scroll offset, and the
+  feed's Show more is not kept.
+- Whether a promotion line should open the game that earned it (built:
+  never).
+- Revision 5's note stands: the viewer's highlight lines say "you", which in
+  a friend's game means the friend.
+
+### Verification for Revision 8
+
+- Backend (`tests/test_sync_friends_feed_games.py`): the match by time, the
+  window at 0, ±60 s and ±60.001 s, nearest wins, neighbouring games keep
+  their own, each replay once, a missing replay, other board, other outcome,
+  watched, unservable, no result, a result with an id (found, gone with no
+  fallback, failing its check, named twice), ids out of shape and injected
+  text never reaching the feed, a result past the cut, another player's
+  replay never matched, the card's 404 once they are not friends, and the
+  date reader. The two feed shape tests now show `game_id`.
+- Frontend: `npm run build`; `npm test` (the history entry's id through
+  `recordResult`, sync's re-apply and an older entry; the saved id on
+  `gameStore`; the feed line's `gameId`; autoplay on open, its speed, ⏸, a
+  Library replay paused; the return target carried and cleared;
+  `openGame` from a card and from the feed); `npm run test:layout`
+  (`friends.spec.ts`: a feed line opens the viewer playing and Close comes
+  back to the feed; Close comes back with the card open and scrolled to,
+  without reloading it; a feed game that won't open says so; a Library
+  replay opens paused and Close goes home; the Revision 5 viewer test now
+  expects Friends after Close; the layout sweep's feed has button lines).
