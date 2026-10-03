@@ -1191,6 +1191,39 @@ test("Close on a friend's game comes back to Friends with their card open and in
   await expect(section(page).locator('.profile-friends-card')).toHaveCount(0);
 });
 
+test("Close on a friend's game opens their card again when it closed while the game played", async ({ page }) => {
+  await page.clock.setFixedTime(NOW);
+  const { count, state } = await fakeSync(page, { events: linkedFeed() });
+  await seedLoggedIn(page);
+  await openFriends(page);
+  await friend(page, FALCON).locator('.profile-friends-person').click();
+  const card = friend(page, FALCON).locator('.profile-friends-card');
+  await expect(card.locator('.profile-friends-game')).toHaveCount(2);
+  await card.getByRole('button', { name: 'Watch: Lost to the 18k bot on 19×19, Yesterday' }).click();
+  await expect(page.locator('.replay-controls')).toBeVisible();
+  expect(await viewer(page)).toMatchObject({ returnTo: { page: 'friends', cardFor: FALCON } });
+
+  // While the game plays, the app comes back to the screen and its list
+  // refresh, for that moment, does not list Falcon: the card closes under
+  // the viewer. By the time Close is pressed, Falcon is listed again.
+  const listed = state.friends;
+  state.friends = listed.filter((f) => f.player_id !== FALCON);
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect.poll(async () => (await heldData(page)).cardFor).toBeNull();
+  state.friends = listed;
+  const cardLoads = count('GET', `/sync/friends/${FALCON}`);
+
+  await page.locator('.replay-controls').getByRole('button', { name: 'Close' }).click();
+  await expect(page.locator('.friends-page')).toBeVisible();
+  await expect(friend(page, FALCON).locator('.profile-friends-person')).toHaveAttribute('aria-expanded', 'true');
+  await expect(card.locator('.profile-friends-card-name')).toHaveText('Swift Falcon');
+  await expect(card.locator('.profile-friends-game')).toHaveCount(2);
+  // Opened again from the server, not left over: the card loaded again (the
+  // dev build's StrictMode may run the opening effect twice).
+  expect(count('GET', `/sync/friends/${FALCON}`)).toBeGreaterThan(cardLoads);
+  await expect(section(page).getByRole('alert')).toHaveCount(0);
+});
+
 test("a feed game that won't open says so beside the feed", async ({ page }) => {
   await page.clock.setFixedTime(NOW);
   const { state } = await fakeSync(page, { events: linkedFeed() });
