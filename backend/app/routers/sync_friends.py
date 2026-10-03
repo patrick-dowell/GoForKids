@@ -16,6 +16,9 @@ GET    /api/sync/friends/feed                          what friends did lately
 GET    /api/sync/friends/{player_id}/games             a friend's replays, newest 20
 GET    /api/sync/friends/{player_id}/games/{game_id}   one of them
 
+Revision 8: each result in the feed carries `game_id`, the friend's replay
+of that game (app.sync.feed_games), or null.
+
 Every route needs a device token (401 otherwise). `/friends/code`,
 `/friends/requests...` and `/friends/feed` are registered before
 `/friends/{player_id}`, and `{player_id}` matches only a UUID; anything else
@@ -48,7 +51,7 @@ from app.routers.sync import (
     current_time,
 )
 from app.routers.sync_admin import _parse_body
-from app.sync import storage
+from app.sync import feed_games, storage
 from app.sync.friend_replays import checked_replay, summary
 from app.sync.ratelimit import RateLimiter
 from app.uploads.storage import SHARE_ID_ALPHABET
@@ -72,10 +75,10 @@ FEED_LIMIT = 50
 # recently (a device's last-seen time is written at most once a minute).
 ACTIVE_WINDOW_S = 10 * 60
 FRIEND_GAMES_LIMIT = 20
-# A replay id the app writes: 8 hex digits, or "local-" and a time.
-_GAME_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
-# A replay's date as the app writes it: `toISOString()`.
-_GAME_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?Z")
+# A replay id the app writes (8 hex digits, or "local-" and a time), and a
+# replay's date as the app writes it (`toISOString()`).
+_GAME_ID = feed_games.GAME_ID
+_GAME_DATE = feed_games.GAME_DATE
 
 _FRIEND_CODE = re.compile(f"[{SHARE_ID_ALPHABET}]{{{storage.FRIEND_CODE_LENGTH}}}")
 
@@ -187,7 +190,11 @@ def feed_events(player_id: str, state: Dict[str, Any]) -> list:
     """A friend's ranked results and promotions as feed events, each tagged
     with who it was. A result passes as the card's recent results do, with
     the bot played (`bot`, a rung or null); a promotion needs a `to` rung and
-    a `ts` that pass their checks, and `from` passes as a rung or null."""
+    a `ts` that pass their checks, and `from` passes as a rung or null.
+
+    A result's `game_id` (Revision 8) starts null; `_claim` holds the replay
+    id its history entry names, for `link_feed_games`, which sets `game_id`
+    and drops `_claim` before anything is sent."""
     who = {"player_id": player_id, "handle": _handle(state), "avatar": _avatar(state)}
     events = []
     for board, slot in _slots(state).items():
@@ -200,6 +207,7 @@ def feed_events(player_id: str, state: Dict[str, Any]) -> list:
             events.append({
                 "kind": "game", **who, "board": board, "result": result,
                 "rung": _rung(entry.get("rung")), "bot": _rung(entry.get("bot")), "ts": ts,
+                "game_id": None, "_claim": feed_games.claimed_id(entry.get("gameId")),
             })
         for entry in _history(slot, "promotionEvents"):
             if not isinstance(entry, dict):
@@ -217,6 +225,24 @@ def feed_events(player_id: str, state: Dict[str, Any]) -> list:
 def _feed_order(event: Dict[str, Any]) -> tuple:
     # Newest first; a promotion before the game that earned it (same ts).
     return (-event["ts"], event["kind"] != "promotion", event["player_id"], event["board"])
+
+
+async def link_feed_games(viewer_id: str, events: list, shown: list) -> None:
+    """Revision 8: set `game_id` on every result shown (the friend's replay
+    it opens, or null; see app.sync.feed_games) and drop every `_claim`.
+    Each friend with a result shown is matched across all their results, so
+    one past the cut keeps its own replay."""
+    by_friend: Dict[str, list] = {}
+    for event in events:
+        if event["kind"] == "game":
+            by_friend.setdefault(event["player_id"], []).append(event)
+    for friend_id in {e["player_id"] for e in shown if e["kind"] == "game"}:
+        results = by_friend[friend_id]
+        # Read through the friendship, as a friend's replay list is.
+        rows = await storage.friend_games(viewer_id, friend_id, storage.REPLAY_CAP) or []
+        feed_games.link_games(results, [r["_claim"] for r in results], rows)
+    for event in events:
+        event.pop("_claim", None)
 
 
 def _list_entry(row: storage.FriendRow, time_key: str) -> Dict[str, Any]:
@@ -359,7 +385,9 @@ async def get_feed(device: Device = Depends(current_device), now: float = Depend
         })
         events.extend(feed_events(row.player_id, state))
     events.sort(key=_feed_order)
-    return {"friends": friends, "events": events[:FEED_LIMIT]}
+    shown = events[:FEED_LIMIT]
+    await link_feed_games(device.player_id, events, shown)
+    return {"friends": friends, "events": shown}
 
 
 @router.get("/friends/{player_id:uuid}")

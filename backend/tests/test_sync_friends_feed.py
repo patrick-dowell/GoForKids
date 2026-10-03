@@ -125,11 +125,11 @@ async def test_the_feed_has_the_planned_shape(client, clock):
         "events": [
             {"kind": "promotion", **who, "board": "9x9", "from": "10k", "to": "9k", "ts": T + 2},
             {"kind": "game", **who, "board": "9x9", "result": "win", "rung": "10k", "bot": "12k",
-             "ts": T + 2},
+             "ts": T + 2, "game_id": None},
             {"kind": "game", **who, "board": "19x19", "result": "win", "rung": "25k", "bot": "18k",
-             "ts": T + 1},
+             "ts": T + 1, "game_id": None},
             {"kind": "game", **who, "board": "9x9", "result": "loss", "rung": "10k", "bot": "10k",
-             "ts": T},
+             "ts": T, "game_id": None},
         ],
     }
 
@@ -260,9 +260,9 @@ async def test_the_feed_passes_on_only_checked_values(client, sync_db):
             {"kind": "promotion", **who, "board": "9x9", "from": "10k", "to": "9k", "ts": T + 7},
             {"kind": "promotion", **who, "board": "9x9", "from": None, "to": "9k", "ts": T + 5},
             {"kind": "game", **who, "board": "9x9", "result": "loss", "rung": "18k", "bot": None,
-             "ts": T + 4},
+             "ts": T + 4, "game_id": None},
             {"kind": "game", **who, "board": "9x9", "result": "win", "rung": None, "bot": None,
-             "ts": T + 1},
+             "ts": T + 1, "game_id": None},
         ],
     }
 
