@@ -16,6 +16,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FriendCard, FriendGame, FriendGameEntry, SyncStateDoc } from '../../api/sync';
 
+// A friend's game opens playing (revision 8) on the viewer's window timers;
+// the project-wide env is 'node', so alias window to globalThis.
+if (typeof globalThis.window === 'undefined') {
+  (globalThis as unknown as { window: typeof globalThis }).window = globalThis;
+}
+
 function installLocalStorage() {
   const store = new Map<string, string>();
   globalThis.localStorage = {
@@ -311,9 +317,12 @@ async function load() {
   const friends = await import('../friendsStore');
   const profile = await import('../profileStore');
   const replay = await import('../replayStore');
-  return { sync, friends, profile, replay };
+  loaded = { sync, friends, profile, replay };
+  return loaded;
 }
-type Mods = Awaited<ReturnType<typeof load>>;
+type Mods = { sync: typeof import('../syncStore'); friends: typeof import('../friendsStore'); profile: typeof import('../profileStore'); replay: typeof import('../replayStore') };
+/** The latest modules, so a replay left playing stops after its test. */
+let loaded: Mods | null = null;
 
 function loggedIn(m: Mods) {
   m.sync.useSyncStore.setState({ playerId: ME, deviceToken: 'tok-1', baseRev: 1, dirty: false });
@@ -341,6 +350,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  loaded?.replay.useReplayStore.getState().close();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -1217,6 +1227,26 @@ describe("revision 5: a friend's replays", () => {
     expect(r.sharedId).toBeNull();
     // Nothing of it reaches this device's Library or storage.
     expect(storage()).not.toContain('a1b2c3d4');
+    // Revision 8: it plays from the first move, and Close leads back to
+    // Friends with this card open.
+    expect(r.currentMove).toBe(0);
+    expect(r.autoPlaying).toBe(true);
+    expect(r.returnTo).toEqual({ page: 'friends', cardFor: FALCON });
+  });
+
+  it('revision 8: from the feed, with no card open, it plays too and Close leads back to Friends', async () => {
+    const { m, server, f } = await friendsDevice();
+    falconReplays(server);
+    expect(f().cardFor).toBeNull();
+    await f().openGame(FALCON, 'a1b2c3d4');
+    const r = m.replay.useReplayStore.getState();
+    expect(r.active).toBe(true);
+    expect(r.autoPlaying).toBe(true);
+    expect(r.returnTo).toEqual({ page: 'friends', cardFor: null });
+    // Closing the viewer takes the target with it.
+    m.replay.useReplayStore.getState().close();
+    expect(m.replay.useReplayStore.getState().returnTo).toBeNull();
+    expect(m.replay.useReplayStore.getState().autoPlaying).toBe(false);
   });
 
   it('a game that is gone: the 404 reaches the caller, the replays reload, nothing opens', async () => {

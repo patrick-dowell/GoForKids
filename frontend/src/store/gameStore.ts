@@ -47,6 +47,9 @@ function autoSaveGame(state: GameState, sgfOverride?: string) {
   };
 
   useLibraryStore.getState().saveGame(saved);
+  // The game's Library id (feature 32, revision 8): App records it on the
+  // ranked result, which follows this save, so a friend's feed can open it.
+  useGameStore.setState({ savedGameId: saved.id });
 }
 
 type GridSnapshot = number[];
@@ -287,6 +290,9 @@ interface GameState {
   isRanked: boolean;
   aiThinking: boolean;
   gameId: string | null;
+  /** The Library id this game was saved under when it finished (revision 8);
+   *  null until then, and reset by `newGame`. */
+  savedGameId: string | null;
   territory: TerritoryMap | null;
   playerAvatar: PlayerAvatarType;
   botAvatar: BotAvatarType;
@@ -585,6 +591,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   isRanked: false,
   aiThinking: false,
   gameId: null,
+  savedGameId: null,
   territory: null,
   playerAvatar: 'blackhole',
   botAvatar: 'pebble',
@@ -704,6 +711,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       targetRank,
       isRanked,
       gameId,
+      savedGameId: null,
       aiThinking: false,
       playerAvatar,
       botAvatar: botInfo.type,

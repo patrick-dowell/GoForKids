@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ApiError } from '../api/client';
 import {
   cardView,
@@ -43,9 +43,14 @@ import './FriendsSection.css';
  *
  * Refreshes when it opens, after each action, from the Refresh button, every
  * 30 seconds while it is open, and when the app comes back to the screen.
+ *
+ * Revision 8: a result in the feed whose game the friend has synced is a
+ * button that opens it, as a game on the card does. A friend's game opens
+ * playing; its Close comes back here (App), with `reopenCard`, the card
+ * that was open, open again and scrolled to.
  */
 
-type Where = 'code' | 'requests' | 'friends' | 'games';
+type Where = 'code' | 'requests' | 'friends' | 'games' | 'feed';
 
 const CONNECT = "Couldn't connect. Try again in a minute.";
 const NOT_A_FRIEND = "That player isn't your friend any more.";
@@ -56,7 +61,12 @@ function errorText(e: unknown, notThere: string): string {
   return e instanceof ApiError && e.status === 404 ? notThere : CONNECT;
 }
 
-export function FriendsSection() {
+interface FriendsSectionProps {
+  /** Back from one of a friend's games: the friend whose card was open. */
+  reopenCard?: string | null;
+}
+
+export function FriendsSection({ reopenCard = null }: FriendsSectionProps) {
   const code = useFriendsStore((s) => s.code);
   const rawFriends = useFriendsStore((s) => s.friends);
   const rawIncoming = useFriendsStore((s) => s.incoming);
@@ -78,14 +88,38 @@ export function FriendsSection() {
   const [outcome, setOutcome] = useState<SendOutcome | null>(null);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  /** The game on its way to the viewer: "games:<id>" from the card,
+   *  "feed:<line key>" from the feed. */
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<{ where: Where; text: string } | null>(null);
 
   useEffect(() => {
-    // The section opened: start from the list, freshly loaded.
-    useFriendsStore.getState().closeCard();
-    void useFriendsStore.getState().refresh();
+    const store = useFriendsStore.getState();
+    if (!reopenCard) {
+      // The section opened: start from the list, freshly loaded.
+      store.closeCard();
+    } else if (store.cardFor !== reopenCard || !store.card) {
+      // Back from a friend's game, and their card was closed meanwhile (a
+      // refresh that no longer lists them, a log out): open it again.
+      void run('friends', () => useFriendsStore.getState().openCard(reopenCard), NOT_A_FRIEND);
+    }
+    // Otherwise the card is as it was when the game opened.
+    void store.refresh();
+    // Once, on opening: `reopenCard` is where this visit started from.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Back from a friend's game: the card they came from in view, once its
+  // row is there. The page's own scroll container moves, never the body.
+  const reopenedRow = useRef<HTMLLIElement | null>(null);
+  const scrollPending = useRef(!!reopenCard);
+  useLayoutEffect(() => {
+    const row = reopenedRow.current;
+    const scroller = row?.closest('.friends-page-scroll');
+    if (!scrollPending.current || !row || !scroller) return;
+    scrollPending.current = false;
+    scroller.scrollTop += row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
+  });
   // Every 30 seconds while open, and when the app comes back to the screen.
   useFriendsWatch(['code', 'list', 'feed']);
 
@@ -143,30 +177,41 @@ export function FriendsSection() {
       await useFriendsStore.getState().remove(playerId);
     });
 
-  /** Open one of the friend's games in the replay viewer (the Library's
-   *  viewer: the Profile page gives way to it, and Close goes home). */
-  const watchGame = async (playerId: string, gameId: string) => {
+  /** Open one of a friend's games in the replay viewer (the Library's
+   *  viewer: this page gives way to it, and its Close comes back here),
+   *  from their card (`games`) or a line of the feed (`feed`). A failure is
+   *  said beside where it was tapped. */
+  const watchGame = async (where: 'games' | 'feed', playerId: string, gameId: string, key: string) => {
     setBusy(true);
-    setOpening(gameId);
+    setOpening(`${where}:${key}`);
     setError(null);
     try {
       await useFriendsStore.getState().openGame(playerId, gameId);
     } catch (e) {
       if (e instanceof FriendReplayUnreadable) {
-        setError({ where: 'games', text: "That game can't be shown." });
+        setError({ where, text: "That game can't be shown." });
       } else if (e instanceof ApiError && e.status === 404) {
-        // Still friends (the card is open): the game is gone. Otherwise the
-        // card has closed with the friend.
-        const stillOpen = useFriendsStore.getState().cardFor === playerId;
-        setError(stillOpen ? { where: 'games', text: "That game isn't there any more." } : { where: 'friends', text: NOT_A_FRIEND });
+        // Still friends: the game is gone. Otherwise the section has caught
+        // up: the friend's card closed and their lines left the feed.
+        const s = useFriendsStore.getState();
+        const stillFriends =
+          where === 'games' ? s.cardFor === playerId : !!s.friends?.some((f) => f?.player_id === playerId);
+        setError(
+          stillFriends
+            ? { where, text: "That game isn't there any more." }
+            : { where: where === 'games' ? 'friends' : 'feed', text: NOT_A_FRIEND },
+        );
       } else {
-        setError({ where: 'games', text: CONNECT });
+        setError({ where, text: CONNECT });
       }
     } finally {
       setOpening(null);
       setBusy(false);
     }
   };
+
+  const openingIn = (where: 'games' | 'feed') =>
+    opening?.startsWith(`${where}:`) ? opening.slice(where.length + 1) : null;
 
   const errorLine = (where: Where) =>
     error && error.where === where ? (
@@ -188,7 +233,14 @@ export function FriendsSection() {
         </button>
       </div>
 
-      <FeedBlock feed={feed} loading={loading} />
+      <FeedBlock
+        feed={feed}
+        loading={loading}
+        busy={busy}
+        opening={openingIn('feed')}
+        error={errorLine('feed')}
+        onWatch={(playerId, gameId, key) => void watchGame('feed', playerId, gameId, key)}
+      />
 
       <div className="profile-friends-block">
         <div className="profile-friends-label">Your friend code</div>
@@ -323,7 +375,12 @@ export function FriendsSection() {
               const open = cardFor === f.playerId;
               const status = statuses.get(f.playerId);
               return (
-                <li key={f.playerId} className="profile-friends-friend" data-player-id={f.playerId}>
+                <li
+                  key={f.playerId}
+                  className="profile-friends-friend"
+                  data-player-id={f.playerId}
+                  ref={f.playerId === reopenCard ? reopenedRow : undefined}
+                >
                   <button className="profile-friends-person" onClick={() => toggleCard(f.playerId)} aria-expanded={open}>
                     <AvatarWithDot avatar={f.avatar} size={44} active={!!status?.active} />
                     <span className="profile-friends-who">
@@ -339,11 +396,11 @@ export function FriendsSection() {
                       view={card ? cardView(card) : null}
                       games={cardGames === null ? null : gameLines(cardGames)}
                       gamesFailed={cardGamesFailed}
-                      opening={opening}
+                      opening={openingIn('games')}
                       gamesError={errorLine('games')}
                       askRemove={askRemove}
                       busy={busy}
-                      onWatch={(gameId) => void watchGame(f.playerId, gameId)}
+                      onWatch={(gameId) => void watchGame('games', f.playerId, gameId, gameId)}
                       onAskRemove={() => setAskRemove(true)}
                       onCancelRemove={() => setAskRemove(false)}
                       onRemove={() => void confirmRemove(f.playerId)}
@@ -387,8 +444,19 @@ function FriendStatusLine({ status }: { status: FriendStatus | undefined }) {
   );
 }
 
-/** The feed: who is online now, then what friends did lately. */
-function FeedBlock({ feed, loading }: { feed: unknown; loading: boolean }) {
+interface FeedBlockProps {
+  feed: unknown;
+  loading: boolean;
+  busy: boolean;
+  /** The key of the line whose game is on its way to the viewer, if any. */
+  opening: string | null;
+  error: ReactNode;
+  onWatch: (playerId: string, gameId: string, key: string) => void;
+}
+
+/** The feed: who is online now, then what friends did lately. A result
+ *  whose game the friend has synced opens it (revision 8). */
+function FeedBlock({ feed, loading, busy, opening, error, onWatch }: FeedBlockProps) {
   const [showAll, setShowAll] = useState(false);
   const online = onlineLines(feed);
   const lines = feedLines(feed);
@@ -414,19 +482,46 @@ function FeedBlock({ feed, loading }: { feed: unknown; loading: boolean }) {
               <span className="profile-friends-feed-text">{o.text}</span>
             </li>
           ))}
-          {shown.map((l) => (
-            <li
-              key={l.key}
-              className={'profile-friends-feed-item' + (l.good ? ' profile-friends-feed-good' : '')}
-              data-player-id={l.playerId}
-            >
-              <AvatarWithDot avatar={l.avatar} size={36} active={l.active} />
-              <span className="profile-friends-feed-text">{l.text}</span>
-              <span className="profile-friends-feed-when">{l.when}</span>
-            </li>
-          ))}
+          {shown.map((l) => {
+            const gameId = l.gameId;
+            const line = (
+              <>
+                <AvatarWithDot avatar={l.avatar} size={36} active={l.active} />
+                <span className="profile-friends-feed-text">{l.text}</span>
+                <span className="profile-friends-feed-when">{opening === l.key ? 'Opening…' : l.when}</span>
+              </>
+            );
+            return (
+              <li
+                key={l.key}
+                className={
+                  'profile-friends-feed-item' +
+                  (l.good ? ' profile-friends-feed-good' : '') +
+                  (gameId ? ' profile-friends-feed-game' : '')
+                }
+                data-player-id={l.playerId}
+              >
+                {gameId ? (
+                  <button
+                    className="profile-friends-feed-watch"
+                    onClick={() => onWatch(l.playerId, gameId, l.key)}
+                    disabled={busy}
+                    aria-label={`Watch: ${l.text}, ${l.when}`}
+                  >
+                    {line}
+                    <span className="profile-friends-game-play" aria-hidden="true">
+                      ▶
+                    </span>
+                  </button>
+                ) : (
+                  line
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
+      {error}
       {lines.length > FEED_SHOWN && (
         <button className="profile-devices-btn profile-devices-btn-quiet profile-friends-more" onClick={() => setShowAll(!showAll)}>
           {showAll ? 'Show less' : 'Show more'}

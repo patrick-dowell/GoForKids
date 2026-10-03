@@ -24,6 +24,14 @@ interface TerritoryMap {
 
 interface DeadStone { row: number; col: number; color: Color; }
 
+/** Where the viewer's Close goes (feature 32, revision 8): back to the
+ *  Friends page, with the friend's card that was open (null: none), for a
+ *  friend's game. Null on the replay means home, as from the Library. */
+export interface ReplayReturn {
+  page: 'friends';
+  cardFor: string | null;
+}
+
 interface ReplayState {
   active: boolean;
   sgf: string;
@@ -47,6 +55,9 @@ interface ReplayState {
    *  overlay (§4a quick replay): 'game' reopens the live review, 'demo' the
    *  fixture review. Null = a normal replay, no back affordance. */
   returnToReview: 'game' | 'demo' | null;
+  /** Where Close goes; set only by the loadGame that opened this replay, and
+   *  cleared by close, so it never outlives the replay. Null = home. */
+  returnTo: ReplayReturn | null;
   /** "The good line" (S47, Patrick's device feedback): when the cursor sits
    *  on a 'learn' highlight that was the PLAYER's move, on-device KataGo
    *  analyzes the position BEFORE that move and this holds its top pick —
@@ -84,6 +95,12 @@ interface ReplayState {
       sharedId?: string;
       /** See ReplayState.returnToReview. */
       returnToReview?: 'game' | 'demo';
+      /** See ReplayState.returnTo. */
+      returnTo?: ReplayReturn;
+      /** Start playing from the first move at the viewer's playback speed
+       *  as soon as it opens (a friend's game, revision 8). Otherwise the
+       *  replay opens paused. */
+      autoPlay?: boolean;
     },
   ) => void;
   /** §4a quick replay: jump to `from`, autoplay into `to`, stop there (the
@@ -225,6 +242,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   _autoPlayTimer: null,
   _autoPlayStopAt: null,
   returnToReview: null,
+  returnTo: null,
   betterMove: null,
   _betterMoveCache: {},
   highlights: [],
@@ -277,6 +295,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
       _autoPlayTimer: null,
       _autoPlayStopAt: null,
       returnToReview: meta?.returnToReview ?? null,
+      returnTo: meta?.returnTo ?? null,
       betterMove: null,
       _betterMoveCache: {},
       highlights,
@@ -284,6 +303,8 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
       libraryId: meta?.libraryId ?? null,
       sharedId: meta?.sharedId ?? null,
     });
+    // From the first move: the board is at move 0, so ▶'s own start applies.
+    if (meta?.autoPlay && total > 0) get().toggleAutoPlay();
   },
 
   playSegment: (from: number, to: number) => {
@@ -546,7 +567,7 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
   close: () => {
     const timer = get()._autoPlayTimer;
     if (timer) clearTimeout(timer);
-    set({ active: false, autoPlaying: false, _autoPlayTimer: null, _autoPlayStopAt: null, returnToReview: null, betterMove: null });
+    set({ active: false, autoPlaying: false, _autoPlayTimer: null, _autoPlayStopAt: null, returnToReview: null, returnTo: null, betterMove: null });
   },
 }));
 

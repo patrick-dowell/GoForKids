@@ -65,6 +65,9 @@ function App() {
    *  active board's. */
   const [profileBoard, setProfileBoard] = useState<BoardSize | null>(null);
   const [showFriends, setShowFriends] = useState(false);
+  /** The friend whose card the Friends page reopens: set when a replay
+   *  opened from Friends closes (revision 8), cleared on every other way in. */
+  const [friendsCard, setFriendsCard] = useState<string | null>(null);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   /** Tracks which lesson kicked off the currently-active game (for the
@@ -207,7 +210,11 @@ function App() {
     if (recordedThisGameRef.current) return;
     recordedThisGameRef.current = true;
     const userWon = result.winner === playerColor;
-    recordAutoplayResult(userWon ? 'win' : 'loss', useGameStore.getState().undosThisGame);
+    // The finished game was saved to the Library just before this effect
+    // ran (gameStore saves as it sets the final result): its id goes on the
+    // history entry, so a friend's feed opens this game (revision 8).
+    const gs = useGameStore.getState();
+    recordAutoplayResult(userWon ? 'win' : 'loss', gs.undosThisGame, gs.savedGameId ?? undefined);
   }, [autoplayContext, autoplayGamePending, phase, result, scoringInProgress, playerColor, recordAutoplayResult]);
 
   const replayActive = useReplayStore((s) => s.active);
@@ -236,14 +243,27 @@ function App() {
     setShowAutoPlay(false);
     setShowProfile(false);
     setShowFriends(false);
+    setFriendsCard(null);
     setShowLibrary(false);
     setShowPrivacy(false);
     setShowHome(true);
   };
 
   // Replay close → full teardown home (not the in-progress game underneath —
-  // bug #4 from TestFlight 2026-05-14).
-  const handleCloseReplay = goHome;
+  // bug #4 from TestFlight 2026-05-14), then on to where the replay says it
+  // was opened from: a friend's game goes back to the Friends page, with the
+  // card that was open (revision 8). The target lives on the replay and goes
+  // with it, so a replay opened any other way (the Library, a share link)
+  // closes home as before.
+  const handleCloseReplay = () => {
+    const back = useReplayStore.getState().returnTo;
+    goHome();
+    if (back?.page === 'friends') {
+      setShowHome(false);
+      setFriendsCard(back.cardFor);
+      setShowFriends(true);
+    }
+  };
 
   const learnActive = useLearnStore((s) => s.active);
   const startLearn = useLearnStore((s) => s.start);
@@ -363,6 +383,7 @@ function App() {
     setShowHome(false);
     setShowAutoPlay(false);
     setShowNewGame(false);
+    setFriendsCard(null);
     setShowFriends(true);
   };
 
@@ -519,7 +540,7 @@ function App() {
     return (
       <div className="app">
         <SettingsButton />
-        <FriendsPage onExit={goHome} />
+        <FriendsPage onExit={goHome} reopenCard={friendsCard} />
         <FeedbackButton />
         <GlossaryView />
         <GameReview />

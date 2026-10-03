@@ -26,6 +26,10 @@ export interface HistoryEntry {
   /** Ranked undos spent during this game. Recorded from day one so assisted
    *  wins can be discounted in the shadow rating later if needed (fp 26). */
   undosUsed?: number;
+  /** The Library id this game was saved under (feature 32, revision 8), so a
+   *  friend's feed can open the replay. Absent on entries from before, and
+   *  when the game finished without a Library save. */
+  gameId?: string;
 }
 
 export interface PromotionEvent {
@@ -70,6 +74,8 @@ export interface RankedResult {
   result: 'win' | 'loss';
   undosUsed: number;
   ts: number;
+  /** The Library id the game was saved under (revision 8), when it was. */
+  gameId?: string;
 }
 
 interface AutoPlayState {
@@ -113,8 +119,9 @@ interface AutoPlayState {
 
   /** Apply a single game result on the active board. Updates state, fires
    *  promotion if applicable, refills one ranked undo (capped), records
-   *  `undosUsed` on the history entry, persists, clears `gamePending`. */
-  recordResult: (result: 'win' | 'loss', undosUsed?: number) => void;
+   *  `undosUsed` (and `gameId`, the game's Library id, when given) on the
+   *  history entry, persists, clears `gamePending`. */
+  recordResult: (result: 'win' | 'loss', undosUsed?: number, gameId?: string) => void;
 
   /** Spend one ranked undo from the player-level bank. Returns false (no-op)
    *  when the bank is empty. Called by `gameStore.undo()` for ranked games. */
@@ -226,6 +233,8 @@ export function applyRankedResult(
     result: r.result,
     ts: r.ts,
     undosUsed: r.undosUsed,
+    // Only a real id: a queued result read back from storage is checked here.
+    ...(typeof r.gameId === 'string' && r.gameId ? { gameId: r.gameId } : {}),
   };
   const out = applyResult(rungState, r.result, r.boardSize);
   const newHistory = [...history, newEntry].slice(-HISTORY_CAP);
@@ -389,10 +398,10 @@ export const useAutoPlayStore = create<AutoPlayState>((set, get) => ({
     return true;
   },
 
-  recordResult: (result: 'win' | 'loss', undosUsed = 0) => {
+  recordResult: (result: 'win' | 'loss', undosUsed = 0, gameId?: string) => {
     for (const fn of beforeRankedResultListeners) fn();
     const s = get();
-    const r: RankedResult = { boardSize: s.boardSize, result, undosUsed, ts: Date.now() };
+    const r: RankedResult = { boardSize: s.boardSize, result, undosUsed, ts: Date.now(), ...(gameId ? { gameId } : {}) };
     const out = applyRankedResult(activeSlot(s), s.undoBank, r);
     const newSlots = { ...s.slots, [boardKey(s.boardSize)]: out.slot };
     set({

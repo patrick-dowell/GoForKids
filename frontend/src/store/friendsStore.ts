@@ -84,9 +84,11 @@ interface FriendsState extends FriendsData {
   closeCard: () => void;
   /** Remove a friend; their card closes. */
   remove: (playerId: string) => Promise<void>;
-  /** Fetch one of the open card's friend's replays and open it in the replay
-   *  viewer, the way the Library opens one. Throws on failure: a 404 (the
-   *  game, or the friendship, is gone) first brings the section up to date;
+  /** Fetch one of a friend's replays (from their card or the feed) and open
+   *  it in the replay viewer, the way the Library opens one, playing from
+   *  the first move, with Close leading back to Friends and the card that
+   *  is open (revision 8). Throws on failure: a 404 (the game, or the
+   *  friendship, is gone) first brings the section up to date;
    *  `FriendReplayUnreadable` when the replay can't be shown. */
   openGame: (playerId: string, gameId: string) => Promise<void>;
 }
@@ -287,7 +289,11 @@ export const useFriendsStore = create<FriendsState>((set, get) => {
       if (!current(found.token)) return;
       const replay = replayToOpen(found.game);
       if (!replay) throw new FriendReplayUnreadable();
-      useReplayStore.getState().loadGame(replay.sgf, replay.meta);
+      useReplayStore.getState().loadGame(replay.sgf, {
+        ...replay.meta,
+        autoPlay: true,
+        returnTo: { page: 'friends', cardFor: get().cardFor },
+      });
     },
   };
 });

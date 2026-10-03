@@ -7,6 +7,9 @@ import './FriendsPage.css';
 interface FriendsPageProps {
   /** App's goHome. */
   onExit: () => void;
+  /** Back from a friend's game: the friend whose card to open again
+   *  (revision 8). */
+  reopenCard?: string | null;
 }
 
 /**
@@ -21,7 +24,7 @@ interface FriendsPageProps {
  * Friends need a profile this device is logged into; until then the page
  * says so and offers nothing else.
  */
-export function FriendsPage({ onExit }: FriendsPageProps) {
+export function FriendsPage({ onExit, reopenCard = null }: FriendsPageProps) {
   const loggedIn = useSyncStore((s) => s.deviceToken !== null);
 
   return (
@@ -41,7 +44,7 @@ export function FriendsPage({ onExit }: FriendsPageProps) {
       <div className="friends-page-scroll">
         <main className="profile-main friends-page-main">
           {loggedIn ? (
-            <FriendsSection />
+            <FriendsSection reopenCard={reopenCard} />
           ) : (
             <section className="profile-section friends-page-offline">
               <p className="profile-devices-text">

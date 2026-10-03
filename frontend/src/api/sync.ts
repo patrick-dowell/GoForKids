@@ -138,7 +138,8 @@ export interface FeedFriend {
 }
 
 /** One feed event: a ranked result (`bot` is the rung of the bot played, or
- *  null) or a promotion (`to` is the new rung). `ts` is epoch ms. */
+ *  null; `game_id` the friend's replay of that game, or null — revision 8)
+ *  or a promotion (`to` is the new rung). `ts` is epoch ms. */
 export type FeedEvent =
   | {
       kind: 'game';
@@ -150,6 +151,7 @@ export type FeedEvent =
       rung: string | null;
       bot: string | null;
       ts: number;
+      game_id: string | null;
     }
   | {
       kind: 'promotion';

@@ -78,6 +78,37 @@
   font-size: 12px;
   color: #8b949e;
 }
+/* Revision 8: a result whose game can be watched is a button filling its
+   line, with the card's ▶. */
+.profile-friends-feed-item.profile-friends-feed-game {
+  padding: 0;
+}
+.profile-friends-feed-watch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .profile-friends-feed-watch:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+.profile-friends-feed-watch:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .profile-friends-feed-empty {
   font-size: 14px;
   color: #8b949e;

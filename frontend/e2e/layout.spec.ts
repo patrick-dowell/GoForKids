@@ -470,8 +470,8 @@ test('profile with the Admin section (an admin device): everything reachable, no
 });
 
 test('friends page (a logged-in device): sanctioned scroll screen — everything reachable, nothing wider than the screen', async ({ page }) => {
-  // Feature 32, revisions 4 and 5: a feed with two friends online and its
-  // first eight lines, a code, two requests and four friends with the
+  // Feature 32, revisions 4, 5 and 8: a feed with two friends online and its
+  // first eight lines (most of them buttons that open the game), a code, two requests and four friends with the
   // longest generated names (online dots and three ranks each), a send
   // answered and a card open with its recent games. Answered here; nothing
   // leaves the browser. Revision 7 moved the section from the Profile page
@@ -515,6 +515,8 @@ test('friends page (a logged-in device): sanctioned scroll screen — everything
       from: '16k',
       to: '15k',
       ts: Date.UTC(2025, 11, 31 - i, 18),
+      // Revision 8: most results open their game (a button line, with ▶).
+      game_id: i % 4 === 0 || i === 6 ? null : `g${i}`,
     })),
   };
   const replays = {
@@ -572,6 +574,7 @@ test('friends page (a logged-in device): sanctioned scroll screen — everything
     reachable: [
       'btn:Refresh',
       '.profile-friends-feed-item:last-child',
+      '.profile-friends-feed-watch',
       'btn:Show more',
       '.profile-friends-code',
       'btn:New code',

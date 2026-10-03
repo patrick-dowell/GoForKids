@@ -17,6 +17,8 @@ import { FRIEND_BOARDS, friendAvatar, friendBoardRanks, resultDate } from './fri
 import { isHandle, renderName, type Handle } from './names';
 
 const RUNG_RE = /^[0-9]{1,2}[kdp]$/;
+/** A replay id as the app writes it (8 hex digits, or "local-" and a time). */
+const GAME_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const MATCHUP_RE = /^(?:[0-9]{1,2}[kdp]|\?) vs (?:[0-9]{1,2}[kdp]|\?)$/;
 const RESULT_RE = /^(Black|White) wins (?:by [0-9]{1,4}(?:\.[0-9]{1,2})?|\(resignation\))$/;
 /** The one SGF shape the server serves for a friend's replay: what the app
@@ -81,6 +83,9 @@ export interface FeedLine {
   text: string;
   /** "Today", "Yesterday", "Oct 1". */
   when: string;
+  /** The friend's replay of this game, which the line opens (revision 8);
+   *  null for a result without one, and always for a promotion. */
+  gameId: string | null;
 }
 
 /** Who is active, by player id. */
@@ -130,6 +135,7 @@ export function feedLines(feed: unknown, now: Date = new Date()): FeedLine[] {
       good: said.good,
       text: said.text,
       when: feedWhen(raw.ts as number, now),
+      gameId: raw.kind === 'game' && typeof raw.game_id === 'string' && GAME_ID_RE.test(raw.game_id) ? raw.game_id : null,
     });
   });
   return lines;

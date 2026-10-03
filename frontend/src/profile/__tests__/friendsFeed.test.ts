@@ -116,6 +116,27 @@ describe('the feed', () => {
     expect(JSON.stringify([lines, onlineLines(bad), [...friendStatuses(bad)]])).not.toContain('INJ');
   });
 
+  it('revision 8: a result with its game opens it; one without, and every promotion, opens nothing', () => {
+    const lines = feedLines(
+      {
+        friends: [],
+        events: [
+          { ...feed.events[0], game_id: 'a1b2c3d4' }, // a promotion never opens a game
+          { ...feed.events[1], game_id: 'a1b2c3d4' },
+          { ...feed.events[2], game_id: 'local-1759363200000' },
+          { ...feed.events[3], game_id: null },
+          feed.events[4], // a server from before revision 8: no game_id at all
+          { ...feed.events[1], game_id: `${INJ}` }, // out of shape
+          { ...feed.events[1], game_id: 'x'.repeat(129) },
+          { ...feed.events[1], game_id: 7 },
+        ],
+      },
+      NOW,
+    );
+    expect(lines.map((l) => l.gameId)).toEqual([null, 'a1b2c3d4', 'local-1759363200000', null, null, null, null, null]);
+    expect(JSON.stringify(lines)).not.toContain('INJ');
+  });
+
   it('a feed that is not one reads as empty', () => {
     for (const f of [null, undefined, 5, 'x', [], { friends: 'x', events: {} }]) {
       expect(feedLines(f, NOW)).toEqual([]);

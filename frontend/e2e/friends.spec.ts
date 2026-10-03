@@ -12,7 +12,8 @@ import { test, expect, type Page } from '@playwright/test';
  * loaded after the launch sync; a refresh on open, after each action, from
  * Refresh, every 30 seconds while open and when the app comes back to the
  * screen; nothing another player typed shown; the data dropped on a 401
- * and on a log out.
+ * and on a log out. Revision 8: a feed line opens its game, a friend's game
+ * plays on opening, and Close comes back to Friends with the card open.
  *
  * Every name here is generated from the word lists.
  */
@@ -1019,9 +1020,11 @@ test("a friend's recent games open in the replay viewer", async ({ page }) => {
   // It is not this player's game: no Share, and nothing lands in the Library.
   await expect(page.getByRole('button', { name: 'Share game' })).toHaveCount(0);
   expect(await page.evaluate(() => localStorage.getItem('goforkids_library') ?? '')).not.toContain('a1b2c3d4');
-  // Close goes home, as from the Library.
+  // Revision 8: Close comes back to Friends, with the card still open.
   await page.locator('.replay-controls').getByRole('button', { name: 'Close' }).click();
-  await expect(page.getByRole('button', { name: /Profile/ })).toBeVisible();
+  await expect(page.locator('.friends-page')).toBeVisible();
+  await expect(friend(page, FALCON).locator('.profile-friends-person')).toHaveAttribute('aria-expanded', 'true');
+  await expect(friend(page, FALCON).locator('.profile-friends-game')).toHaveCount(2);
 });
 
 test('a friend with no games yet, and games that will not load', async ({ page }) => {
@@ -1080,4 +1083,176 @@ test('a friend removed while their card is open: the next 30-second refresh clos
   await page.clock.runFor(30_000);
   await expect(friend(page, OWL)).toHaveCount(0);
   await expect(section(page).locator('.profile-friends-card')).toHaveCount(0);
+});
+
+/* ------------------------------------------------------------------------- *
+ * Revision 8: a feed line opens its game; a friend's game plays on opening;
+ * Close comes back to Friends, with the card that was open.
+ * ------------------------------------------------------------------------- */
+
+/** The feed of the tests above, with the server's link from Falcon's win to
+ *  the replay of it; Owl's loss has none (her game isn't synced). */
+function linkedFeed(): unknown[] {
+  return feedEvents().map((e) => (e.kind === 'game' ? { ...e, game_id: e.player_id === FALCON ? 'a1b2c3d4' : null } : e));
+}
+
+/** The viewer's state, through the dev build's store hook. */
+async function viewer(page: Page) {
+  return page.evaluate(() => {
+    const r = (window as unknown as { __replayStore: { getState: () => Record<string, unknown> } }).__replayStore.getState();
+    return { sgf: r.sgf, autoPlaying: r.autoPlaying, currentMove: r.currentMove as number, returnTo: r.returnTo };
+  });
+}
+
+const feedLine = (page: Page, i: number) =>
+  section(page).locator('.profile-friends-feed-item:not(.profile-friends-feed-online)').nth(i);
+
+test('a feed line opens its game in the viewer, playing; a line without one, and a promotion, are not buttons', async ({ page }) => {
+  await page.clock.setFixedTime(NOW);
+  const { count } = await fakeSync(page, { events: linkedFeed() });
+  await seedLoggedIn(page);
+  await openFriends(page);
+  await expect(feedText(page)).toHaveCount(3);
+  // Only Falcon's win is a button; the promotion and Owl's loss are lines.
+  await expect(feedLine(page, 0).getByRole('button')).toHaveCount(0);
+  await expect(feedLine(page, 2).getByRole('button')).toHaveCount(0);
+  const watch = section(page).getByRole('button', { name: 'Watch: Swift Falcon beat the 12k bot on 9×9, Today' });
+  await expect(watch).toBeVisible();
+  await expect(feedLine(page, 1).locator('.profile-friends-feed-text')).toHaveText('Swift Falcon beat the 12k bot on 9×9');
+
+  await watch.click();
+  await expect(page.locator('.replay-controls')).toBeVisible();
+  await expect(page.locator('.replay-meta')).toHaveText('vs 12k · Black wins by 5.5');
+  expect(count('GET', `/sync/friends/${FALCON}/games/a1b2c3d4`)).toBe(1);
+  // It plays on its own, from the first move, with ⏸ to stop it.
+  expect(await viewer(page)).toMatchObject({ sgf: APP_SGF, autoPlaying: true, returnTo: { page: 'friends', cardFor: null } });
+  await expect.poll(async () => (await viewer(page)).currentMove).toBeGreaterThanOrEqual(1);
+  const pause = page.locator('.replay-btn-play');
+  await expect(pause).toHaveText('⏸');
+  await pause.click();
+  await expect(pause).toHaveText('▶');
+  const stopped = (await viewer(page)).currentMove;
+  await page.waitForTimeout(1300);
+  expect((await viewer(page)).currentMove).toBe(stopped);
+
+  // Close comes back to Friends, the feed as it was, no card open.
+  await page.locator('.replay-controls').getByRole('button', { name: 'Close' }).click();
+  await expect(page.locator('.friends-page')).toBeVisible();
+  await expect(section(page).getByRole('button', { name: 'Watch: Swift Falcon beat the 12k bot on 9×9, Today' })).toBeVisible();
+  await expect(section(page).locator('.profile-friends-card')).toHaveCount(0);
+  // The Home button still goes home.
+  await page.getByRole('button', { name: 'Go to the home screen' }).click();
+  await expect(page.locator('.friends-page')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Friends/ })).toBeVisible();
+});
+
+test("Close on a friend's game comes back to Friends with their card open and in view", async ({ page }) => {
+  await page.clock.setFixedTime(NOW);
+  await page.setViewportSize({ width: 390, height: 700 }); // a phone: the card is below the fold
+  const { count } = await fakeSync(page, { events: linkedFeed() });
+  await seedLoggedIn(page);
+  await openFriends(page);
+  await friend(page, FALCON).locator('.profile-friends-person').click();
+  const card = friend(page, FALCON).locator('.profile-friends-card');
+  await expect(card.locator('.profile-friends-game')).toHaveCount(2);
+  await card.getByRole('button', { name: 'Watch: Lost to the 18k bot on 19×19, Yesterday' }).click();
+  await expect(page.locator('.replay-controls')).toBeVisible();
+  expect(await viewer(page)).toMatchObject({ autoPlaying: true, returnTo: { page: 'friends', cardFor: FALCON } });
+  const cardLoads = count('GET', `/sync/friends/${FALCON}`);
+
+  await page.locator('.replay-controls').getByRole('button', { name: 'Close' }).click();
+  await expect(page.locator('.friends-page')).toBeVisible();
+  await expect(friend(page, FALCON).locator('.profile-friends-person')).toHaveAttribute('aria-expanded', 'true');
+  await expect(card.locator('.profile-friends-game')).toHaveCount(2);
+  // The card as it was: not loaded again.
+  expect(count('GET', `/sync/friends/${FALCON}`)).toBe(cardLoads);
+  // Scrolled to it: its row's top inside the page's scroll area, which has
+  // moved; the body never scrolls.
+  const place = await page.evaluate((id) => {
+    const scroller = document.querySelector('.friends-page-scroll')!;
+    const row = document.querySelector(`.profile-friends-friend[data-player-id="${id}"]`)!;
+    const s = scroller.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    return { scrollTop: scroller.scrollTop, rowTop: r.top - s.top, height: s.height, bodyScroll: document.scrollingElement!.scrollTop };
+  }, FALCON);
+  expect(place.scrollTop).toBeGreaterThan(0);
+  expect(place.rowTop).toBeGreaterThanOrEqual(0);
+  expect(place.rowTop).toBeLessThan(place.height / 2);
+  expect(place.bodyScroll).toBe(0);
+  // A game from the card again: the target follows the card that is open.
+  await card.getByRole('button', { name: 'Watch: Beat the 12k bot on 9×9, Today' }).click();
+  await expect(page.locator('.replay-controls')).toBeVisible();
+  await page.locator('.replay-controls').getByRole('button', { name: 'Close' }).click();
+  await expect(friend(page, FALCON).locator('.profile-friends-person')).toHaveAttribute('aria-expanded', 'true');
+  // Out and back in through Home: the page starts from the list again.
+  await page.getByRole('button', { name: 'Go to the home screen' }).click();
+  await page.getByRole('button', { name: /Friends/ }).click();
+  await expect(section(page).locator('.profile-friends-friend').first()).toBeVisible();
+  await expect(section(page).locator('.profile-friends-card')).toHaveCount(0);
+});
+
+test("a feed game that won't open says so beside the feed", async ({ page }) => {
+  await page.clock.setFixedTime(NOW);
+  const { state } = await fakeSync(page, { events: linkedFeed() });
+  await seedLoggedIn(page);
+  await openFriends(page);
+  const watch = section(page).getByRole('button', { name: 'Watch: Swift Falcon beat the 12k bot on 9×9, Today' });
+  const feedBlock = section(page).locator('.profile-friends-feed');
+
+  // A replay in another shape.
+  state.replays[FALCON] = [{ ...falconReplays()[0], payload: { sgf: APP_SGF.replace(';B[ee]', ';B[ee]C[x]') } }];
+  await watch.click();
+  await expect(feedBlock.getByRole('alert')).toHaveText("That game can't be shown.");
+  await expect(page.locator('.replay-controls')).toHaveCount(0);
+
+  // Deleted on their device since the feed loaded.
+  state.replays[FALCON] = [];
+  await watch.click();
+  await expect(feedBlock.getByRole('alert')).toHaveText("That game isn't there any more.");
+  await expect(page.locator('.replay-controls')).toHaveCount(0);
+
+  // No longer a friend: the line leaves the feed with them.
+  state.replays[FALCON] = falconReplays();
+  state.friends = state.friends.filter((f) => f.player_id !== FALCON);
+  await watch.click();
+  await expect(feedBlock.getByRole('alert')).toHaveText("That player isn't your friend any more.");
+  await expect(section(page).locator(`.profile-friends-feed-item[data-player-id="${FALCON}"]`)).toHaveCount(0);
+  await expect(page.locator('.replay-controls')).toHaveCount(0);
+});
+
+test('a Library replay still opens paused and Close still goes home', async ({ page }) => {
+  await fakeSync(page);
+  await seedLoggedIn(page);
+  await page.addInitScript((sgf) => {
+    if (localStorage.getItem('goforkids_library')) return;
+    localStorage.setItem(
+      'goforkids_library',
+      JSON.stringify([
+        {
+          id: 'own-game',
+          sgf,
+          date: '2026-10-02T15:00:00.000Z',
+          playerColor: 'black',
+          opponentRank: '12k',
+          result: 'Black wins by 5.5',
+          moveCount: 4,
+          isRanked: false,
+          gameId: 'own-game',
+          gameType: 'human-vs-bot',
+        },
+      ]),
+    );
+  }, APP_SGF);
+  await page.goto('/');
+  await page.getByRole('button', { name: /Library/ }).click();
+  await page.locator('.library-item-main').first().click();
+  await expect(page.locator('.replay-controls')).toBeVisible();
+  expect(await viewer(page)).toMatchObject({ sgf: APP_SGF, autoPlaying: false, currentMove: 0, returnTo: null });
+  await page.waitForTimeout(1300);
+  expect((await viewer(page)).currentMove).toBe(0);
+  await expect(page.locator('.replay-btn-play')).toHaveText('▶');
+  await page.locator('.replay-controls').getByRole('button', { name: 'Close' }).click();
+  await expect(page.locator('.replay-controls')).toHaveCount(0);
+  await expect(page.locator('.friends-page')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Friends/ })).toBeVisible();
 });
