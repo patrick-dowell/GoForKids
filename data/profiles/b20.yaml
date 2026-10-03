@@ -164,9 +164,12 @@ profiles:
       clarity_prior: 1.1
       clarity_score_gap: 999.0
     # 18k/15k/12k: b28.yaml 9x9 knobs on the b20 net, policy_temp tuned to match the b28 rung
-    # (measured on branch calib-b20-9x9; steps and checks in its data/calibration_logs_b20_9x9/tuning_2026-10-02.txt).
+    # (measured on branch calib-b20-9x9; steps and checks in its data/calibration_logs_b20_9x9/: tuning_2026-10-02.txt,
+    # visits_2026-10-03.txt, ladder_2026-10-03.txt).
     "18k":
       # tuned: policy_temp 3.5 -> 2.8 (tuning_2026-10-02.txt)
+      # fewer visits (2026-10-03): visits 16 -> 8, policy_temp 2.8 -> 9.0, reading_rate 0.03 -> 0.12; holds against
+      # the b28 twin at 8 visits (53.3% [48.9, 57.8], n=480; mistake mix vs live inside 0); see visits_2026-10-03.txt
       max_point_loss: 30.0
       mistake_freq: 0.8
       policy_weight: 0.12
@@ -175,11 +178,11 @@ profiles:
       local_bias: 0.0
       local_bias_in_opening: false
       local_bias_from_candidates: false
-      reading_rate: 0.03
-      policy_temp: 2.8
+      reading_rate: 0.12
+      policy_temp: 9.0
       wide_root_noise: 0.8
       first_line_chance: 0.0
-      visits: 16
+      visits: 8
       min_candidates: 10
       opening_moves: 3
       pass_threshold: 0.1
@@ -187,6 +190,8 @@ profiles:
       clarity_score_gap: 25.0
     "15k":
       # tuned: policy_temp 2.6 -> 1.15 (tuning_2026-10-02.txt)
+      # fewer visits (2026-10-03): visits 16 -> 8, policy_temp 1.15 -> 4.0, reading_rate 0.05 -> 0.25; holds against
+      # the b28 twin at 8 visits (46.7% [42.2, 51.1], n=480; mistake mix vs live inside 0); see visits_2026-10-03.txt
       max_point_loss: 28.0
       mistake_freq: 0.75
       policy_weight: 0.12
@@ -195,13 +200,13 @@ profiles:
       local_bias: 0.0
       local_bias_in_opening: false
       local_bias_from_candidates: false
-      reading_rate: 0.05
-      policy_temp: 1.15
+      reading_rate: 0.25
+      policy_temp: 4.0
       wide_root_noise: 0.7
       sample_lapse: 0.45
       sample_loss_cap: 7.0
       first_line_chance: 0.0
-      visits: 16
+      visits: 8
       min_candidates: 10
       opening_moves: 3
       pass_threshold: 0.1
@@ -229,30 +234,94 @@ profiles:
       pass_threshold: 0.1
       clarity_prior: 0.885
       clarity_score_gap: 16.5
-    "6k":
-      max_point_loss: 18.0
-      mistake_freq: 0.45
-      policy_weight: 0.25
-      randomness: 0.65
-      random_move_chance: 0.08
-      local_bias: 0.18
+    "9k":
+      # added 2026-10-03 (6b): b28.yaml's 9x9 9k with visits 16 -> 8, no knob changed; holds against the b28 twin
+      # at 8 visits (51.2% [46.8, 55.7], n=480); see data/calibration_logs_b20_9x9/ladder_2026-10-03.txt
+      max_point_loss: 26.0
+      mistake_freq: 0.72
+      policy_weight: 0.12
+      randomness: 0.78
+      random_move_chance: 0.06
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.08
+      policy_temp: 2.3
+      wide_root_noise: 0.7
+      sample_lapse: 0.35
+      sample_loss_cap: 6.0
       first_line_chance: 0.0
-      visits: 12
-      min_candidates: 8
+      visits: 8
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.1
+      clarity_prior: 0.87
+      clarity_score_gap: 15.0
+    "6k":
+      # replaced 2026-10-03 (6b): b28.yaml's 9x9 6k with visits 16 -> 8, no knob changed (b20.yaml's 6k: older profile, 12 visits)
+      # holds against the b28 twin at 8 visits (49.0% [44.5, 53.4], n=480); see data/calibration_logs_b20_9x9/ladder_2026-10-03.txt
+      max_point_loss: 25.0
+      mistake_freq: 0.7
+      policy_weight: 0.12
+      randomness: 0.78
+      random_move_chance: 0.045
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.21
+      policy_temp: 1.95
+      wide_root_noise: 0.58
+      first_line_chance: 0.0
+      visits: 8
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.1
+      clarity_prior: 0.86
+      clarity_score_gap: 13.0
+    "3k":
+      # added 2026-10-03 (6b): b28.yaml's 9x9 3k with visits 16 -> 8, policy_temp 1.7 -> 1.3; holds against the b28 twin
+      # at 8 visits (49.2% [44.7, 53.6], n=480); see data/calibration_logs_b20_9x9/ladder_2026-10-03.txt
+      max_point_loss: 24.0
+      mistake_freq: 0.68
+      policy_weight: 0.12
+      randomness: 0.78
+      random_move_chance: 0.04
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.24
+      policy_temp: 1.3
+      wide_root_noise: 0.55
+      sample_lapse: 0.35
+      sample_loss_cap: 4.0
+      first_line_chance: 0.0
+      visits: 8
+      min_candidates: 10
+      opening_moves: 3
+      pass_threshold: 0.1
+      clarity_prior: 0.85
+      clarity_score_gap: 12.0
+    "1d":
+      # replaced 2026-10-03 (1d): b28.yaml's 9x9 1d with visits 16 -> 8, policy_temp 1.15 -> 0.6 (b20.yaml's 1d: older profile, 50 visits)
+      # holds against the b28 twin at 8 visits (46.7% [42.2, 51.1], n=480); see data/calibration_logs_b20_9x9/ladder_2026-10-03.txt
+      max_point_loss: 23.0
+      mistake_freq: 0.63
+      policy_weight: 0.20
+      randomness: 0.71
+      random_move_chance: 0.04
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.55
+      policy_temp: 0.6
+      wide_root_noise: 0.45
+      first_line_chance: 0.0
+      visits: 8
+      min_candidates: 9
       opening_moves: 4
       pass_threshold: 0.10
-    "1d":
-      max_point_loss: 8.0
-      mistake_freq: 0.22
-      policy_weight: 0.50
-      randomness: 0.38
-      random_move_chance: 0.02
-      local_bias: 0.06
-      first_line_chance: 0.0
-      visits: 50
-      min_candidates: 6
-      opening_moves: 3
-      pass_threshold: 0.10
+      clarity_prior: 0.80
+      clarity_score_gap: 10.0
 
   5x5:
     "30k":
