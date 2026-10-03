@@ -2,6 +2,7 @@
 checks, the same 404 as the card for anyone who is not a friend, and the
 read limit kept apart from the request limits."""
 
+import hashlib
 import json
 import sqlite3
 
@@ -27,6 +28,12 @@ from tests.test_sync_friends import (
 )
 
 MINUTE = 60
+
+
+def app_id(name: str) -> str:
+    """A replay id in a shape the app writes (8 lowercase hex digits) for a
+    name a test reads by: the same name, the same id."""
+    return hashlib.sha256(name.encode()).hexdigest()[:8]
 
 
 @pytest.fixture(autouse=True)
@@ -285,22 +292,22 @@ async def test_a_friends_replays_newest_twenty_with_what_each_was(client):
     friend = await player(client)
     await befriend(client, me, friend)
     for n in range(25):
-        await put_game(client, friend[1], f"g{n:02d}", iso(n), app_replay())
-    await put_game(client, friend[1], "lost", iso(30), app_replay(result="White wins (resignation)"))
-    await put_game(client, friend[1], "watched", iso(31), app_replay(
+        await put_game(client, friend[1], app_id(f"g{n:02d}"), iso(n), app_replay())
+    await put_game(client, friend[1], app_id("lost"), iso(30), app_replay(result="White wins (resignation)"))
+    await put_game(client, friend[1], app_id("watched"), iso(31), app_replay(
         gameType="bot-vs-bot", opponentRank="12k vs 9k", blackRank="12k", whiteRank="9k"))
-    await put_game(client, friend[1], "small", iso(32), {"sgf": "(;SZ[7];B[dd])"})
+    await put_game(client, friend[1], app_id("small"), iso(32), {"sgf": "(;SZ[7];B[dd])"})
     r = await games(client, me[1], friend[0])
     assert r.status_code == 200
     listed = r.json()["games"]
     assert len(listed) == 20
     assert listed[:4] == [
-        {"id": "small", "date": iso(32), "board": None, "outcome": None, "opponent": None},
-        {"id": "watched", "date": iso(31), "board": "9x9", "outcome": "watched", "opponent": None},
-        {"id": "lost", "date": iso(30), "board": "9x9", "outcome": "loss", "opponent": "12k"},
-        {"id": "g24", "date": iso(24), "board": "9x9", "outcome": "win", "opponent": "12k"},
+        {"id": app_id("small"), "date": iso(32), "board": None, "outcome": None, "opponent": None},
+        {"id": app_id("watched"), "date": iso(31), "board": "9x9", "outcome": "watched", "opponent": None},
+        {"id": app_id("lost"), "date": iso(30), "board": "9x9", "outcome": "loss", "opponent": "12k"},
+        {"id": app_id("g24"), "date": iso(24), "board": "9x9", "outcome": "win", "opponent": "12k"},
     ]
-    assert listed[-1]["id"] == "g08"
+    assert listed[-1]["id"] == app_id("g08")
 
 
 async def test_a_friend_with_no_replays_lists_none(client):
@@ -360,8 +367,8 @@ async def test_a_replay_passes_on_only_checked_values(client):
     me = await player(client)
     friend = await player(client)
     await befriend(client, me, friend)
-    await put_game(client, friend[1], "tampered", iso(1), injected_replay())
-    r = await game(client, me[1], friend[0], "tampered")
+    await put_game(client, friend[1], app_id("tampered"), iso(1), injected_replay())
+    r = await game(client, me[1], friend[0], app_id("tampered"))
     assert r.status_code == 200
     assert INJECTED not in r.text
     assert r.json()["payload"] == {
@@ -374,7 +381,7 @@ async def test_a_replay_passes_on_only_checked_values(client):
     r = await games(client, me[1], friend[0])
     assert INJECTED not in r.text
     assert r.json()["games"] == [
-        {"id": "tampered", "date": iso(1), "board": "9x9", "outcome": None, "opponent": None},
+        {"id": app_id("tampered"), "date": iso(1), "board": "9x9", "outcome": None, "opponent": None},
     ]
 
 
@@ -392,26 +399,26 @@ async def test_a_replay_the_app_could_not_have_written_is_not_served(client, sgf
     me = await player(client)
     friend = await player(client)
     await befriend(client, me, friend)
-    await put_game(client, friend[1], "fine", iso(1), app_replay())
+    await put_game(client, friend[1], app_id("fine"), iso(1), app_replay())
     # The owner's own PUT takes it: only a friend's read checks the board.
-    r = await client.put("/api/sync/games/odd", json={"date": iso(2), "payload": {"sgf": sgf}},
+    r = await client.put(f"/api/sync/games/{app_id('odd')}", json={"date": iso(2), "payload": {"sgf": sgf}},
                          headers=friend[1])
     if r.status_code != 200:
         assert not isinstance(sgf, str) or not sgf
         return
-    r = await game(client, me[1], friend[0], "odd")
+    r = await game(client, me[1], friend[0], app_id("odd"))
     assert (r.status_code, r.json()) == (404, NOT_FOUND)
-    assert [g["id"] for g in (await games(client, me[1], friend[0])).json()["games"]] == ["fine"]
+    assert [g["id"] for g in (await games(client, me[1], friend[0])).json()["games"]] == [app_id("fine")]
 
 
 @pytest.mark.parametrize("game_id,date", [
-    ("bad id", iso(2)), ("x" * 129, iso(2)), ("ok-id", INJECTED), ("ok-id", "2026-10-01"),
+    ("bad id", iso(2)), ("x" * 129, iso(2)), (app_id("ok"), INJECTED), (app_id("ok"), "2026-10-01"),
 ])
 async def test_an_id_or_date_out_of_shape_is_left_out(client, sync_db, game_id, date):
     me = await player(client)
     friend = await player(client)
     await befriend(client, me, friend)
-    await put_game(client, friend[1], "fine", iso(1), app_replay())
+    await put_game(client, friend[1], app_id("fine"), iso(1), app_replay())
     with sqlite3.connect(sync_db) as db:
         db.execute(
             """INSERT INTO sync_games (player_id, game_id, date, payload, updated_at)
@@ -419,7 +426,7 @@ async def test_an_id_or_date_out_of_shape_is_left_out(client, sync_db, game_id, 
             (friend[0], game_id, date, json.dumps(app_replay()), iso(0)),
         )
     r = await games(client, me[1], friend[0])
-    assert [g["id"] for g in r.json()["games"]] == ["fine"]
+    assert [g["id"] for g in r.json()["games"]] == [app_id("fine")]
     assert INJECTED not in r.text
     r = await client.get(f"/api/sync/friends/{friend[0]}/games/{game_id}", headers=me[1])
     assert (r.status_code, r.json()) == (404, NOT_FOUND)
@@ -436,20 +443,20 @@ async def test_every_replay_read_that_is_not_a_friends_is_the_cards_404(client, 
     await befriend(client, me, removed)
     await befriend(client, me, friend)
     for other in (stranger, asked, asking, refused, removed, friend):
-        await put_game(client, other[1], "g1", iso(1), app_replay())
-    assert (await game(client, me[1], removed[0], "g1")).status_code == 200
+        await put_game(client, other[1], app_id("g1"), iso(1), app_replay())
+    assert (await game(client, me[1], removed[0], app_id("g1"))).status_code == 200
     await remove(client, me[1], removed[0])
 
     replies = []
     for other in (stranger, asked, asking, refused, removed):
         for viewer, target in ((me, other), (other, me)):
             replies.append(await games(client, viewer[1], target[0]))
-            replies.append(await game(client, viewer[1], target[0], "g1"))
+            replies.append(await game(client, viewer[1], target[0], app_id("g1")))
     for target in (UNKNOWN_ID, me[0]):
         replies.append(await games(client, me[1], target))
-        replies.append(await game(client, me[1], target, "g1"))
+        replies.append(await game(client, me[1], target, app_id("g1")))
     # A friend's game that does not exist looks the same.
-    replies.append(await game(client, me[1], friend[0], "never-was"))
+    replies.append(await game(client, me[1], friend[0], app_id("never-was")))
     for target in ("not-a-uuid", "feed"):
         replies.append(await games(client, me[1], target))
     assert len(replies) == 27
@@ -460,26 +467,26 @@ async def test_a_friend_removed_while_their_games_are_open(client):
     me = await player(client)
     friend = await player(client)
     await befriend(client, me, friend)
-    await put_game(client, friend[1], "g1", iso(1), app_replay())
+    await put_game(client, friend[1], app_id("g1"), iso(1), app_replay())
     assert (await games(client, me[1], friend[0])).status_code == 200
     await remove(client, friend[1], me[0])  # removed from the other side
     assert (await games(client, me[1], friend[0])).status_code == 404
-    assert (await game(client, me[1], friend[0], "g1")).status_code == 404
+    assert (await game(client, me[1], friend[0], app_id("g1"))).status_code == 404
 
 
 async def test_a_friends_id_is_matched_in_either_case(client):
     me = await player(client)
     friend = await player(client)
     await befriend(client, me, friend)
-    await put_game(client, friend[1], "g1", iso(1), app_replay())
+    await put_game(client, friend[1], app_id("g1"), iso(1), app_replay())
     assert (await games(client, me[1], friend[0].upper())).status_code == 200
-    assert (await game(client, me[1], friend[0].upper(), "g1")).status_code == 200
+    assert (await game(client, me[1], friend[0].upper(), app_id("g1"))).status_code == 200
 
 
 # ── Auth and limits ──────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("path", ["/feed", f"/{UNKNOWN_ID}/games", f"/{UNKNOWN_ID}/games/g1"])
+@pytest.mark.parametrize("path", ["/feed", f"/{UNKNOWN_ID}/games", f"/{UNKNOWN_ID}/games/{app_id('g1')}"])
 async def test_the_reads_need_a_device_token(client, path):
     for headers in ({}, {"Authorization": "Bearer nope"}):
         r = await client.get(f"/api/sync/friends{path}", headers=headers)
@@ -490,12 +497,12 @@ async def test_reads_have_their_own_limit_shared_by_the_three_routes(client, clo
     me = await player(client)
     friend = await player(client)
     await befriend(client, me, friend)
-    await put_game(client, friend[1], "g1", iso(1), app_replay())
+    await put_game(client, friend[1], app_id("g1"), iso(1), app_replay())
     limit = sync_friends.read_player_limiter.limit
     for n in range(limit):
-        path = ("/feed", f"/{friend[0]}/games", f"/{friend[0]}/games/g1")[n % 3]
+        path = ("/feed", f"/{friend[0]}/games", f"/{friend[0]}/games/{app_id('g1')}")[n % 3]
         assert (await client.get(f"/api/sync/friends{path}", headers=me[1])).status_code == 200
-    for path in ("/feed", f"/{friend[0]}/games", f"/{friend[0]}/games/g1"):
+    for path in ("/feed", f"/{friend[0]}/games", f"/{friend[0]}/games/{app_id('g1')}"):
         r = await client.get(f"/api/sync/friends{path}", headers=me[1])
         assert r.status_code == 429
         assert int(r.headers["Retry-After"]) >= 1

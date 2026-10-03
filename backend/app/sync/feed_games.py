@@ -39,8 +39,12 @@ from app.sync.friend_replays import checked_replay, summary
 
 MATCH_WINDOW_MS = 60_000
 
-# A replay id the app writes: 8 hex digits, or "local-" and a time.
-GAME_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+# A replay id the app writes (its Library id, gameStore.autoSaveGame), and no
+# other shape: the game's backend id, 8 lowercase hex digits from the server
+# (`str(uuid.uuid4())[:8]`) or the device (localGameRouter.newGameId); or
+# "local-" and Date.now() when the backend was out of reach. Every build since
+# the first wrote only these. Always used with fullmatch.
+GAME_ID = re.compile(r"[0-9a-f]{8}|local-[0-9]+")
 # A replay's date as the app writes it: `toISOString()`.
 GAME_DATE = re.compile(
     r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]{1,6}))?Z"
