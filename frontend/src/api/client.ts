@@ -239,7 +239,8 @@ export const api = {
        *  buildBridgeMovesFromGame in gameStore for the canonical builder. */
       movesForBridge?: Array<{ color: 'B' | 'W'; point: string }>;
       /** How many handicap stones head movesForBridge (as Black moves), so
-       *  the human path counts moves played as the server does. */
+       *  the human path counts moves played as the server does. Stones
+       *  placed, not the handicap number: a handicap of 1 places none. */
       handicap?: number;
     },
   ): Promise<AIMoveDTO> => {

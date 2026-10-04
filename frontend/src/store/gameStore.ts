@@ -7,7 +7,7 @@ import { getHumanRung, getKataGoBridge, toGtp } from '../api/nativeKataGo';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
 import { clearSelectorLog, recordSelectorLog, snapshotSelectorLog } from '../ai/selectorLog';
-import { getProfile } from '../ai/profileLoader';
+import { getProfile, type HumanRankProfile } from '../ai/profileLoader';
 import { useAutoPlayStore } from './autoPlayStore';
 import { BOT_AVATARS, type PlayerAvatarType, type BotAvatarType } from '../components/Avatar';
 
@@ -183,6 +183,21 @@ export const MAX_HANDICAP_BY_SIZE: Record<number, number> = { 9: 5, 13: 9, 19: 9
 function handicapPositions(size: number, n: number): [number, number][] {
   return HANDICAP_BY_SIZE[size]?.[n] ?? [];
 }
+
+/** The game log's name for the profile set a bot move plays from: the
+ *  human set with its rung's own knobs, or the standard set. */
+function botSetStamp(h: HumanRankProfile | undefined): string {
+  return h
+    ? `set=human sl=${h.human_sl_profile} tilt=${h.human_tilt ?? '-'} from=${h.human_tilt_from ?? '-'}` +
+        ` cap=${h.human_loss_cap ?? '-'} sv=${h.human_score_visits ?? '-'} margin=${h.human_pass_margin ?? '-'}`
+    : 'set=standard';
+}
+
+/** The set the current game's log last named (its start line, or a later
+ *  "set changed" line). A game can start before the native bridge has
+ *  reported its human model, or the setting can flip mid-game; a bot move
+ *  from another set then gets a line of its own. */
+let loggedBotSet = '';
 
 /**
  * Build the GTP move list to feed KataGo via the iPad bridge.
@@ -641,6 +656,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     // them are its fallback). Only a vs-bot game outside a lesson takes the
     // human path (client.ts getAIMoveViaBridge).
     let knobStamp = '';
+    loggedBotSet = '';
     try {
       const rank = options?.targetRank ?? '15k';
       const size = options?.boardSize ?? BOARD_SIZE;
@@ -648,12 +664,10 @@ export const useGameStore = create<GameState>((set, get) => ({
         (options?.gameMode ?? 'ai') === 'ai' && !options?.lessonContext
           ? getHumanRung(rank, size)
           : undefined;
+      loggedBotSet = botSetStamp(h);
       const p = getProfile(rank, size);
       knobStamp =
-        (h
-          ? ` set=human sl=${h.human_sl_profile} tilt=${h.human_tilt ?? '-'} from=${h.human_tilt_from ?? '-'}` +
-            ` cap=${h.human_loss_cap ?? '-'} sv=${h.human_score_visits ?? '-'} margin=${h.human_pass_margin ?? '-'}`
-          : ' set=standard') +
+        ` ${loggedBotSet}` +
         ` rr=${p.reading_rate ?? '-'} temp=${p.policy_temp ?? '-'} lapse=${p.sample_lapse ?? '-'}` +
         ` mf=${p.mistake_freq ?? '-'} v=${p.visits ?? '-'}`;
     } catch {
@@ -1108,10 +1122,18 @@ export const useGameStore = create<GameState>((set, get) => ({
         get().handicap,
         _game.board.size,
       );
+      // The set this move plays from, as client.ts routes it; a line when it
+      // is not the one the log last named.
+      const moveSet = botSetStamp(neverPass ? undefined : getHumanRung(targetRank, _game.board.size));
+      if (moveSet !== loggedBotSet) {
+        recordSelectorLog(`[game] set changed at move ${_game.moveHistory.length + 1}: ${moveSet}`);
+        loggedBotSet = moveSet;
+      }
       const aiMove = await api.getAIMove(gameId, targetRank, {
         neverPass,
         movesForBridge,
-        handicap: get().handicap,
+        // stones placed, not the handicap number: a handicap of 1 places none
+        handicap: handicapPositions(_game.board.size, get().handicap).length,
       });
       // Re-check state hasn't changed (e.g., user resigned while AI was thinking)
       if (get().phase !== 'playing') {

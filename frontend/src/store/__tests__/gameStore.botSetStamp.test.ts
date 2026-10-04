@@ -108,21 +108,73 @@ describe('a bot move tells the bridge path how many handicap stones lead the mov
     vi.mocked(api.getAIMove).mockResolvedValue({ point: { row: -1, col: -1 }, captures: [] } as never);
   });
 
-  it('passes the game handicap beside the move list', async () => {
+  // A handicap of 1 places no stone (the server's _handicap_positions(9, 1)
+  // is empty too): the count is of stones placed, not the handicap number.
+  for (const [handicap, stones] of [[0, 0], [1, 0], [2, 2]]) {
+    it(`handicap ${handicap}: ${stones} stones lead the list, and the count says ${stones}`, async () => {
+      await useGameStore.getState().newGame({
+        boardSize: 9,
+        targetRank: '15k',
+        useBackend: true,
+        gameMode: 'ai',
+        playerColor: Color.Black,
+        handicap,
+      });
+      await useGameStore.getState().requestAIMove();
+      const [, rank, opts] = vi.mocked(api.getAIMove).mock.calls[0];
+      expect(rank).toBe('15k');
+      expect(opts?.handicap).toBe(stones);
+      expect(opts?.movesForBridge).toHaveLength(stones);
+      expect(opts?.movesForBridge?.every((m) => m.color === 'B')).toBe(true);
+    });
+  }
+});
+
+describe('the game log follows the set a bot move actually plays from', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.createGame).mockResolvedValue({ game_id: 'abcd1234' } as never);
+    vi.mocked(api.getAIMove).mockResolvedValue({ point: { row: -1, col: -1 }, captures: [] } as never);
+    (globalThis as { window?: unknown }).window = { kataGo: { ping: async () => ({ pong: true }) } };
+    useCapabilitiesStore.setState({ capabilities: null });
+    useSettingsStore.getState().setCloudBot(false);
+    useSettingsStore.getState().setHumanBots(true);
+  });
+
+  afterEach(() => {
+    delete (globalThis as { window?: unknown }).window;
+    useCapabilitiesStore.setState({ capabilities: null });
+    useSettingsStore.getState().setHumanBots(false);
+  });
+
+  it('a game started before the capabilities answered gets a line when its bot moves turn human', async () => {
     await useGameStore.getState().newGame({
       boardSize: 9,
       targetRank: '15k',
       useBackend: true,
       gameMode: 'ai',
       playerColor: Color.Black,
-      handicap: 2,
+    });
+    expect(snapshotSelectorLog().find((l) => l.includes('[game] start'))).toContain(' set=standard ');
+    // the bridge answers after the start line
+    useCapabilitiesStore.setState({ capabilities: { localBots: true, evalsPerSecond: 40, humanModel: true } });
+    await useGameStore.getState().requestAIMove();
+    await useGameStore.getState().requestAIMove();
+    const changes = snapshotSelectorLog().filter((l) => l.includes('[game] set changed'));
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toContain('[game] set changed at move 1: set=human sl=rank_20k tilt=-8 from=12 cap=10 sv=4 margin=0.5');
+  });
+
+  it('no line while the moves play from the set the start line named', async () => {
+    useCapabilitiesStore.setState({ capabilities: { localBots: true, evalsPerSecond: 40, humanModel: true } });
+    await useGameStore.getState().newGame({
+      boardSize: 9,
+      targetRank: '15k',
+      useBackend: true,
+      gameMode: 'ai',
+      playerColor: Color.Black,
     });
     await useGameStore.getState().requestAIMove();
-    const [, rank, opts] = vi.mocked(api.getAIMove).mock.calls[0];
-    expect(rank).toBe('15k');
-    expect(opts?.handicap).toBe(2);
-    // the two stones head the list as Black moves
-    expect(opts?.movesForBridge?.slice(0, 2).every((m) => m.color === 'B')).toBe(true);
-    expect(opts?.movesForBridge).toHaveLength(2);
+    expect(snapshotSelectorLog().some((l) => l.includes('[game] set changed'))).toBe(false);
   });
 });
