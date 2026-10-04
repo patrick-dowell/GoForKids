@@ -34,8 +34,9 @@ import {
   type HumanNetEval,
 } from '../ai/humanNetSelector';
 import { Color, type Stone, type Point } from '../engine/types';
+import type { Board } from '../engine/Board';
 import { recordSelectorLog } from '../ai/selectorLog';
-import { localGameRouter } from './localGameRouter';
+import { localGameRouter, ownershipViaBridge } from './localGameRouter';
 import type { SavedGame } from '../store/libraryStore';
 import type {
   AIMoveDTO,
@@ -462,13 +463,17 @@ async function getAIMoveViaBridge(
   const humanEval: HumanNetEval = { scoreLeadBefore: null, candidates: null };
   let human: HumanRoute | undefined;
   if (humanRung) {
-    const engine = humanNetEngine(bridge, {
-      boardSize: state.board_size,
-      komi: state.komi,
-      rules: 'japanese',
-      moves,
-      color: colorChar,
-    });
+    const engine = humanNetEngine(
+      bridge,
+      {
+        boardSize: state.board_size,
+        komi: state.komi,
+        rules: 'japanese',
+        moves,
+        color: colorChar,
+      },
+      board,
+    );
     const movesPlayed = movesPlayedExcludingHandicap(moves, options?.handicap ?? 0);
     human = {
       select: () =>
@@ -582,10 +587,13 @@ function logHuman(line: string): void {
   recordSelectorLog(tagged);
 }
 
-/** The human path's two engine calls (humanNetSelector.ts HumanNetEngine)
- *  over the bridge, bound to one position. Points go over as GTP; nothing
- *  else is reshaped. A native build without the calls throws, and the
- *  selector hands the move to the standard path. */
+/** The human path's engine calls (humanNetSelector.ts HumanNetEngine) over
+ *  the bridge, bound to one position. Points go over as GTP; nothing else is
+ *  reshaped. A native build without humanPolicy or scoreAfter throws, and
+ *  the selector hands the move to the standard path. The ownership read,
+ *  asked only when the path is about to pass, is the one the device's
+ *  scorer makes of `board` (localGameRouter ownershipViaBridge: one analyze
+ *  at its visits); if it fails the path passes as before. */
 function humanNetEngine(
   bridge: KataGoBridge,
   position: {
@@ -595,6 +603,7 @@ function humanNetEngine(
     moves: Array<{ color: 'B' | 'W'; point: string }>;
     color: 'B' | 'W';
   },
+  board: Board,
 ): HumanNetEngine {
   return {
     humanPolicy: async (profile, visits) => {
@@ -609,6 +618,13 @@ function humanNetEngine(
         maxVisits: visits,
       });
     },
+    ownership: () =>
+      ownershipViaBridge(
+        bridge,
+        board,
+        position.komi,
+        position.color === 'B' ? Color.Black : Color.White,
+      ),
   };
 }
 

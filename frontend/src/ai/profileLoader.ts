@@ -98,6 +98,9 @@ export interface RankProfile {
   human_confirm_visits?: number;
   human_confirm_margin?: number;
   human_loss_cap?: number;
+  /** The border check before a pass (humanNetSelector.ts): the count a move
+   *  must gain over passing to be played instead. Default 1. */
+  human_border_gain?: number;
 }
 
 const REQUIRED_KEYS = [

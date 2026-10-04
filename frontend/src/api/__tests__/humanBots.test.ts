@@ -50,17 +50,27 @@ interface FakeOpts {
   humanPolicyFails?: boolean;
   humanPolicyNull?: boolean;
   scoreAfterFails?: boolean;
+  /** The main net's pass weight in humanPolicy's answer (default 0). */
+  mainPass?: number;
+  /** analyze's ownership when asked for it, Black's frame (sent from the
+   *  side to move's, as KataGo's GTP layer does); 'fail' rejects. */
+  ownership?: number[] | 'fail';
 }
 
 /** Fake `window.kataGo`: analyze always offers E5 (the standard path's
  *  move, prior 0.95, so every branch of the standard 9×9 rungs plays it);
  *  the human net puts all its weight on C7. */
 function installBridge(opts: FakeOpts = {}) {
-  const analyze = vi.fn(async (params: Record<string, unknown>) => ({
-    candidates: [{ move: 'E5', visits: 16, winrate: 0.5, scoreLead: 0.5, prior: 0.95, order: 0 }],
-    rootVisits: Number(params.maxVisits),
-    kataGoPlayedMove: 'E5',
-  }));
+  const analyze = vi.fn(async (params: Record<string, unknown>) => {
+    if (params.ownership && opts.ownership === 'fail') throw new Error('engine busy');
+    const own = params.ownership && opts.ownership !== 'fail' ? opts.ownership : undefined;
+    return {
+      candidates: [{ move: 'E5', visits: 16, winrate: 0.5, scoreLead: 0.5, prior: 0.95, order: 0 }],
+      rootVisits: Number(params.maxVisits),
+      kataGoPlayedMove: 'E5',
+      ...(own ? { ownership: params.color === 'W' ? own.map((v) => -v) : own } : {}),
+    };
+  });
   const humanPolicy = vi.fn(async (params: Record<string, unknown>) => {
     // As the native bridge does: the visits are required, an integer of 1 or more.
     const visits = params.visits ?? params.maxVisits;
@@ -68,7 +78,7 @@ function installBridge(opts: FakeOpts = {}) {
     if (opts.humanPolicyFails) throw new Error('human net not loaded');
     return {
       humanPolicy: opts.humanPolicyNull ? null : policy({ [C7]: 1.0 }),
-      policy: policy({ [C7]: 0.5 }),
+      policy: policy({ [C7]: 0.5 }, opts.mainPass ?? 0),
       scoreLead: 1.25,
     };
   });
@@ -272,6 +282,73 @@ describe('the human path through the bridge', () => {
       ['B', 'C7'],
       ['B', 'pass'],
     ]);
+  });
+
+  describe('the border check before a pass', () => {
+    // After twelveMoves Black's stones on the top edge leave one-point gaps
+    // whose closing (D8, F8, H8; A7) each gains a point by the game's count.
+    const ownershipOf = (grid: number[][]) =>
+      grid.flat().map((c) => (c === 1 ? 0.9 : c === 2 ? -0.9 : 0));
+
+    it("reads the ownership the device's scorer reads, and closes a border instead of passing", async () => {
+      installBridge({ caps: HUMAN });
+      const { api, gameId } = await start({ humanBots: true });
+      const moves = await twelveMoves(api, gameId);
+      const grid = (await api.getGame(gameId)).board;
+      const b = installBridge({ caps: HUMAN, mainPass: 0.9, ownership: ownershipOf(grid) });
+      const move = await api.getAIMove(gameId, '15k', { movesForBridge: moves, handicap: 0 });
+      // the first of the one-point moves in index order (the human net puts nothing on them)
+      expect(at(move.point)).toEqual([1, 3]);
+      const { boardToMoves } = await import('../nativeKataGo');
+      expect(b.analyze.mock.calls.map(([p]) => p)).toEqual([
+        {
+          boardSize: 9,
+          komi: 6.5,
+          rules: 'tromp-taylor',
+          moves: boardToMoves(grid, 9),
+          color: 'B',
+          maxVisits: 200,
+          ownership: true,
+        },
+      ]);
+    });
+
+    it("asks from White's side when White is to move", async () => {
+      installBridge({ caps: HUMAN });
+      const { api, gameId } = await start({ humanBots: true });
+      const moves = [...(await twelveMoves(api, gameId)), { color: 'B' as const, point: 'E5' }];
+      await api.playMove(gameId, 4, 4);
+      const grid = (await api.getGame(gameId)).board;
+      const b = installBridge({ caps: HUMAN, mainPass: 0.9, ownership: ownershipOf(grid) });
+      const move = await api.getAIMove(gameId, '15k', { movesForBridge: moves, handicap: 0 });
+      // White's first one-point move in index order: A3 closes A2
+      expect(at(move.point)).toEqual([6, 0]);
+      expect(b.analyze.mock.calls.map(([p]) => [p.color, p.rules, p.maxVisits])).toEqual([['W', 'tromp-taylor', 200]]);
+    });
+
+    it('passes as before when the read fails or sends no ownership', async () => {
+      for (const ownership of ['fail', undefined] as const) {
+        installBridge({ caps: HUMAN });
+        const { api, gameId } = await start({ humanBots: true });
+        const moves = await twelveMoves(api, gameId);
+        const b = installBridge({ caps: HUMAN, mainPass: 0.9, ownership });
+        const move = await api.getAIMove(gameId, '15k', { movesForBridge: moves, handicap: 0 });
+        expect(at(move.point)).toEqual([-1, -1]);
+        expect(b.analyze).toHaveBeenCalledTimes(1);
+        expect(b.scoreAfter).not.toHaveBeenCalled();
+      }
+    });
+
+    it('a move the path plays reads no ownership', async () => {
+      installBridge({ caps: HUMAN });
+      const { api, gameId } = await start({ humanBots: true });
+      const moves = await twelveMoves(api, gameId);
+      const grid = (await api.getGame(gameId)).board;
+      const b = installBridge({ caps: HUMAN, ownership: ownershipOf(grid) });
+      const move = await api.getAIMove(gameId, '15k', { movesForBridge: moves, handicap: 0 });
+      expect(at(move.point)).toEqual([2, 2]);
+      expect(b.analyze).not.toHaveBeenCalled();
+    });
   });
 
   it('logs its decisions to the game log', async () => {

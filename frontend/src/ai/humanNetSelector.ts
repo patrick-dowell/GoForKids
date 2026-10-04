@@ -36,6 +36,20 @@
  * The bot also passes when the main net's raw policy puts more than half its
  * weight on pass.
  *
+ * The border check, before every pass the path returns (the main net's pass,
+ * no legal move, no candidate worth playing, the second look): a finished
+ * game is counted by taking off the stones an ownership read gives to the
+ * other side past ±0.3 (prisoners for that side) and flood-filling the empty
+ * regions, and a region touching both colours counts for nobody (the
+ * device's localGameRouter.pass and the server's app.game.scoring alike). So
+ * the board is counted that way after a pass and after each legal move
+ * inside a region that counts for nobody; a move raising the bot's count
+ * over its opponent's by `human_border_gain` (default 1) or more is played
+ * instead of the pass (the largest gain, ties to the human net's
+ * probability). Never self-atari or an own-eye fill; with `human_loss_cap`
+ * set it must lose no more than the cap against the best move the main net
+ * scored (moves not yet scored are scored at `human_score_visits`).
+ *
  * Where this differs from the Python, and why:
  *  - The engine is bound to one position (the game's moves, the handicap
  *    setup, the side to move) by whoever builds it, so its two calls take
@@ -48,6 +62,11 @@
  *    random.choices uses random().
  *  - The server's time budget and its routing (`_select_ai_move_inner`) stay
  *    with the caller.
+ *  - The border check's ownership comes from a third call, `ownership`, made
+ *    only when the path is about to pass: the bridge's humanPolicy returns
+ *    none. The caller binds it to the read the device's own scorer makes
+ *    (localGameRouter ownershipViaBridge). An engine without it, a failed
+ *    read, or one not of size² values leaves the pass as it was.
  */
 
 import { Color, MoveResult, type Point, type Stone } from '../engine/types';
@@ -76,7 +95,8 @@ export interface ScoreAfterAnswer {
 }
 
 /** What the selector asks of the engine: the Python's two kinds of
- *  analyze() call, one to one. */
+ *  analyze() call, one to one, and the ownership read the Python takes from
+ *  the first of them. */
 export interface HumanNetEngine {
   /** Evaluate the position with the human SL profile `profileName` set, at
    *  `visits`, returning both policies. */
@@ -84,6 +104,10 @@ export interface HumanNetEngine {
   /** The main net's evaluation (no human profile) of the position after the
    *  side to move plays `move`, searched at `visits`. */
   scoreAfter(move: Point | 'pass', visits: number): Promise<ScoreAfterAnswer>;
+  /** The ownership of the position itself, Black's perspective (+1 Black),
+   *  row-major, size² values: the read the game's count will take its dead
+   *  stones from. Asked only when the path is about to pass. */
+  ownership?(): Promise<number[] | null | undefined>;
 }
 
 /** The knobs the human path reads; `human_sl_profile` is required here
@@ -100,6 +124,7 @@ export type HumanNetProfile = Pick<
   | 'human_confirm_visits'
   | 'human_confirm_margin'
   | 'human_loss_cap'
+  | 'human_border_gain'
 > & { human_sl_profile: string };
 
 /** The Python's SelectorEval: score data from the selector's own queries.
@@ -130,6 +155,74 @@ export interface HumanNetOptions {
 
 const HUMAN_TILT_LOSS_CAP = 15.0;
 const HUMAN_PASS_POLICY = 0.5;
+const HUMAN_BORDER_GAIN = 1.0;
+/** A stone is dead when the ownership read gives its point to the other side
+ *  past this: localGameRouter's DEAD_STONE_OWNERSHIP_THRESHOLD. */
+const DEAD_STONE_OWNERSHIP = 0.3;
+
+/** The stones on points the ownership read (Black +) gives to the other side,
+ *  row-major: localGameRouter's applyOwnership. */
+export function deadStonesFromOwnership(board: Board, ownership: readonly number[]): Point[] {
+  const size = board.size;
+  const dead: Point[] = [];
+  for (let row = 0; row < size; row++) {
+    for (let col = 0; col < size; col++) {
+      const idx = row * size + col;
+      const stone = board.grid[idx];
+      const own = ownership[idx];
+      if (stone === Color.Black && own < -DEAD_STONE_OWNERSHIP) dead.push({ row, col });
+      else if (stone === Color.White && own > DEAD_STONE_OWNERSHIP) dead.push({ row, col });
+    }
+  }
+  return dead;
+}
+
+/** The mover's count minus the opponent's, the way the device scores a
+ *  finished game (localGameRouter.pass then Game.score: dead stones off as
+ *  the other side's prisoners, territory + prisoners; komi left out, it is
+ *  the same after every move), and the points of the regions that count for
+ *  nobody. */
+export function countedMargin(
+  board: Board,
+  color: Stone,
+  ownership: readonly number[],
+): { margin: number; neutral: Set<number> } {
+  const counted = board.clone();
+  for (const p of deadStonesFromOwnership(board, ownership)) {
+    const stone = counted.get(p);
+    counted.grid[p.row * board.size + p.col] = Color.Empty;
+    counted.captures[stone === Color.Black ? Color.White : Color.Black] += 1;
+  }
+  const { blackTerritory, whiteTerritory, neutral } = counted.scoreTerritory();
+  const b = blackTerritory.size + counted.captures[Color.Black];
+  const w = whiteTerritory.size + counted.captures[Color.White];
+  return { margin: color === Color.Black ? b - w : w - b, neutral };
+}
+
+/** [gain, index] for each legal move inside a region that counts for nobody
+ *  that raises the mover's count by `minGain` or more over passing, in index
+ *  order; never self-atari or an own-eye fill. The new stone faces the same
+ *  ownership read, so one dropped where the opponent owns the point counts
+ *  as dead. Mirrors _border_moves. */
+export function borderMoves(
+  board: Board,
+  color: Stone,
+  ownership: readonly number[],
+  minGain: number,
+): Array<[number, number]> {
+  const size = board.size;
+  const { margin: base, neutral } = countedMargin(board, color, ownership);
+  const found: Array<[number, number]> = [];
+  for (const idx of [...neutral].sort((a, b) => a - b)) {
+    const p: Point = { row: Math.floor(idx / size), col: idx % size };
+    const after = board.clone();
+    if (after.tryPlay(color, p).result !== MoveResult.Ok) continue;
+    if (isSelfAtari(board, color, p) || isEyeFill(board, color, p)) continue;
+    const gain = countedMargin(after, color, ownership).margin - base;
+    if (gain >= minGain) found.push([gain, idx]);
+  }
+  return found;
+}
 
 /** The count `human_tilt_from` is measured against, in the server's sense:
  *  moves played (passes included), handicap stones not counted. The app's
@@ -204,9 +297,55 @@ export async function selectWithHumanNet(
       evalOut.candidates = [];
     }
 
+    // The main net scores the position after a move (or a pass). Leads are
+    // Black-perspective; `scored` keeps each move's value from the mover's
+    // side at `visits` (the pass at index n), for the border check's loss cap.
+    const visits = int(profile.human_score_visits ?? 4);
+    const sign = color === Color.Black ? 1 : -1;
+    const scored = new Map<number, number>();
+
+    /** Pass, unless a move closes a border the count gives to nobody. */
+    const passOrBorder = async (): Promise<HumanNetResult> => {
+      let ownership: number[] | null | undefined;
+      try {
+        ownership = await engine.ownership?.();
+      } catch (e) {
+        log(`human net: no ownership read (${String(e)}), border check skipped`);
+        return pass();
+      }
+      if (!ownership || ownership.length !== n) return pass();
+      let found = borderMoves(board, color, ownership, profile.human_border_gain ?? HUMAN_BORDER_GAIN);
+      if (found.length === 0) return pass();
+      const cap = profile.human_loss_cap;
+      if (cap != null) {
+        const todo = [...found.map(([, i]) => i), n].filter((i) => !scored.has(i));
+        const answers = await Promise.all(
+          todo.map((i) => engine.scoreAfter(i === n ? 'pass' : at(i), visits)),
+        );
+        todo.forEach((i, j) => scored.set(i, sign * answers[j].scoreLead));
+        const top = Math.max(...scored.values());
+        found = found.filter(([, i]) => top - scored.get(i)! <= cap);
+        if (found.length === 0) {
+          log(`human net PASS: every border move loses more than ${cap}`);
+          return pass();
+        }
+      }
+      // The largest gain; ties to the human net's probability, the first in
+      // index order after that (Python's max).
+      let [gain, idx] = found[0];
+      for (const [g, i] of found) {
+        if (g > gain || (g === gain && human[i] > human[idx])) [gain, idx] = [g, i];
+      }
+      log(
+        `human net ${name}: closed a border at ${gtp(at(idx), size)} instead of passing, ` +
+          `+${gain} by the game's count (p=${human[idx].toFixed(2)})`,
+      );
+      return { handled: true, move: at(idx) };
+    };
+
     if (main[n] > HUMAN_PASS_POLICY) {
       log(`human net PASS: main-net pass policy ${main[n].toFixed(2)}`);
-      return pass();
+      return await passOrBorder();
     }
 
     // Legal by OUR rules: KataGo plays simple ko under japanese rules and
@@ -219,7 +358,7 @@ export async function selectWithHumanNet(
     }
     if (legal.length === 0) {
       log('human net PASS: no legal move in the human policy');
-      return pass();
+      return await passOrBorder();
     }
 
     // Not moves a player makes on purpose: its own group into atari for
@@ -244,16 +383,16 @@ export async function selectWithHumanNet(
     if (cands.length === 0) cands = byProb.slice(0, 1);
 
     // The main net scores the position after each candidate, and after a
-    // pass. Leads are Black-perspective; `vals` are from the mover's side.
-    const visits = int(profile.human_score_visits ?? 4);
+    // pass; `vals` are from the mover's side.
     const results = await Promise.all([
       ...cands.map(([i]) => engine.scoreAfter(at(i), visits)),
       engine.scoreAfter('pass', visits),
     ]);
-    const sign = color === Color.Black ? 1 : -1;
     const vals = results.slice(0, -1).map((r) => sign * r.scoreLead);
     const passVal = sign * results[results.length - 1].scoreLead;
     const best = Math.max(...vals);
+    cands.forEach(([i], j) => scored.set(i, vals[j]));
+    scored.set(n, passVal);
 
     if (evalOut) {
       evalOut.candidates = cands.map(([i, p], j) => ({
@@ -270,7 +409,7 @@ export async function selectWithHumanNet(
     const gain = best - passVal;
     if (gain < margin) {
       log(`human net PASS: the best of ${cands.length} candidates gains ${gain.toFixed(1)} over passing`);
-      return pass();
+      return await passOrBorder();
     }
 
     const small = profile.human_small_gain;
@@ -288,7 +427,7 @@ export async function selectWithHumanNet(
           `human net PASS: ${move} gained ${gain.toFixed(1)} over passing at ` +
             `${visits} visits and ${confirmed.toFixed(1)} at ${deep}`,
         );
-        return pass();
+        return await passOrBorder();
       }
       log(
         `human net ${name}: small endgame, played ${move} (p=${prob.toFixed(2)}), ` +
