@@ -84,6 +84,7 @@ def _is_eye_fill(board: Board, color: Color, point: Point) -> bool:
 
 from app.katago.engine import get_engine, MoveCandidate, PositionAnalysis, point_to_gtp
 from app.ai.profile_loader import get_profile
+from app.game.scoring import dead_stones_from_ownership, remove_dead_and_count
 
 logger = logging.getLogger(__name__)
 
@@ -434,8 +435,24 @@ async def _select_ai_move_inner(
 # weight on pass. The opponent's pass is handled here, not by the standard
 # settle path, whose deep search cannot finish inside the query timeout on a
 # slow CPU.
+#
+# The border check (2026-10-04), before every pass this path returns. The
+# server counts a finished game by taking off the stones an ownership read
+# calls dead and flood-filling the empty regions; a region that touches both
+# colours counts for nobody (app.game.scoring). The engine reads Japanese
+# rules and rates closing such a border at a fraction of a point, so the bot
+# passed with a region open and lost it in the count (four points in a 12k
+# game of 10-04). So: count the board that way after a pass and after each
+# legal move inside a region that counts for nobody, with the ownership of
+# step 1's evaluation (no extra search); a move that raises the bot's count
+# over its opponent's by `human_border_gain` points or more is played instead
+# of the pass (the largest gain; ties to the human net's probability). It
+# must not be self-atari or an own-eye fill, and with `human_loss_cap` set it
+# must lose no more than the cap against the best move the main net scored
+# (moves not yet scored are scored at `human_score_visits`).
 HUMAN_TILT_LOSS_CAP = 15.0
 HUMAN_PASS_POLICY = 0.5
+HUMAN_BORDER_GAIN = 1.0
 # The human path's whole allowance for one move. Past it the move goes to
 # the standard selector, which still has time inside the client's request
 # timeout (each engine query alone may wait KATAGO_QUERY_TIMEOUT).
@@ -451,6 +468,41 @@ def _is_self_atari(board: Board, color: Color, point: Point) -> bool:
     if _count_stones(test) != _count_stones(board) + 1:
         return False  # it captured: taking stones with your last liberty is a real move
     return test._count_liberties(test._get_group(point)) == 1
+
+
+def _counted_margin(board: Board, color: Color, ownership: list[float]) -> tuple[int, set[int]]:
+    """The mover's count minus the opponent's, the way the server scores a
+    finished game (komi left out: it is the same after every move), and the
+    points of the regions that count for nobody."""
+    scoring, black, white, neutral = remove_dead_and_count(
+        board, dead_stones_from_ownership(board, ownership)
+    )
+    b = len(black) + scoring.captures[Color.BLACK]
+    w = len(white) + scoring.captures[Color.WHITE]
+    return (b - w if color == Color.BLACK else w - b), neutral
+
+
+def _border_moves(
+    board: Board, color: Color, ownership: list[float], min_gain: float
+) -> list[tuple[int, int]]:
+    """(gain, index) for each legal move inside a region that counts for nobody
+    that raises the mover's count by `min_gain` or more over passing; never
+    self-atari or an own-eye fill. The new stone faces the same ownership read,
+    so one dropped where the opponent owns the point counts as dead."""
+    size = board.size
+    base, neutral = _counted_margin(board, color, ownership)
+    found: list[tuple[int, int]] = []
+    for idx in sorted(neutral):
+        pt = Point(idx // size, idx % size)
+        after = board.clone()
+        if after.try_play(color, pt)[0] != "ok":
+            continue  # a dead stone's point, or illegal
+        if _is_self_atari(board, color, pt) or _is_eye_fill(board, color, pt):
+            continue
+        gain = _counted_margin(after, color, ownership)[0] - base
+        if gain >= min_gain:
+            found.append((gain, idx))
+    return found
 
 
 async def _select_with_human_net(
@@ -475,6 +527,7 @@ async def _select_with_human_net(
             moves=engine_moves, initial_stones=engine_setup,
             override_settings={"humanSLProfile": name},
             include_policy=True,
+            include_ownership=True,  # the border check's count; no extra search
             priority=10,  # live-game moves outrank scoring/finish queries
         )
         human, main = analysis.human_policy, analysis.policy
@@ -490,9 +543,54 @@ async def _select_with_human_net(
                 eval_out.score_lead_before = analysis.score_lead
             eval_out.candidates = []
 
+        # The main net scores the position after a move (or a pass). Leads are
+        # Black-perspective; `scored` keeps each move's value from the mover's
+        # side at `visits`, for the border check's loss cap.
+        visits = int(profile.get("human_score_visits", 4))
+        sign = 1.0 if color == Color.BLACK else -1.0
+        scored: dict[str, float] = {}
+
+        def _after(move: str, at: int = visits):
+            return engine.analyze(
+                board_2d, "W" if player == "B" else "B", max_visits=at, size=size,
+                moves=engine_moves + [[player, move]],
+                initial_stones=engine_setup,
+                priority=10,
+            )
+
+        ownership = getattr(analysis, "ownership", None)
+
+        async def _pass() -> tuple[bool, Optional[Point]]:
+            """Pass, unless a move closes a border the count gives to nobody."""
+            if not ownership or len(ownership) < n:
+                return True, None
+            found = _border_moves(
+                board, color, ownership,
+                float(profile.get("human_border_gain", HUMAN_BORDER_GAIN)),
+            )
+            if not found:
+                return True, None
+            gtp = lambda i: point_to_gtp(i // size, i % size, size)  # noqa: E731
+            cap = profile.get("human_loss_cap")
+            if cap is not None:
+                todo = [m for m in [gtp(i) for _, i in found] + ["pass"] if m not in scored]
+                for m, r in zip(todo, await asyncio.gather(*(_after(m) for m in todo))):
+                    scored[m] = sign * r.score_lead
+                top = max(scored.values())
+                found = [(g, i) for g, i in found if top - scored[gtp(i)] <= float(cap)]
+                if not found:
+                    logger.info(f"{where} human net PASS: every border move loses more than {cap}")
+                    return True, None
+            gain, idx = max(found, key=lambda t: (t[0], human[t[1]]))
+            logger.info(
+                f"{where} human net {name}: closed a border at {gtp(idx)} instead of passing, "
+                f"+{gain} by the game's count (p={human[idx]:.2f})"
+            )
+            return True, Point(idx // size, idx % size)
+
         if main[n] > HUMAN_PASS_POLICY:
             logger.info(f"{where} human net PASS: main-net pass policy {main[n]:.2f}")
-            return True, None
+            return await _pass()
 
         # Legal by OUR rules: KataGo plays simple ko under japanese rules and
         # this engine positional superko, so its policy can offer a recapture
@@ -504,7 +602,7 @@ async def _select_with_human_net(
         legal = [(i, p) for i, p in enumerate(human[:n]) if p > 0 and _legal(i)]
         if not legal:
             logger.info(f"{where} human net PASS: no legal move in the human policy")
-            return True, None
+            return await _pass()
 
         # Not moves a player makes on purpose: its own group into atari for
         # nothing, its own eye filled. Kept only when nothing else is on offer.
@@ -531,25 +629,17 @@ async def _select_with_human_net(
         cands = [t for t in by_prob if t[1] >= cand_min][:cand_max] or by_prob[:1]
 
         # The main net scores the position after each candidate, and after a
-        # pass. Leads are Black-perspective; `vals` are from the mover's side.
-        visits = int(profile.get("human_score_visits", 4))
-
-        def _after(move: str, at: int = visits):
-            return engine.analyze(
-                board_2d, "W" if player == "B" else "B", max_visits=at, size=size,
-                moves=engine_moves + [[player, move]],
-                initial_stones=engine_setup,
-                priority=10,
-            )
-
+        # pass; `vals` are from the mover's side.
         results = await asyncio.gather(
             *(_after(point_to_gtp(i // size, i % size, size)) for i, _ in cands),
             _after("pass"),
         )
-        sign = 1.0 if color == Color.BLACK else -1.0
         vals = [sign * r.score_lead for r in results[:-1]]
         pass_val = sign * results[-1].score_lead
         best = max(vals)
+        for (i, _), v in zip(cands, vals):
+            scored[point_to_gtp(i // size, i % size, size)] = v
+        scored["pass"] = pass_val
 
         if eval_out is not None:
             eval_out.candidates = [
@@ -567,7 +657,7 @@ async def _select_with_human_net(
                 f"{where} human net PASS: the best of {len(cands)} candidates gains "
                 f"{gain:.1f} over passing"
             )
-            return True, None
+            return await _pass()
 
         small = profile.get("human_small_gain")
         if small is not None and gain < float(small):
@@ -582,7 +672,7 @@ async def _select_with_human_net(
                     f"{where} human net PASS: {move} gained {gain:.1f} over passing at "
                     f"{visits} visits and {confirmed:.1f} at {deep}"
                 )
-                return True, None
+                return await _pass()
             logger.info(
                 f"{where} human net {name}: small endgame, played {move} (p={prob:.2f}), "
                 f"gain over pass {gain:.1f} at {visits} visits and {confirmed:.1f} at {deep}"
