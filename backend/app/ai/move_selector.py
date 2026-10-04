@@ -422,6 +422,13 @@ async def _select_ai_move_inner(
 #          dropped (a weak move, not a thrown group);
 #        - the sample leans toward the candidates that lose more:
 #          weight = p * exp(loss / human_tilt).
+#   A negative `human_tilt` gets the same scoring, pass check, second look and
+#   loss cap, but the lean runs the other way, toward the candidates that lose
+#   less: the weight falls as the loss grows (no 15-point cap; the exponent is
+#   never positive, so it cannot overflow). With a tilt of 0, or none, the
+#   candidates are scored only after the opponent's pass; otherwise the move is
+#   sampled by human probability as in step 2. Scoring with no lean at all is
+#   human_tilt: .inf (or -.inf), where exp(loss / tilt) = 1.
 #
 # The bot also passes when the main net's raw policy puts more than half its
 # weight on pass. The opponent's pass is handled here, not by the standard
@@ -508,7 +515,7 @@ async def _select_with_human_net(
         pool = [t for t in legal if _sane(t[0])] or legal
 
         tilt = float(profile.get("human_tilt", 0.0))
-        tilt_on = tilt > 0 and len(engine_moves) >= int(profile.get("human_tilt_from", 12))
+        tilt_on = tilt != 0 and len(engine_moves) >= int(profile.get("human_tilt_from", 12))
         if not (tilt_on or opponent_passed):
             k = random.choices(range(len(pool)), weights=[p for _, p in pool])[0]
             idx, prob = pool[k]
@@ -587,10 +594,13 @@ async def _select_with_human_net(
         cap = profile.get("human_loss_cap")
         if cap is not None:
             keep = [j for j in keep if losses[j] <= float(cap)]  # the best (loss 0) always stays
-        if tilt_on and len(keep) > 1:
+        if tilt_on and len(keep) > 1 and tilt > 0:
             weights = [
                 cands[j][1] * math.exp(min(losses[j], HUMAN_TILT_LOSS_CAP) / tilt) for j in keep
             ]
+        elif tilt_on and len(keep) > 1:
+            # Negative tilt: loss >= 0, so the exponent is <= 0 and exp only underflows to 0.
+            weights = [cands[j][1] * math.exp(losses[j] / tilt) for j in keep]
         else:
             weights = [cands[j][1] for j in keep]
         k = keep[random.choices(range(len(keep)), weights=weights)[0]]
