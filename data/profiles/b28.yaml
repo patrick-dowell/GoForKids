@@ -315,6 +315,20 @@ profiles:
       visits: 16
       min_candidates: 10
       opening_moves: 3
+      # Human SL path knobs, the locked 18k standard copied from b20.yaml's 9x9 18k (2026-10-04).
+      # Trial only: the device selector does not read them and the device does not load the
+      # human model, so on the iPad this rung still plays from the knobs above.
+      human_sl_profile: rank_20k
+      human_tilt: 8.0
+      human_tilt_from: 12
+      human_cand_min: 0.03
+      human_cand_max: 8
+      human_score_visits: 4
+      human_pass_margin: 0.5
+      human_small_gain: 2.0
+      human_confirm_visits: 12
+      human_confirm_margin: 0.75
+      human_loss_cap: 10.0
       pass_threshold: 0.10
       clarity_prior: 0.95
       clarity_score_gap: 25.0
