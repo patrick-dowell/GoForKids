@@ -363,12 +363,11 @@ async def _select_ai_move_inner(
     engine = await get_engine()
     if engine:
         # Human SL path: the profile names a human-net rank and the model is
-        # loaded. The settle path (opponent passed) and games sent without
-        # their move history stay with the standard selector, and so does
-        # any move the human path could not produce.
+        # loaded. Games sent without their move history stay with the
+        # standard selector, and so does any move the human path could not
+        # produce.
         if (
             profile.get("human_sl_profile")
-            and not opponent_passed
             and engine_moves is not None
             and getattr(engine, "has_human_model", False)
         ):
@@ -376,7 +375,7 @@ async def _select_ai_move_inner(
                 handled, move = await asyncio.wait_for(
                     _select_with_human_net(
                         engine, board, color, target_rank, profile,
-                        engine_moves, engine_setup, eval_out,
+                        engine_moves, engine_setup, eval_out, opponent_passed,
                     ),
                     timeout=HUMAN_PATH_BUDGET_S,
                 )
@@ -405,15 +404,24 @@ async def _select_ai_move_inner(
 #
 # Per move:
 #   1. one evaluation with the profile set -> the human policy for every point;
-#   2. early in the game (fewer than `human_tilt_from` moves played) or with
-#      no `human_tilt`: sample a legal move by human probability;
+#      moves that put the bot's own group in atari without capturing, and
+#      fills of its own single-point eyes, are left out while anything else
+#      is on offer;
+#   2. in the opening (fewer than `human_tilt_from` moves played, and the
+#      opponent has not passed): sample by human probability;
 #   3. otherwise the candidates are the human net's moves at `human_cand_min`
-#      or more (at most `human_cand_max`), the main net scores the position
-#      after each (`human_score_visits` each), and the sample leans toward
-#      the candidates that lose more: weight = p * exp(loss / human_tilt).
+#      or more (at most `human_cand_max`); the main net scores the position
+#      after each, and after a pass (`human_score_visits` each);
+#        - if no candidate beats passing by `human_pass_margin` points, pass;
+#        - candidates losing more than `human_loss_cap` against the best are
+#          dropped (a weak move, not a thrown group);
+#        - the sample leans toward the candidates that lose more:
+#          weight = p * exp(loss / human_tilt).
 #
-# Pass is not the human net's call: the bot passes when the main net's raw
-# policy puts more than half its weight on pass.
+# The bot also passes when the main net's raw policy puts more than half its
+# weight on pass. The opponent's pass is handled here, not by the standard
+# settle path, whose deep search cannot finish inside the query timeout on a
+# slow CPU.
 HUMAN_TILT_LOSS_CAP = 15.0
 HUMAN_PASS_POLICY = 0.5
 # The human path's whole allowance for one move. Past it the move goes to
@@ -422,11 +430,23 @@ HUMAN_PASS_POLICY = 0.5
 HUMAN_PATH_BUDGET_S = 12.0
 
 
+def _is_self_atari(board: Board, color: Color, point: Point) -> bool:
+    """The move leaves its own group with a single liberty and captures nothing."""
+    test = board.clone()
+    res, _ = test.try_play(color, point)
+    if res != "ok":
+        return False
+    if _count_stones(test) != _count_stones(board) + 1:
+        return False  # it captured: taking stones with your last liberty is a real move
+    return test._count_liberties(test._get_group(point)) == 1
+
+
 async def _select_with_human_net(
     engine, board: Board, color: Color, target_rank: str, profile: dict,
     engine_moves: list[list[str]],
     engine_setup: Optional[list[list[str]]] = None,
     eval_out: Optional[SelectorEval] = None,
+    opponent_passed: bool = False,
 ) -> tuple[bool, Optional[Point]]:
     """Returns (handled, move). handled=False sends the caller to the standard
     selector (no human policy came back, or a query failed); move=None with
@@ -435,12 +455,13 @@ async def _select_with_human_net(
     n = size * size
     player = "B" if color == Color.BLACK else "W"
     where = f"[{target_rank} {size}x{size}]"
+    name = profile["human_sl_profile"]
     try:
         board_2d = board.to_2d()
         analysis = await engine.analyze(
             board_2d, player, max_visits=1, size=size,
             moves=engine_moves, initial_stones=engine_setup,
-            override_settings={"humanSLProfile": profile["human_sl_profile"]},
+            override_settings={"humanSLProfile": name},
             include_policy=True,
             priority=10,  # live-game moves outrank scoring/finish queries
         )
@@ -470,56 +491,90 @@ async def _select_with_human_net(
 
         legal = [(i, p) for i, p in enumerate(human[:n]) if p > 0 and _legal(i)]
         if not legal:
-            return False, None
+            logger.info(f"{where} human net PASS: no legal move in the human policy")
+            return True, None
+
+        # Not moves a player makes on purpose: its own group into atari for
+        # nothing, its own eye filled. Kept only when nothing else is on offer.
+        def _sane(idx: int) -> bool:
+            pt = Point(idx // size, idx % size)
+            return not _is_self_atari(board, color, pt) and not _is_eye_fill(board, color, pt)
+
+        pool = [t for t in legal if _sane(t[0])] or legal
 
         tilt = float(profile.get("human_tilt", 0.0))
-        cand_min = float(profile.get("human_cand_min", 0.03))
-        cand_max = int(profile.get("human_cand_max", 8))
-        cands = sorted((t for t in legal if t[1] >= cand_min), key=lambda t: -t[1])[:cand_max]
-
-        if tilt > 0 and len(engine_moves) >= int(profile.get("human_tilt_from", 12)) and len(cands) > 1:
-            opponent = "W" if player == "B" else "B"
-            visits = int(profile.get("human_score_visits", 4))
-            results = await asyncio.gather(*(
-                engine.analyze(
-                    board_2d, opponent, max_visits=visits, size=size,
-                    moves=engine_moves + [[player, point_to_gtp(i // size, i % size, size)]],
-                    initial_stones=engine_setup,
-                    priority=10,
-                )
-                for i, _ in cands
-            ))
-            # Lead from the mover's side after each candidate; loss against the
-            # best of them.
-            vals = [r.score_lead if color == Color.BLACK else -r.score_lead for r in results]
-            best = max(vals)
-            losses = [best - v for v in vals]
-            weights = [
-                p * math.exp(min(loss, HUMAN_TILT_LOSS_CAP) / tilt)
-                for (_, p), loss in zip(cands, losses)
-            ]
-            k = random.choices(range(len(cands)), weights=weights)[0]
-            idx, prob = cands[k]
-            if eval_out is not None:
-                eval_out.candidates = [
-                    MoveCandidate(
-                        move=(i // size, i % size), visits=visits, winrate=r.winrate,
-                        score_lead=r.score_lead, prior=p, pv=[], order=j,
-                    )
-                    for j, ((i, p), r) in enumerate(zip(cands, results))
-                ]
+        tilt_on = tilt > 0 and len(engine_moves) >= int(profile.get("human_tilt_from", 12))
+        if not (tilt_on or opponent_passed):
+            k = random.choices(range(len(pool)), weights=[p for _, p in pool])[0]
+            idx, prob = pool[k]
             logger.info(
-                f"{where} human net {profile['human_sl_profile']}: picked "
-                f"{point_to_gtp(idx // size, idx % size, size)} (p={prob:.2f}, loss={losses[k]:.1f}) "
-                f"of {len(cands)} candidates, worst loss {max(losses):.1f}"
-            )
-        else:
-            k = random.choices(range(len(legal)), weights=[p for _, p in legal])[0]
-            idx, prob = legal[k]
-            logger.info(
-                f"{where} human net {profile['human_sl_profile']}: sampled "
+                f"{where} human net {name}: sampled "
                 f"{point_to_gtp(idx // size, idx % size, size)} (p={prob:.2f})"
             )
+            return True, Point(idx // size, idx % size)
+
+        cand_min = float(profile.get("human_cand_min", 0.03))
+        cand_max = int(profile.get("human_cand_max", 8))
+        by_prob = sorted(pool, key=lambda t: -t[1])
+        cands = [t for t in by_prob if t[1] >= cand_min][:cand_max] or by_prob[:1]
+
+        # The main net scores the position after each candidate, and after a
+        # pass. Leads are Black-perspective; `vals` are from the mover's side.
+        visits = int(profile.get("human_score_visits", 4))
+
+        def _after(move: str):
+            return engine.analyze(
+                board_2d, "W" if player == "B" else "B", max_visits=visits, size=size,
+                moves=engine_moves + [[player, move]],
+                initial_stones=engine_setup,
+                priority=10,
+            )
+
+        results = await asyncio.gather(
+            *(_after(point_to_gtp(i // size, i % size, size)) for i, _ in cands),
+            _after("pass"),
+        )
+        sign = 1.0 if color == Color.BLACK else -1.0
+        vals = [sign * r.score_lead for r in results[:-1]]
+        pass_val = sign * results[-1].score_lead
+        best = max(vals)
+
+        if eval_out is not None:
+            eval_out.candidates = [
+                MoveCandidate(
+                    move=(i // size, i % size), visits=visits, winrate=r.winrate,
+                    score_lead=r.score_lead, prior=p, pv=[], order=j,
+                )
+                for j, ((i, p), r) in enumerate(zip(cands, results[:-1]))
+            ]
+
+        margin = float(profile.get("human_pass_margin", 0.75))
+        if best - pass_val < margin:
+            logger.info(
+                f"{where} human net PASS: the best of {len(cands)} candidates gains "
+                f"{best - pass_val:.1f} over passing"
+            )
+            return True, None
+
+        losses = [best - v for v in vals]
+        keep = list(range(len(cands)))
+        cap = profile.get("human_loss_cap")
+        if cap is not None:
+            keep = [j for j in keep if losses[j] <= float(cap)]  # the best (loss 0) always stays
+        if tilt_on and len(keep) > 1:
+            weights = [
+                cands[j][1] * math.exp(min(losses[j], HUMAN_TILT_LOSS_CAP) / tilt) for j in keep
+            ]
+        else:
+            weights = [cands[j][1] for j in keep]
+        k = keep[random.choices(range(len(keep)), weights=weights)[0]]
+        idx, prob = cands[k]
+        logger.info(
+            f"{where} human net {name}: picked "
+            f"{point_to_gtp(idx // size, idx % size, size)} (p={prob:.2f}, loss={losses[k]:.1f}) "
+            f"of {len(keep)} candidates ({len(cands)} scored), worst loss {max(losses[j] for j in keep):.1f}, "
+            f"gain over pass {vals[k] - pass_val:.1f}"
+        )
         return True, Point(idx // size, idx % size)
     except Exception as e:
         logger.warning(f"{where} human net failed ({e!r}), standard selector")

@@ -79,6 +79,8 @@ OPTIONAL_KEYS: dict[str, type] = {
     "human_cand_min": float,
     "human_cand_max": float,
     "human_score_visits": float,
+    "human_pass_margin": float,
+    "human_loss_cap": float,
 }
 
 SUPPORTED_SIZES: tuple[int, ...] = (5, 9, 13, 19)

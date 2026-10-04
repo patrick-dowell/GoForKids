@@ -101,9 +101,9 @@ async def test_tilt_leans_toward_the_candidate_that_loses_more():
     strong_tilt = dict(PROFILE, human_tilt=1.0)
     picks = [(await _pick(engine, strong_tilt, LATE))[1] for _ in range(40)]
     assert all((m.row, m.col) == (6, 6) for m in picks)
-    # each candidate was scored on the position after it, at the profile's visits
+    # each candidate, and a pass, was scored on the position after it, at the profile's visits
     scored = [c for c in engine.calls if not c.get("include_policy")]
-    assert {c["moves"][-1][1] for c in scored} == {"C7", "G3"}
+    assert {c["moves"][-1][1] for c in scored} == {"C7", "G3", "pass"}
     assert all(c["max_visits"] == 4 and len(c["moves"]) == len(LATE) + 1 for c in scored)
 
 
@@ -125,10 +125,12 @@ async def test_no_tilt_before_the_opening_is_over_or_without_the_knob():
     assert all(c.get("include_policy") for c in engine.calls)
 
 
-async def test_a_single_candidate_is_not_scored():
-    engine = FakeEngine(_policy({(2, 2): 0.98, (6, 6): 0.02}))
-    await _pick(engine, PROFILE, LATE)
-    assert all(c.get("include_policy") for c in engine.calls)
+async def test_a_single_candidate_is_still_weighed_against_passing():
+    engine = FakeEngine(_policy({(2, 2): 0.98, (6, 6): 0.02}), leads={"C7": 3.0})
+    handled, move = await _pick(engine, PROFILE, LATE)
+    assert handled and (move.row, move.col) == (2, 2)
+    scored = [c["moves"][-1][1] for c in engine.calls if not c.get("include_policy")]
+    assert sorted(scored) == ["C7", "pass"]
 
 
 async def test_pass_is_the_main_nets_call():
@@ -185,9 +187,9 @@ async def test_the_human_path_runs_only_with_the_knob_the_model_and_the_history(
     move, std = await _inner(monkeypatch, FakeEngine(human), PROFILE, engine_moves=EARLY, engine_setup=[])
     assert (move.row, move.col) == (2, 2) and std.ran == 0
 
-    # the opponent passed: the settle path stays with the standard selector
-    _, std = await _inner(monkeypatch, FakeEngine(human), PROFILE, engine_moves=EARLY, opponent_passed=True)
-    assert std.ran == 1
+    # the opponent passed: the human path answers that too (here: nothing gains, so it passes)
+    move, std = await _inner(monkeypatch, FakeEngine(human), PROFILE, engine_moves=EARLY, opponent_passed=True)
+    assert move is None and std.ran == 0
     # no move history
     _, std = await _inner(monkeypatch, FakeEngine(human), PROFILE)
     assert std.ran == 1
@@ -258,7 +260,7 @@ async def test_points_keep_their_row_and_column_through_sampling_and_scoring():
     picks = [(await _pick(engine, dict(PROFILE, human_tilt=1.0), LATE))[1] for _ in range(30)]
     assert all((m.row, m.col) == C3 for m in picks)  # Black to move: C3 is the loser
     scored = [c for c in engine.calls if not c.get("include_policy")]
-    assert {tuple(c["moves"][-1]) for c in scored} == {("B", "G7"), ("B", "C3")}
+    assert {tuple(c["moves"][-1]) for c in scored} == {("B", "G7"), ("B", "C3"), ("B", "pass")}
 
 
 async def test_a_point_our_rules_refuse_is_never_played():
@@ -276,11 +278,11 @@ async def test_candidates_are_the_likeliest_few_at_or_above_the_floor():
     points[(8, 0)] = 0.029                                       # under it: never scored
     engine = FakeEngine(_policy(points))
     await _pick(engine, PROFILE, LATE)
-    scored = [c["moves"][-1][1] for c in engine.calls if not c.get("include_policy")]
+    scored = [c["moves"][-1][1] for c in engine.calls if not c.get("include_policy") and c["moves"][-1][1] != "pass"]
     assert len(scored) == 8 and "J1" not in scored and "A1" not in scored
     engine = FakeEngine(_policy({(0, 0): 0.5, (8, 8): 0.03, (8, 0): 0.029}))
     await _pick(engine, PROFILE, LATE)
-    scored = {c["moves"][-1][1] for c in engine.calls if not c.get("include_policy")}
+    scored = {c["moves"][-1][1] for c in engine.calls if not c.get("include_policy")} - {"pass"}
     assert scored == {"A9", "J1"}
 
 
@@ -439,3 +441,92 @@ async def test_a_dead_engine_fails_its_waiting_queries_at_once():
     engine._pending["q0"] = waiting
     await engine._read_loop()
     assert waiting.done() and isinstance(waiting.exception(), RuntimeError) and not engine._pending
+
+
+# --- passing, self-atari and the loss cap (after the first game on the server) ---
+
+
+async def test_the_bot_passes_when_no_candidate_gains_over_passing():
+    human = _policy({G7: 0.6, C3: 0.4})
+    # Black to move; after either move Black leads by 20, and by 20 after a pass too
+    engine = FakeEngine(human, leads={"G7": 20.0, "C3": 19.5, "pass": 20.0})
+    assert await _pick(engine, PROFILE, LATE) == (True, None)
+    # half a point is under the margin, a whole point is not
+    engine = FakeEngine(human, leads={"G7": 20.5, "C3": 19.5, "pass": 20.0})
+    assert await _pick(engine, PROFILE, LATE) == (True, None)
+    engine = FakeEngine(human, leads={"G7": 21.0, "C3": 21.0, "pass": 20.0})
+    handled, move = await _pick(engine, PROFILE, LATE)
+    assert handled and move is not None
+    # the margin is the profile's
+    engine = FakeEngine(human, leads={"G7": 21.0, "C3": 21.0, "pass": 20.0})
+    assert await _pick(engine, dict(PROFILE, human_pass_margin=2.0), LATE) == (True, None)
+
+
+async def test_pass_is_judged_from_the_movers_side():
+    human = _policy({G7: 1.0})
+    # White to move: a Black-perspective lead of -20 after the move against -17 after a pass is a gain
+    late_white = LATE + [["B", "pass"]]
+    engine = FakeEngine(human, leads={"G7": -20.0, "pass": -17.0})
+    handled, move = await _pick(engine, PROFILE, late_white, Color.WHITE)
+    assert handled and (move.row, move.col) == G7
+    engine = FakeEngine(human, leads={"G7": -17.0, "pass": -20.0})
+    assert await _pick(engine, PROFILE, late_white, Color.WHITE) == (True, None)
+
+
+async def test_after_the_opponents_pass_the_bot_weighs_passing_even_in_the_opening():
+    human = _policy({G7: 0.6, C3: 0.4})
+    quiet = FakeEngine(human)  # nothing gains
+    result = await ms._select_with_human_net(quiet, Board(SIZE), Color.BLACK, "18k", PROFILE, EARLY, [], None, True)
+    assert result == (True, None)
+    live = FakeEngine(human, leads={"G7": 6.0, "C3": 1.0})
+    seen = set()
+    for _ in range(60):
+        _, move = await ms._select_with_human_net(live, Board(SIZE), Color.BLACK, "18k", dict(PROFILE, human_tilt=1.0), EARLY, [], None, True)
+        seen.add((move.row, move.col))
+    assert seen == {G7, C3}  # by probability: the lean waits for human_tilt_from
+
+
+def test_self_atari_is_a_move_that_leaves_one_liberty_and_takes_nothing():
+    board = Board(SIZE)
+    board.try_play(Color.WHITE, Point(0, 1))
+    assert ms._is_self_atari(board, Color.BLACK, Point(0, 0))       # corner stone, one liberty left
+    assert not ms._is_self_atari(board, Color.BLACK, Point(4, 4))   # open board
+    # taking stones with the move is not self-atari, even if one liberty remains
+    board = Board(SIZE)
+    board.try_play(Color.BLACK, Point(0, 2))
+    board.try_play(Color.BLACK, Point(1, 1))
+    board.try_play(Color.WHITE, Point(0, 1))   # one liberty left: the corner
+    board.try_play(Color.WHITE, Point(1, 0))
+    after = board.clone()
+    assert after.try_play(Color.BLACK, Point(0, 0))[0] == "ok"
+    assert after.get(Point(0, 1)) == Color.EMPTY                                   # it captured
+    assert after._count_liberties(after._get_group(Point(0, 0))) == 1              # and has one liberty
+    assert not ms._is_self_atari(board, Color.BLACK, Point(0, 0))
+
+
+async def test_self_atari_is_left_out_while_anything_else_is_on_offer():
+    board = Board(SIZE)
+    board.try_play(Color.WHITE, Point(0, 1))
+    engine = FakeEngine(_policy({(0, 0): 0.9, C3: 0.1}))
+    for _ in range(30):
+        _, move = await ms._select_with_human_net(engine, board, Color.BLACK, "18k", PROFILE, EARLY, [], None)
+        assert (move.row, move.col) == C3
+    only = FakeEngine(_policy({(0, 0): 1.0}))
+    _, move = await ms._select_with_human_net(only, board, Color.BLACK, "18k", PROFILE, EARLY, [], None)
+    assert (move.row, move.col) == (0, 0)
+
+
+async def test_a_candidate_losing_more_than_the_cap_is_never_picked():
+    human = _policy({G7: 0.5, C3: 0.5})
+    leads = {"G7": 30.0, "C3": 18.0, "pass": 10.0}   # C3 loses 12 against G7
+    capped = dict(PROFILE, human_tilt=1.0, human_loss_cap=10.0)
+    for _ in range(30):
+        _, move = await _pick(FakeEngine(human, leads=leads), capped, LATE)
+        assert (move.row, move.col) == G7
+    uncapped = dict(PROFILE, human_tilt=1.0)
+    picks = {((await _pick(FakeEngine(human, leads=leads), uncapped, LATE))[1].row) for _ in range(30)}
+    assert picks == {C3[0]}
+
+
+async def test_no_legal_move_in_the_human_policy_is_a_pass():
+    assert await _pick(FakeEngine(_policy({}, default=-1.0))) == (True, None)
