@@ -218,3 +218,26 @@ def test_profile_loader_accepts_the_human_knobs_and_types_them():
         assert "human_sl_profile" in str(e)
     else:
         raise AssertionError("a non-string human_sl_profile must be refused")
+
+
+async def test_the_engine_is_started_at_boot_only_when_the_human_model_is_configured(monkeypatch):
+    import app.main as main
+
+    started = []
+
+    async def fake_get_engine():
+        started.append(1)
+
+    monkeypatch.setattr(main, "get_engine", fake_get_engine)
+    monkeypatch.delenv("KATAGO_HUMAN_MODEL", raising=False)
+    assert main._warm_engine() is None and started == []
+
+    monkeypatch.setenv("KATAGO_HUMAN_MODEL", "/models/human.bin.gz")
+    await main._warm_engine()
+    assert started == [1]
+
+    async def broken_get_engine():
+        raise RuntimeError("no engine")
+
+    monkeypatch.setattr(main, "get_engine", broken_get_engine)
+    await main._warm_engine()  # a failed warm-up is logged, never raised

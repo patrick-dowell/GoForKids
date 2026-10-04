@@ -3,12 +3,14 @@ import contextlib
 import logging
 import os
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import games, sync, sync_admin, sync_friends, uploads
 from app.game.storage import init_db
+from app.katago.engine import get_engine
 from app.sync import retention
 from app.sync.storage import init_sync_db
 from app.uploads.storage import init_uploads_db
@@ -17,6 +19,25 @@ from app.uploads.storage import init_uploads_db
 # INFO level. Uvicorn's default config doesn't propagate non-uvicorn loggers,
 # so the bot pass-detection diagnostics were invisible without this.
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+
+def _warm_engine() -> Optional[asyncio.Task]:
+    """Start KataGo at boot when the human SL model is configured.
+
+    The engine otherwise starts on the first bot move. With the human model
+    there are two networks to load, and the first player after a deploy
+    should not wait for them. A background task, so start-up is not held;
+    a failure here changes nothing (the first bot move tries again)."""
+    if not os.environ.get("KATAGO_HUMAN_MODEL"):
+        return None
+
+    async def run() -> None:
+        try:
+            await get_engine()
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"KataGo warm-up at boot failed: {e!r}")
+
+    return asyncio.create_task(run())
 
 
 @asynccontextmanager
@@ -34,12 +55,17 @@ async def lifespan(app: FastAPI):
     # The retention cleanup: once now, then every 24 hours while serving.
     await retention.run_cleanup(started)
     cleanup = asyncio.create_task(retention.cleanup_daily(sync_now))
+    warm = _warm_engine()
     try:
         yield
     finally:
         cleanup.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cleanup
+        if warm is not None:
+            warm.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await warm
 
 
 app = FastAPI(
