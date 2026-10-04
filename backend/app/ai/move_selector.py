@@ -413,6 +413,11 @@ async def _select_ai_move_inner(
 #      or more (at most `human_cand_max`); the main net scores the position
 #      after each, and after a pass (`human_score_visits` each);
 #        - if no candidate beats passing by `human_pass_margin` points, pass;
+#        - if the best gain is under `human_small_gain`, it is inside this
+#          shallow reading's noise: the best candidate and a pass are read
+#          again at `human_confirm_visits`, and the bot plays that candidate
+#          straight if it still gains `human_confirm_margin`, else passes
+#          (the last small endgame moves get played, pointless ones do not);
 #        - candidates losing more than `human_loss_cap` against the best are
 #          dropped (a weak move, not a thrown group);
 #        - the sample leans toward the candidates that lose more:
@@ -522,9 +527,9 @@ async def _select_with_human_net(
         # pass. Leads are Black-perspective; `vals` are from the mover's side.
         visits = int(profile.get("human_score_visits", 4))
 
-        def _after(move: str):
+        def _after(move: str, at: int = visits):
             return engine.analyze(
-                board_2d, "W" if player == "B" else "B", max_visits=visits, size=size,
+                board_2d, "W" if player == "B" else "B", max_visits=at, size=size,
                 moves=engine_moves + [[player, move]],
                 initial_stones=engine_setup,
                 priority=10,
@@ -549,12 +554,33 @@ async def _select_with_human_net(
             ]
 
         margin = float(profile.get("human_pass_margin", 0.75))
-        if best - pass_val < margin:
+        gain = best - pass_val
+        if gain < margin:
             logger.info(
                 f"{where} human net PASS: the best of {len(cands)} candidates gains "
-                f"{best - pass_val:.1f} over passing"
+                f"{gain:.1f} over passing"
             )
             return True, None
+
+        small = profile.get("human_small_gain")
+        if small is not None and gain < float(small):
+            j = vals.index(best)
+            idx, prob = cands[j]
+            move = point_to_gtp(idx // size, idx % size, size)
+            deep = int(profile.get("human_confirm_visits", 12))
+            again, passed = await asyncio.gather(_after(move, deep), _after("pass", deep))
+            confirmed = sign * again.score_lead - sign * passed.score_lead
+            if confirmed < float(profile.get("human_confirm_margin", margin)):
+                logger.info(
+                    f"{where} human net PASS: {move} gained {gain:.1f} over passing at "
+                    f"{visits} visits and {confirmed:.1f} at {deep}"
+                )
+                return True, None
+            logger.info(
+                f"{where} human net {name}: small endgame, played {move} (p={prob:.2f}), "
+                f"gain over pass {gain:.1f} at {visits} visits and {confirmed:.1f} at {deep}"
+            )
+            return True, Point(idx // size, idx % size)
 
         losses = [best - v for v in vals]
         keep = list(range(len(cands)))

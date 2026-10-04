@@ -37,10 +37,12 @@ class FakeEngine:
 
     has_human_model = True
 
-    def __init__(self, human, main=None, leads=None, fail=False):
+    def __init__(self, human, main=None, leads=None, fail=False, deep_leads=None, deep_visits=12):
         self.human = human
         self.main = main if main is not None else _policy({})
         self.leads = leads or {}  # gtp of the candidate -> Black-perspective lead after it
+        self.deep_leads = deep_leads or {}  # the same, as read at deep_visits
+        self.deep_visits = deep_visits
         self.fail = fail
         self.calls = []
 
@@ -51,6 +53,8 @@ class FakeEngine:
         if kwargs.get("include_policy"):
             return FakeAnalysis(score_lead=1.5, human_policy=self.human, policy=self.main)
         last = kwargs["moves"][-1][1]
+        if kwargs.get("max_visits") == self.deep_visits:
+            return FakeAnalysis(score_lead=self.deep_leads.get(last, 0.0))
         return FakeAnalysis(score_lead=self.leads.get(last, 0.0))
 
 
@@ -530,3 +534,52 @@ async def test_a_candidate_losing_more_than_the_cap_is_never_picked():
 
 async def test_no_legal_move_in_the_human_policy_is_a_pass():
     assert await _pick(FakeEngine(_policy({}, default=-1.0))) == (True, None)
+
+
+# --- the last small endgame moves: a second, deeper look before passing or playing ---
+
+ENDGAME = dict(PROFILE, human_pass_margin=1.0, human_small_gain=2.0, human_confirm_visits=12, human_confirm_margin=0.75)
+
+
+async def test_a_small_gain_is_read_again_and_played_straight_when_it_holds():
+    human = _policy({G7: 0.7, C3: 0.3})
+    # at 4 visits C3 gains 1.5 over a pass and G7 gains 0.5; at 12 visits C3 still gains 1.2
+    engine = FakeEngine(human, leads={"G7": 10.5, "C3": 11.5, "pass": 10.0}, deep_leads={"C3": 11.2, "pass": 10.0})
+    for _ in range(20):
+        handled, move = await _pick(engine, dict(ENDGAME, human_tilt=1.0), LATE)
+        assert handled and (move.row, move.col) == C3   # the best move, not the lean's pick
+    deep = [c["moves"][-1][1] for c in engine.calls if c.get("max_visits") == 12]
+    assert sorted(set(deep)) == ["C3", "pass"]
+
+
+async def test_a_small_gain_that_does_not_hold_is_a_pass():
+    human = _policy({G7: 0.7, C3: 0.3})
+    engine = FakeEngine(human, leads={"G7": 10.5, "C3": 11.5, "pass": 10.0}, deep_leads={"C3": 10.5, "pass": 10.0})
+    assert await _pick(engine, ENDGAME, LATE) == (True, None)
+    # exactly at the confirm margin it plays
+    engine = FakeEngine(human, leads={"G7": 10.5, "C3": 11.5, "pass": 10.0}, deep_leads={"C3": 10.75, "pass": 10.0})
+    handled, move = await _pick(engine, ENDGAME, LATE)
+    assert handled and (move.row, move.col) == C3
+
+
+async def test_a_clear_gain_is_not_read_again():
+    human = _policy({G7: 0.7, C3: 0.3})
+    engine = FakeEngine(human, leads={"G7": 14.0, "C3": 12.0, "pass": 10.0})
+    handled, move = await _pick(engine, ENDGAME, LATE)
+    assert handled and move is not None
+    assert not [c for c in engine.calls if c.get("max_visits") == 12]
+    # nor is a gain under the pass margin: that is a pass at once
+    engine = FakeEngine(human, leads={"G7": 10.9, "C3": 10.2, "pass": 10.0})
+    assert await _pick(engine, ENDGAME, LATE) == (True, None)
+    assert not [c for c in engine.calls if c.get("max_visits") == 12]
+
+
+async def test_the_second_look_is_from_the_movers_side():
+    human = _policy({G7: 1.0})
+    late_white = LATE + [["B", "pass"]]
+    # White: -11.5 after the move against -10 after a pass is a gain of 1.5; deeper, 1.0
+    engine = FakeEngine(human, leads={"G7": -11.5, "pass": -10.0}, deep_leads={"G7": -11.0, "pass": -10.0})
+    handled, move = await _pick(engine, ENDGAME, late_white, Color.WHITE)
+    assert handled and (move.row, move.col) == G7
+    engine = FakeEngine(human, leads={"G7": -11.5, "pass": -10.0}, deep_leads={"G7": -9.0, "pass": -10.0})
+    assert await _pick(engine, ENDGAME, late_white, Color.WHITE) == (True, None)
