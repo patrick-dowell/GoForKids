@@ -1,8 +1,10 @@
 /**
  * Human SL move selection — TypeScript port of the server's
  * `_select_with_human_net` (backend/app/ai/move_selector.py), which is the
- * spec. Not called by the app yet: the iPad bridge returns no human policy,
- * so wiring this in is a later bridge job.
+ * spec. The app calls it for a rung of b28_human.yaml when "Human-style
+ * bots" is on and the bridge has the human net (client.ts
+ * getAIMoveViaBridge, which binds the bridge's humanPolicy and scoreAfter
+ * to the position as the HumanNetEngine below).
  *
  * A profile with `human_sl_profile` takes its moves from KataGo's human SL
  * network: its prediction of what players of that rank play. Per move:
@@ -24,6 +26,13 @@
  *          dropped;
  *        - the sample leans toward the candidates that lose more:
  *          weight = p * exp(loss / human_tilt).
+ *   A negative `human_tilt` gets the same scoring, pass check, second look
+ *   and loss cap, but the lean runs the other way, toward the candidates that
+ *   lose less: the weight falls as the loss grows (no 15-point cap; the
+ *   exponent is never positive, so it cannot overflow). With a tilt of 0, or
+ *   none, the candidates are scored only after the opponent's pass; otherwise
+ *   the move is sampled by human probability as in step 2. Scoring with no
+ *   lean at all is human_tilt: .inf (or -.inf), where exp(loss / tilt) = 1.
  * The bot also passes when the main net's raw policy puts more than half its
  * weight on pass.
  *
@@ -221,7 +230,7 @@ export async function selectWithHumanNet(
     const pool = sane.length > 0 ? sane : legal;
 
     const tilt = profile.human_tilt ?? 0;
-    const tiltOn = tilt > 0 && movesPlayed >= int(profile.human_tilt_from ?? 12);
+    const tiltOn = tilt !== 0 && movesPlayed >= int(profile.human_tilt_from ?? 12);
     if (!(tiltOn || opponentPassed)) {
       const [idx, prob] = pool[choiceIndex(pool.map(([, p]) => p), rng)];
       log(`human net ${name}: sampled ${gtp(at(idx), size)} (p=${prob.toFixed(2)})`);
@@ -292,10 +301,15 @@ export async function selectWithHumanNet(
     let keep = cands.map((_, j) => j);
     const cap = profile.human_loss_cap;
     if (cap != null) keep = keep.filter((j) => losses[j] <= cap); // the best (loss 0) always stays
-    const weights =
-      tiltOn && keep.length > 1
-        ? keep.map((j) => cands[j][1] * Math.exp(Math.min(losses[j], HUMAN_TILT_LOSS_CAP) / tilt))
-        : keep.map((j) => cands[j][1]);
+    let weights: number[];
+    if (tiltOn && keep.length > 1 && tilt > 0) {
+      weights = keep.map((j) => cands[j][1] * Math.exp(Math.min(losses[j], HUMAN_TILT_LOSS_CAP) / tilt));
+    } else if (tiltOn && keep.length > 1) {
+      // Negative tilt: loss >= 0, so the exponent is <= 0 and exp only underflows to 0.
+      weights = keep.map((j) => cands[j][1] * Math.exp(losses[j] / tilt));
+    } else {
+      weights = keep.map((j) => cands[j][1]);
+    }
     const k = keep[choiceIndex(weights, rng)];
     const [idx, prob] = cands[k];
     log(

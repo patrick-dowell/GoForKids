@@ -1,4 +1,5 @@
 import { useSettingsStore, type Density } from '../store/settingsStore';
+import { useCapabilitiesStore } from '../store/capabilitiesStore';
 import { THEMES, type ThemeId } from '../theme/themes';
 
 interface SettingsDialogProps {
@@ -14,6 +15,9 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const setShowScoreGraph = useSettingsStore((s) => s.setShowScoreGraph);
   const cloudBot = useSettingsStore((s) => s.cloudBot);
   const setCloudBot = useSettingsStore((s) => s.setCloudBot);
+  const humanBots = useSettingsStore((s) => s.humanBots);
+  const setHumanBots = useSettingsStore((s) => s.setHumanBots);
+  const humanModel = useCapabilitiesStore((s) => s.capabilities?.humanModel === true);
 
   const options: ThemeId[] = ['cosmic', 'classic'];
   const densityOptions: { value: Density; label: string; desc: string }[] = [
@@ -24,16 +28,15 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   return (
     <div className="dialog-overlay" onClick={onClose}>
       <div
-        className="dialog"
-        style={{ width: 420 }}
+        className="dialog settings-dialog"
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="settings-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2>Settings</h2>
           <button onClick={onClose} className="btn btn-secondary">Close</button>
         </div>
 
-        <div className="dialog-field">
+        <div className="dialog-field settings-theme">
           <label>Board Theme</label>
           <div className="theme-picker">
             {options.map((id) => {
@@ -54,45 +57,66 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
           </div>
         </div>
 
-        <div className="dialog-field">
-          <label>Animation & sound density</label>
-          <div className="mode-picker">
-            {densityOptions.map((opt) => (
-              <button
-                key={opt.value}
-                className={`mode-btn ${density === opt.value ? 'selected' : ''}`}
-                onClick={() => setDensity(opt.value)}
-                title={opt.desc}
-              >
-                {opt.label}
-              </button>
-            ))}
+        {/* The rows right of the theme cards on a phone held sideways
+            (App.css, .settings-toggles); elsewhere this wrapper is
+            display: contents and the rows sit in the dialog's column. */}
+        <div className="settings-toggles">
+          <div className="dialog-field">
+            <label>Animation & sound density</label>
+            <div className="mode-picker">
+              {densityOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  className={`mode-btn ${density === opt.value ? 'selected' : ''}`}
+                  onClick={() => setDensity(opt.value)}
+                  title={opt.desc}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
 
-        <div className="dialog-field">
-          <label>
-            <input
-              type="checkbox"
-              checked={showScoreGraph}
-              onChange={(e) => setShowScoreGraph(e.target.checked)}
-            />
-            {' '}Show score graph during play
-          </label>
-        </div>
+          <div className="dialog-field">
+            <label>
+              <input
+                type="checkbox"
+                checked={showScoreGraph}
+                onChange={(e) => setShowScoreGraph(e.target.checked)}
+              />
+              {' '}Show score graph during play
+            </label>
+          </div>
 
-        {/* Cloud bot: routes bot moves to the Render backend even when the
-            native bridge exists — for older iPads where on-device KataGo is
-            unplayably slow. An adult flips this per-device; needs internet. */}
-        <div className="dialog-field">
-          <label>
-            <input
-              type="checkbox"
-              checked={cloudBot}
-              onChange={(e) => setCloudBot(e.target.checked)}
-            />
-            {' '}Bot plays online (for older iPads)
-          </label>
+          {/* Cloud bot: routes bot moves to the Render backend even when the
+              native bridge exists — for older iPads where on-device KataGo is
+              unplayably slow. An adult flips this per-device; needs internet. */}
+          <div className="dialog-field settings-cloud-bot">
+            <label>
+              <input
+                type="checkbox"
+                checked={cloudBot}
+                onChange={(e) => setCloudBot(e.target.checked)}
+              />
+              {' '}Bot plays online (for older iPads)
+            </label>
+          </div>
+
+          {/* Human-style bots: only on a device whose engine reported the human
+              SL net at start. A rank with a rung in b28_human.yaml then plays
+              on the human path; "Bot plays online" still wins. */}
+          {humanModel && (
+            <div className="dialog-field settings-human-bots">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={humanBots}
+                  onChange={(e) => setHumanBots(e.target.checked)}
+                />
+                {' '}Human-style bots
+              </label>
+            </div>
+          )}
         </div>
       </div>
     </div>

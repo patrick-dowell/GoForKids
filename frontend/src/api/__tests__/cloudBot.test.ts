@@ -185,6 +185,7 @@ describe('persistence (Patrick flips it once per iPad in the morning)', () => {
       density: 'zen',
       showScoreGraph: false,
       cloudBot: true,
+      humanBots: false,
     });
   });
 });

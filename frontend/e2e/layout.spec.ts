@@ -61,11 +61,15 @@ interface ProbeSpec {
    *  every visibility check still passes (found 2026-07-01, phone-landscape
    *  replay). */
   square?: string[];
+  /** Elements whose content must fit inside them (scrollHeight ≤
+   *  clientHeight): a dialog that scrolls its own rows breaks the layout
+   *  policy even when each row is on screen at the top of the scroll. */
+  noOverflow?: string[];
 }
 
 /** Returns [] when clean, else human-readable issue strings. */
 async function probe(page: Page, spec: ProbeSpec): Promise<string[]> {
-  return page.evaluate(({ strict = [], reachable = [], noBodyScroll = false, square = [] }) => {
+  return page.evaluate(({ strict = [], reachable = [], noBodyScroll = false, square = [], noOverflow = [] }) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const issues: string[] = [];
@@ -127,8 +131,18 @@ async function probe(page: Page, spec: ProbeSpec): Promise<string[]> {
       }
     }
 
+    for (const sel of noOverflow) {
+      const el = find(sel);
+      if (!el) {
+        issues.push(`${sel}: MISSING`);
+        continue;
+      }
+      const over = el.scrollHeight - el.clientHeight;
+      if (over > 1) issues.push(`${sel}: content overflows by ${over}px (it would scroll)`);
+    }
+
     return issues;
-  }, spec as { strict?: string[]; reachable?: string[]; noBodyScroll?: boolean; square?: string[] });
+  }, spec as { strict?: string[]; reachable?: string[]; noBodyScroll?: boolean; square?: string[]; noOverflow?: string[] });
 }
 
 /** Sweep all viewports on the current screen; fail with every issue listed. */
@@ -710,6 +724,84 @@ test('first-run name another profile has: the profile gets another, and the card
 
   await card.getByRole('button', { name: 'OK' }).click();
   await expect(card).toHaveCount(0);
+});
+
+test('settings: every row fits without scrolling at every viewport, the human-style row included', async ({ page }) => {
+  // The tallest Settings: a native build whose engine reported the human SL
+  // net, so the "Human-style bots" row is mounted beside the cloud row. The
+  // fake bridge only answers capabilities(); nothing here asks it to play.
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: async () => ({ localBots: true, evalsPerSecond: 40, humanModel: true }),
+    };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.locator('.settings-human-bots').waitFor();
+  await sweep(page, 'settings', {
+    strict: ['.dialog', '.dialog h2', 'btn:Close', '.theme-picker', '.mode-picker', '.settings-cloud-bot', '.settings-human-bots'],
+    noOverflow: ['.dialog'],
+    noBodyScroll: true,
+  });
+  // The rows keep the dialog's spacing in both layouts (one column, and two
+  // on a phone held sideways).
+  for (const size of [{ width: 820, height: 1180 }, { width: 852, height: 393 }]) {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(150);
+    const gap = await page.evaluate(
+      () =>
+        document.querySelector('.settings-human-bots')!.getBoundingClientRect().top -
+        document.querySelector('.settings-cloud-bot')!.getBoundingClientRect().bottom,
+    );
+    expect(gap, `row gap at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(12);
+  }
+  // Sideways, the theme cards and the other rows split the dialog evenly.
+  const [theme, toggles] = await page.evaluate(() =>
+    ['.settings-theme', '.settings-toggles'].map((s) => document.querySelector(s)!.getBoundingClientRect().width),
+  );
+  expect(Math.abs(theme - toggles), `columns ${theme} and ${toggles}`).toBeLessThanOrEqual(2);
+});
+
+test('settings: the human-style row turns the setting on, and it is kept', async ({ page }) => {
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: async () => ({ localBots: true, evalsPerSecond: 40, humanModel: true }),
+    };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const box = page.getByRole('checkbox', { name: 'Human-style bots' });
+  await expect(box).not.toBeChecked();
+  await box.click();
+  await expect(box).toBeChecked();
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('goforkids_settings') ?? '{}'));
+  expect(saved.humanBots).toBe(true);
+  expect(saved.cloudBot).toBe(false);
+  await page.reload();
+  await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('checkbox', { name: 'Human-style bots' })).toBeChecked();
+});
+
+test('settings without the human model: no human-style row', async ({ page }) => {
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: async () => ({ localBots: true, evalsPerSecond: 40, humanModel: false }),
+    };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.locator('.settings-cloud-bot').waitFor();
+  await expect(page.locator('.settings-human-bots')).toHaveCount(0);
 });
 
 test('library: sanctioned scroll screen — list reachable, close visible', async ({ page }) => {
