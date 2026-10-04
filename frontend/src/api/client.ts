@@ -10,15 +10,29 @@
  * dead stones, finishMove).
  */
 
-import { boardToMoves, fromGtp, getKataGoBridge, type KataGoBridge } from './nativeKataGo';
+import {
+  boardToMoves,
+  fromGtp,
+  getHumanRung,
+  getKataGoBridge,
+  toGtp,
+  type KataGoBridge,
+} from './nativeKataGo';
 import {
   selectAiMove,
   boardFromGrid,
   pickLegalNonEyeMove,
   type AnalyzeOpts,
+  type HumanRoute,
   type PositionAnalysis,
   type MoveCandidate,
 } from '../ai/moveSelector';
+import {
+  movesPlayedExcludingHandicap,
+  selectWithHumanNet,
+  type HumanNetEngine,
+  type HumanNetEval,
+} from '../ai/humanNetSelector';
 import { Color, type Stone, type Point } from '../engine/types';
 import { recordSelectorLog } from '../ai/selectorLog';
 import { localGameRouter } from './localGameRouter';
@@ -224,6 +238,9 @@ export const api = {
        *  then can't see the ko ban and suggests illegal recaptures. See
        *  buildBridgeMovesFromGame in gameStore for the canonical builder. */
       movesForBridge?: Array<{ color: 'B' | 'W'; point: string }>;
+      /** How many handicap stones head movesForBridge (as Black moves), so
+       *  the human path counts moves played as the server does. */
+      handicap?: number;
     },
   ): Promise<AIMoveDTO> => {
     const bridge = getKataGoBridge();
@@ -312,6 +329,7 @@ async function getAIMoveViaBridge(
   options?: {
     neverPass?: boolean;
     movesForBridge?: Array<{ color: 'B' | 'W'; point: string }>;
+    handicap?: number;
   },
 ): Promise<AIMoveDTO> {
   // [perf-js] Outer envelope — sums GET state + selector + analyze(s) +
@@ -432,12 +450,48 @@ async function getAIMoveViaBridge(
   // stone. Routes the selector through its "settle cleanly" path.
   const opponentPassed = state.last_move == null && moves.length >= state.board_size;
 
+  // Human-style bots: the human-set rung for this rank, when the setting and
+  // the device allow it (getHumanRung). Like the server, a game sent without
+  // its move history stays with the standard selector; so does a lesson
+  // game's never-pass move, since the human path may pass.
+  const humanRung =
+    options?.movesForBridge && !options.neverPass
+      ? getHumanRung(targetRank, state.board_size)
+      : undefined;
+  const humanEval: HumanNetEval = { scoreLeadBefore: null, candidates: null };
+  let human: HumanRoute | undefined;
+  if (humanRung) {
+    const engine = humanNetEngine(bridge, {
+      boardSize: state.board_size,
+      komi: state.komi,
+      rules: 'japanese',
+      moves,
+      color: colorChar,
+    });
+    const movesPlayed = movesPlayedExcludingHandicap(moves, options?.handicap ?? 0);
+    human = {
+      select: () =>
+        selectWithHumanNet(engine, board, color, humanRung, movesPlayed, {
+          opponentPassed,
+          evalOut: humanEval,
+          log: logHuman,
+        }),
+      log: logHuman,
+    };
+  }
+
   const tBeforeSelect = performance.now();
   const chosen = await selectAiMove(board, color, targetRank, lastOpponentMove, analyze, {
     neverPass: options?.neverPass,
     opponentPassed,
+    human,
   });
   const tAfterSelect = performance.now();
+
+  // A move from the human path read the position without `analyze`: its
+  // root lead and scored candidates feed the score graph instead.
+  if (cachedScoreLead === null) cachedScoreLead = humanEval.scoreLeadBefore;
+  if (lastCandidates === null && humanEval.candidates?.length) lastCandidates = humanEval.candidates;
 
   if (chosen === null) {
     // Selector returned pass.
@@ -517,6 +571,43 @@ async function getAIMoveViaBridge(
     score_lead: chosenMoveLead(played) ?? cachedScoreLead ?? newState.score_lead,
     score_lead_before: cachedScoreLead,
     board: newState.board,
+  };
+}
+
+/** The human path's diagnostics: the console and the game's selector log. */
+function logHuman(line: string): void {
+  const tagged = `[human] ${line}`;
+  console.log(tagged);
+  recordSelectorLog(tagged);
+}
+
+/** The human path's two engine calls (humanNetSelector.ts HumanNetEngine)
+ *  over the bridge, bound to one position. Points go over as GTP; nothing
+ *  else is reshaped. A native build without the calls throws, and the
+ *  selector hands the move to the standard path. */
+function humanNetEngine(
+  bridge: KataGoBridge,
+  position: {
+    boardSize: number;
+    komi: number;
+    rules: string;
+    moves: Array<{ color: 'B' | 'W'; point: string }>;
+    color: 'B' | 'W';
+  },
+): HumanNetEngine {
+  return {
+    humanPolicy: async (profile) => {
+      if (!bridge.humanPolicy) throw new Error('this native build has no humanPolicy');
+      return bridge.humanPolicy({ ...position, profile });
+    },
+    scoreAfter: async (move, visits) => {
+      if (!bridge.scoreAfter) throw new Error('this native build has no scoreAfter');
+      return bridge.scoreAfter({
+        ...position,
+        move: move === 'pass' ? 'pass' : toGtp(move, position.boardSize),
+        maxVisits: visits,
+      });
+    },
   };
 }
 

@@ -3,7 +3,7 @@ import { Game, type GamePhase } from '../engine/Game';
 import { Board } from '../engine/Board';
 import { Color, type Point, type GameResult, MoveResult, BOARD_SIZE } from '../engine/types';
 import { api } from '../api/client';
-import { getKataGoBridge, toGtp } from '../api/nativeKataGo';
+import { getHumanRung, getKataGoBridge, toGtp } from '../api/nativeKataGo';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
 import { clearSelectorLog, recordSelectorLog, snapshotSelectorLog } from '../ai/selectorLog';
@@ -636,10 +636,24 @@ export const useGameStore = create<GameState>((set, get) => ({
     // for this game's rank. S49 lesson — profiles ship at BUILD time, so
     // "did my rebuild pick up the retune?" must be answerable from an
     // uploaded game alone, not from guessing at build timestamps.
+    // Human-style bots: which set this game's bot plays from, and the human
+    // rung's own knobs when it is the human set (the b28.yaml knobs after
+    // them are its fallback). Only a vs-bot game outside a lesson takes the
+    // human path (client.ts getAIMoveViaBridge).
     let knobStamp = '';
     try {
-      const p = getProfile(options?.targetRank ?? '15k', options?.boardSize ?? BOARD_SIZE);
+      const rank = options?.targetRank ?? '15k';
+      const size = options?.boardSize ?? BOARD_SIZE;
+      const h =
+        (options?.gameMode ?? 'ai') === 'ai' && !options?.lessonContext
+          ? getHumanRung(rank, size)
+          : undefined;
+      const p = getProfile(rank, size);
       knobStamp =
+        (h
+          ? ` set=human sl=${h.human_sl_profile} tilt=${h.human_tilt ?? '-'} from=${h.human_tilt_from ?? '-'}` +
+            ` cap=${h.human_loss_cap ?? '-'} sv=${h.human_score_visits ?? '-'} margin=${h.human_pass_margin ?? '-'}`
+          : ' set=standard') +
         ` rr=${p.reading_rate ?? '-'} temp=${p.policy_temp ?? '-'} lapse=${p.sample_lapse ?? '-'}` +
         ` mf=${p.mistake_freq ?? '-'} v=${p.visits ?? '-'}`;
     } catch {
@@ -1097,6 +1111,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const aiMove = await api.getAIMove(gameId, targetRank, {
         neverPass,
         movesForBridge,
+        handicap: get().handicap,
       });
       // Re-check state hasn't changed (e.g., user resigned while AI was thinking)
       if (get().phase !== 'playing') {

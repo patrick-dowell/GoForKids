@@ -12,9 +12,15 @@
  *
  * The iPad currently uses b28 because that's the network bundled in the
  * CoreML model file. (Render uses b20 — see DEVJOURNAL Session 12 for why.)
+ *
+ * A second, smaller table, `data/profiles/b28_human.yaml`, holds the rungs
+ * that play on the human SL path on the device (getHumanProfile). Same file
+ * shape, its own lookup: exact (rank, size) only, no fallback, because a rank
+ * without a human rung plays from b28.yaml as it always has.
  */
 
 import b28Yaml from '../../../data/profiles/b28.yaml';
+import b28HumanYaml from '../../../data/profiles/b28_human.yaml';
 
 /** Profile knobs read by moveSelector.ts. Mirrors the Python validator's
  *  REQUIRED_KEYS + OPTIONAL_KEYS. Optional fields use `?` so callers must
@@ -77,7 +83,8 @@ export interface RankProfile {
   use_katago?: boolean;
 
   /** Human SL path knobs (backend move_selector._select_with_human_net; the
-   *  TypeScript port is humanNetSelector.ts, not yet called by the app).
+   *  TypeScript port is humanNetSelector.ts). On the device they are read
+   *  from b28_human.yaml's rungs (getHumanProfile).
    *  `human_sl_profile` names the human net's rank profile, e.g. 'rank_20k';
    *  the rest tune that path and are read with the Python's defaults. */
   human_sl_profile?: string;
@@ -148,7 +155,12 @@ function validateProfile(where: string, raw: Record<string, unknown>): RankProfi
   return raw as unknown as RankProfile;
 }
 
-function load(yaml: unknown): ProfileTable {
+/** A rung of the human set: the human path needs the human net's profile. */
+export type HumanRankProfile = RankProfile & { human_sl_profile: string };
+
+/** `requireFallback`: the standard table must carry 19x19/15k (getProfile's
+ *  last resort); the human set has no fallback and need not. */
+function load(yaml: unknown, requireFallback = true): ProfileTable {
   if (typeof yaml !== 'object' || yaml === null || !('profiles' in yaml)) {
     throw new Error("YAML must have a top-level 'profiles' key");
   }
@@ -175,13 +187,29 @@ function load(yaml: unknown): ProfileTable {
     out[size] = sized;
   }
 
-  if (!(19 in out) || !(FALLBACK_RANK in out[19])) {
+  if (requireFallback && (!(19 in out) || !(FALLBACK_RANK in out[19]))) {
     throw new Error(`19x19/${FALLBACK_RANK} profile is required as the universal fallback`);
   }
   return out;
 }
 
+/** The human set: the standard checks, and every rung names its human net
+ *  profile (a rung without one could not play on the human path). */
+export function loadHumanTable(yaml: unknown): Record<number, Record<string, HumanRankProfile>> {
+  const table = load(yaml, false);
+  for (const [size, ranks] of Object.entries(table)) {
+    for (const [rank, profile] of Object.entries(ranks)) {
+      const name = profile.human_sl_profile;
+      if (typeof name !== 'string' || name === '') {
+        throw new Error(`human profile ${size}x${size}/${rank} must name its human_sl_profile`);
+      }
+    }
+  }
+  return table as Record<number, Record<string, HumanRankProfile>>;
+}
+
 const TABLE: ProfileTable = load(b28Yaml);
+const HUMAN_TABLE = loadHumanTable(b28HumanYaml);
 
 /**
  * Look up the bot tuning profile for a rank and board size. Falls back to
@@ -194,4 +222,14 @@ export function getProfile(rank: string, size: number = 19): RankProfile {
   const big = TABLE[19] ?? {};
   if (rank in big) return big[rank];
   return big[FALLBACK_RANK];
+}
+
+/**
+ * The human-set rung for this rank and board size (b28_human.yaml), or
+ * undefined when the human set has none. Exact match only: unlike
+ * getProfile there is no fallback to another size or rank.
+ */
+export function getHumanProfile(rank: string, size: number): HumanRankProfile | undefined {
+  const sized = HUMAN_TABLE[size];
+  return sized && Object.prototype.hasOwnProperty.call(sized, rank) ? sized[rank] : undefined;
 }

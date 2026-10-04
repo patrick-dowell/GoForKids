@@ -12,9 +12,17 @@
  * getKataGoBridge() return null even inside the iPad app, forcing all bot
  * moves onto the HTTP/Render path — the escape hatch for old iPads whose
  * on-device analysis is unplayably slow.
+ *
+ * Human-style bots (October 2026): a build whose engine carries KataGo's
+ * human SL net answers capabilities(), humanPolicy() and scoreAfter(); with
+ * the Settings toggle on, a rank that has a rung in b28_human.yaml takes its
+ * moves from humanNetSelector.ts (see getHumanRung). Older builds lack the
+ * three calls and play as before.
  */
 
 import { useSettingsStore } from '../store/settingsStore';
+import { hasHumanModel } from '../store/capabilitiesStore';
+import { getHumanProfile, type HumanRankProfile } from '../ai/profileLoader';
 
 /** One candidate from `kata-genmove_analyze`. Bridge passes through the
  *  raw KataGo fields; fields are optional because parser drops malformed ones. */
@@ -68,6 +76,47 @@ export interface KataGoBridge {
    *  apps). Absent on older native builds — callers must catch and fall
    *  back to the web download path. */
   shareSGF?(params: { sgf: string; filename: string }): Promise<{ ok: boolean }>;
+  /** What this device's engine can do, measured once at cold start by the
+   *  native shell. `humanModel`: the engine started with the human SL net
+   *  beside the main one, so humanPolicy and scoreAfter answer. Absent on
+   *  older native builds: the app then reads no human model. Read once at
+   *  app start (store/capabilitiesStore.ts). */
+  capabilities?(): Promise<{ localBots: boolean; evalsPerSecond: number; humanModel: boolean }>;
+  /** The human SL path's first query (humanNetSelector.ts HumanPolicyAnswer):
+   *  one raw evaluation of the position, no search. Both policies hold
+   *  boardSize² + 1 values, row-major from the top-left (index 0 is A9 on
+   *  9×9), pass last, illegal points negative (KataGo's NAN sent as -1).
+   *  `humanPolicy` is the human net's under `profile`, null when the engine
+   *  has no human model; `policy` is the main net's raw policy; `scoreLead`
+   *  is the main net's lead for the position, from Black's side. Absent on
+   *  builds without the human net. */
+  humanPolicy?(params: {
+    boardSize: number;
+    komi: number;
+    rules?: string;
+    moves: Array<{ color: 'B' | 'W'; point: string }>;
+    /** The side to move. */
+    color: 'B' | 'W';
+    /** The human SL profile, e.g. "rank_20k" (KataGo's humanSLProfile). */
+    profile: string;
+  }): Promise<{ humanPolicy: number[] | null; policy: number[] | null; scoreLead: number }>;
+  /** The human SL path's scoring query (humanNetSelector.ts ScoreAfterAnswer):
+   *  the main net's search, no human profile, of the position after `color`
+   *  plays `move`, at `maxVisits`. `scoreLead` and `winrate` from Black's
+   *  side. The selector sends one per candidate plus one for "pass" without
+   *  waiting between them (up to human_cand_max + 1 at once); the bridge
+   *  queues them for its one engine. Absent on builds without the human net. */
+  scoreAfter?(params: {
+    boardSize: number;
+    komi: number;
+    rules?: string;
+    moves: Array<{ color: 'B' | 'W'; point: string }>;
+    /** The side to move, who plays `move`. */
+    color: 'B' | 'W';
+    /** A GTP point like "E5", or "pass". */
+    move: string;
+    maxVisits: number;
+  }): Promise<{ scoreLead: number; winrate: number }>;
 }
 
 declare global {
@@ -86,6 +135,22 @@ export function getKataGoBridge(): KataGoBridge | null {
   // effect immediately, no reload needed.
   if (useSettingsStore.getState().cloudBot) return null;
   return typeof window !== 'undefined' && window.kataGo ? window.kataGo : null;
+}
+
+/**
+ * The human-set rung (b28_human.yaml) that plays this rank and board size on
+ * the device right now, or undefined, in which case the standard b28.yaml
+ * rung plays exactly as before. All four must hold: the bridge is in use
+ * (getKataGoBridge: inside the app, "Bot plays online" off), the setting
+ * "Human-style bots" is on, the bridge reported the human model at start,
+ * and the human set has a rung for this rank and size. Read per move, like
+ * the cloud toggle, so flipping the setting takes effect on the next move.
+ */
+export function getHumanRung(rank: string, size: number): HumanRankProfile | undefined {
+  if (!getKataGoBridge()) return undefined;
+  if (!useSettingsStore.getState().humanBots) return undefined;
+  if (!hasHumanModel()) return undefined;
+  return getHumanProfile(rank, size);
 }
 
 /** {row, col} → GTP coord like "E5". Skips letter 'I' per GTP convention. */

@@ -1,8 +1,10 @@
 /**
  * Human SL move selection — TypeScript port of the server's
  * `_select_with_human_net` (backend/app/ai/move_selector.py), which is the
- * spec. Not called by the app yet: the iPad bridge returns no human policy,
- * so wiring this in is a later bridge job.
+ * spec. The app calls it for a rung of b28_human.yaml when "Human-style
+ * bots" is on and the bridge has the human net (client.ts
+ * getAIMoveViaBridge, which binds the bridge's humanPolicy and scoreAfter
+ * to the position as the HumanNetEngine below).
  *
  * A profile with `human_sl_profile` takes its moves from KataGo's human SL
  * network: its prediction of what players of that rank play. Per move:

@@ -2224,3 +2224,42 @@ button:active {
     max-height: none;
   }
 }
+
+/* Settings dialog. Its 420px width was an inline style; as a two-class rule
+   it still wins over every `.dialog` width above, as the inline style did
+   (on a narrower phone the overlay's flexbox shrinks it to the screen). */
+.dialog.settings-dialog {
+  width: 420px;
+}
+/* The rows below the theme cards stay in the dialog's own column. */
+.settings-toggles {
+  display: contents;
+}
+
+/* Phone landscape (393–430px tall): in one column the Settings rows are
+   taller than the screen, and the layout policy allows no scrolling here.
+   Two columns: the theme cards on the left, the other rows on the right. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .dialog.settings-dialog {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      'head head'
+      'theme toggles';
+    align-items: start;
+    gap: 12px 20px;
+    width: min(680px, calc(100vw - 24px));
+  }
+  .settings-dialog .settings-header {
+    grid-area: head;
+  }
+  .settings-dialog .settings-theme {
+    grid-area: theme;
+  }
+  .settings-dialog .settings-toggles {
+    grid-area: toggles;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+}
