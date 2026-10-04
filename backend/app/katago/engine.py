@@ -10,7 +10,7 @@ import logging
 import subprocess
 import os
 from typing import Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +163,7 @@ class KataGoEngine:
         override_settings: Optional[dict] = None,
         priority: int = 0,
         include_policy: bool = False,
+        timeout: Optional[float] = None,
     ) -> PositionAnalysis:
         """Analyze a board position. Returns candidate moves with evaluations.
 
@@ -238,7 +239,7 @@ class KataGoEngine:
             self.process.stdin.flush()
 
         try:
-            result = await asyncio.wait_for(future, timeout=self._query_timeout)
+            result = await asyncio.wait_for(future, timeout=timeout or self._query_timeout)
         except asyncio.TimeoutError:
             # Giving up on the wait must also stop KataGo's computation:
             # a cancelled future leaves the query grinding server-side, and
@@ -287,9 +288,16 @@ class KataGoEngine:
                 except json.JSONDecodeError:
                     continue
         except asyncio.CancelledError:
-            pass
+            return
         except Exception as e:
             logger.error(f"KataGo reader error: {e}")
+        # The process closed its stdout (it exited) or the reader broke: nothing
+        # will ever answer the queries still waiting, so fail them now instead
+        # of leaving each to run out its timeout.
+        for qid, future in list(self._pending.items()):
+            if not future.done():
+                future.set_exception(RuntimeError("KataGo exited"))
+            self._pending.pop(qid, None)
 
     def _parse_response(self, response: dict, size: int = BOARD_SIZE) -> PositionAnalysis:
         """Parse the flat KataGo analysis JSON response."""
@@ -346,26 +354,62 @@ def _strict_katago() -> bool:
     return os.environ.get("STRICT_KATAGO", "").lower() in ("1", "true", "yes")
 
 
+HUMAN_WARMUP_TIMEOUT_S = 45.0
+
+
 async def _human_model_answers(engine: "KataGoEngine") -> bool:
     """One tiny query that only a working human SL model can answer.
 
-    Run once at start-up. If the model failed to load (missing file, a
-    KataGo build without human SL support, not enough memory) the caller
-    restarts the engine without it, so the ordinary bots keep working.
-    Both networks load before the first answer, hence the longer wait."""
-    saved = engine._query_timeout
-    engine._query_timeout = max(saved, 90.0)
+    Run once at start-up. Both networks load before the first answer, hence
+    the longer wait; if the process dies while loading, the reader fails the
+    query at once."""
     try:
         res = await engine.analyze(
             [[0] * 9 for _ in range(9)], "B", max_visits=1, komi=6.5, size=9, moves=[],
             override_settings={"humanSLProfile": "rank_20k"}, include_policy=True,
+            timeout=HUMAN_WARMUP_TIMEOUT_S,
         )
         return bool(res.human_policy)
     except Exception as e:
         logger.warning(f"KataGo human SL warm-up failed: {e!r}")
         return False
-    finally:
-        engine._query_timeout = saved
+
+
+async def _start_engine(kg_config: KataGoConfig) -> KataGoEngine:
+    """Start KataGo. With a human SL model configured, keep it only if the
+    engine starts with it AND it answers; otherwise start without it, so a
+    model that cannot load (bad file, a build without human SL support, not
+    enough memory) never costs the ordinary bots their engine."""
+    if kg_config.human_model:
+        engine = KataGoEngine(kg_config)
+        try:
+            await engine.start()
+            if await _human_model_answers(engine):
+                return engine
+            logger.warning("KataGo human SL model did not answer; starting without it")
+        except Exception as e:
+            logger.warning(f"KataGo did not start with the human SL model ({e!r}); starting without it")
+        await engine.stop()
+        kg_config = replace(kg_config, human_model="")
+    engine = KataGoEngine(kg_config)
+    await engine.start()
+    return engine
+
+
+# One start at a time: the boot-time warm-up and the first bot moves can all
+# arrive while the networks are still loading. The lock is made under the
+# loop that uses it (before Python 3.10 a Lock belongs to the loop it was
+# created in, and each test runs a loop of its own).
+_engine_lock: Optional[asyncio.Lock] = None
+_engine_lock_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _start_lock() -> asyncio.Lock:
+    global _engine_lock, _engine_lock_loop
+    loop = asyncio.get_running_loop()
+    if _engine_lock is None or _engine_lock_loop is not loop:
+        _engine_lock, _engine_lock_loop = asyncio.Lock(), loop
+    return _engine_lock
 
 
 async def get_engine() -> Optional[KataGoEngine]:
@@ -381,6 +425,15 @@ async def get_engine() -> Optional[KataGoEngine]:
     if _engine and _engine.is_running:
         return _engine
 
+    async with _start_lock():
+        if _engine and _engine.is_running:  # started while we waited
+            return _engine
+        return await _get_engine_locked()
+
+
+async def _get_engine_locked() -> Optional[KataGoEngine]:
+    """get_engine()'s body: resolve the paths and start. Caller holds the lock."""
+    global _engine
     strict = _strict_katago()
 
     # Resolve paths: env vars > brew defaults > bare command
@@ -442,14 +495,7 @@ async def get_engine() -> Optional[KataGoEngine]:
     )
 
     try:
-        _engine = KataGoEngine(kg_config)
-        await _engine.start()
-        if kg_config.human_model and not await _human_model_answers(_engine):
-            logger.warning("KataGo human SL model did not answer; restarting without it")
-            await _engine.stop()
-            kg_config.human_model = ""
-            _engine = KataGoEngine(kg_config)
-            await _engine.start()
+        _engine = await _start_engine(kg_config)
         return _engine
     except Exception as e:
         _engine = None

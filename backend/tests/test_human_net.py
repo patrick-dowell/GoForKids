@@ -241,3 +241,201 @@ async def test_the_engine_is_started_at_boot_only_when_the_human_model_is_config
 
     monkeypatch.setattr(main, "get_engine", broken_get_engine)
     await main._warm_engine()  # a failed warm-up is logged, never raised
+
+
+# --- points off the diagonal, colours, legality, limits (review round) -------
+
+G7, C3 = (2, 6), (6, 2)  # (row, col): transposing either gives the other
+
+
+async def test_points_keep_their_row_and_column_through_sampling_and_scoring():
+    engine = FakeEngine(_policy({G7: 1.0}))
+    _, move = await _pick(engine)
+    assert (move.row, move.col) == G7
+
+    # scoring names each candidate by its own GTP point and as the mover's stone
+    engine = FakeEngine(_policy({G7: 0.6, C3: 0.4}), leads={"G7": 5.0, "C3": -7.0})
+    picks = [(await _pick(engine, dict(PROFILE, human_tilt=1.0), LATE))[1] for _ in range(30)]
+    assert all((m.row, m.col) == C3 for m in picks)  # Black to move: C3 is the loser
+    scored = [c for c in engine.calls if not c.get("include_policy")]
+    assert {tuple(c["moves"][-1]) for c in scored} == {("B", "G7"), ("B", "C3")}
+
+
+async def test_a_point_our_rules_refuse_is_never_played():
+    board = Board(SIZE)
+    board.try_play(Color.WHITE, Point(*G7))  # occupied: KataGo may not know (ko, superko)
+    engine = FakeEngine(_policy({G7: 0.9, C3: 0.1}))
+    for _ in range(30):
+        _, move = await ms._select_with_human_net(engine, board, Color.BLACK, "18k", PROFILE, EARLY, [], None)
+        assert (move.row, move.col) == C3
+
+
+async def test_candidates_are_the_likeliest_few_at_or_above_the_floor():
+    points = {(r, c): 0.05 for r in range(3) for c in range(3)}  # nine at 5%
+    points[(8, 8)] = 0.03                                        # at the floor: a candidate
+    points[(8, 0)] = 0.029                                       # under it: never scored
+    engine = FakeEngine(_policy(points))
+    await _pick(engine, PROFILE, LATE)
+    scored = [c["moves"][-1][1] for c in engine.calls if not c.get("include_policy")]
+    assert len(scored) == 8 and "J1" not in scored and "A1" not in scored
+    engine = FakeEngine(_policy({(0, 0): 0.5, (8, 8): 0.03, (8, 0): 0.029}))
+    await _pick(engine, PROFILE, LATE)
+    scored = {c["moves"][-1][1] for c in engine.calls if not c.get("include_policy")}
+    assert scored == {"A9", "J1"}
+
+
+async def test_the_lean_is_capped_at_a_fifteen_point_loss(monkeypatch):
+    seen = {}
+
+    class Capture:
+        def choices(self, population, weights):
+            seen["weights"] = list(weights)
+            return [population[0]]
+
+    monkeypatch.setattr(ms, "random", Capture())
+    engine = FakeEngine(_policy({G7: 0.5, C3: 0.5}), leads={"G7": 60.0, "C3": 0.0})
+    await _pick(engine, dict(PROFILE, human_tilt=5.0), LATE)
+    best, worst = seen["weights"]
+    assert abs(worst / best - ms.math.exp(15.0 / 5.0)) < 1e-9
+
+
+async def test_eval_out_keeps_the_first_root_lead():
+    engine = FakeEngine(_policy({G7: 1.0}))
+    out = ms.SelectorEval(score_lead_before=-3.0)
+    await _pick(engine, eval_out=out)
+    assert out.score_lead_before == -3.0
+
+
+async def test_pass_needs_more_than_half_the_main_policy():
+    handled, move = await _pick(FakeEngine(_policy({G7: 1.0}), main=_policy({}, pass_prob=0.5)))
+    assert handled and (move.row, move.col) == G7
+
+
+async def test_a_human_path_over_its_budget_hands_over_to_the_standard_selector(monkeypatch):
+    import asyncio
+
+    class Slow(FakeEngine):
+        async def analyze(self, *a, **k):
+            await asyncio.sleep(1.0)
+            return await super().analyze(*a, **k)
+
+    monkeypatch.setattr(ms, "HUMAN_PATH_BUDGET_S", 0.05)
+    _, std = await _inner(monkeypatch, Slow(_policy({G7: 1.0})), PROFILE, engine_moves=EARLY)
+    assert std.ran == 1
+
+
+# --- engine start-up with the human model -----------------------------------
+
+import app.katago.engine as eng
+
+
+class StubEngine:
+    """Stands in for KataGoEngine: records each start and how it went."""
+
+    log = []
+    start_fails_with_human = False
+    human_answers = True
+
+    def __init__(self, config):
+        self.config = config
+        self.running = False
+
+    async def start(self):
+        StubEngine.log.append(("start", bool(self.config.human_model)))
+        if self.config.human_model and StubEngine.start_fails_with_human:
+            raise RuntimeError("KataGo exited immediately")
+        self.running = True
+
+    async def stop(self):
+        StubEngine.log.append(("stop", bool(self.config.human_model)))
+        self.running = False
+
+    async def analyze(self, *a, **k):
+        import asyncio
+        await asyncio.sleep(0.01)
+        return FakeAnalysis(human_policy=[0.1] * 82 if StubEngine.human_answers else None, policy=[0.1] * 82)
+
+    @property
+    def is_running(self):
+        return self.running
+
+    @property
+    def has_human_model(self):
+        return bool(self.config.human_model)
+
+
+def _engine_env(monkeypatch, tmp_path, with_human=True):
+    model = tmp_path / "main.bin.gz"
+    model.write_bytes(b"0" * (1024 * 1024 + 1))
+    human = tmp_path / "human.bin.gz"
+    human.write_bytes(b"0" * (1024 * 1024 + 1))
+    cfg = tmp_path / "analysis.cfg"
+    cfg.write_text("")
+    monkeypatch.setenv("KATAGO_MODEL", str(model))
+    monkeypatch.setenv("KATAGO_CONFIG", str(cfg))
+    if with_human:
+        monkeypatch.setenv("KATAGO_HUMAN_MODEL", str(human))
+    else:
+        monkeypatch.delenv("KATAGO_HUMAN_MODEL", raising=False)
+    monkeypatch.delenv("STRICT_KATAGO", raising=False)
+    monkeypatch.setattr(eng, "KataGoEngine", StubEngine)
+    monkeypatch.setattr(eng, "_engine", None)
+    StubEngine.log = []
+    StubEngine.start_fails_with_human = False
+    StubEngine.human_answers = True
+
+
+async def test_a_working_human_model_is_kept(monkeypatch, tmp_path):
+    _engine_env(monkeypatch, tmp_path)
+    engine = await eng.get_engine()
+    assert engine.has_human_model and StubEngine.log == [("start", True)]
+
+
+async def test_an_engine_that_cannot_start_with_the_human_model_starts_without_it(monkeypatch, tmp_path):
+    _engine_env(monkeypatch, tmp_path)
+    StubEngine.start_fails_with_human = True
+    engine = await eng.get_engine()
+    assert engine is not None and engine.is_running and not engine.has_human_model
+    assert StubEngine.log == [("start", True), ("stop", True), ("start", False)]
+
+
+async def test_a_human_model_that_does_not_answer_is_dropped(monkeypatch, tmp_path):
+    _engine_env(monkeypatch, tmp_path)
+    StubEngine.human_answers = False
+    engine = await eng.get_engine()
+    assert engine.is_running and not engine.has_human_model
+    assert StubEngine.log == [("start", True), ("stop", True), ("start", False)]
+
+
+async def test_callers_arriving_during_start_up_share_one_engine(monkeypatch, tmp_path):
+    import asyncio
+
+    _engine_env(monkeypatch, tmp_path)
+    StubEngine.human_answers = False  # the slow path: start, drop the model, start again
+    engines = await asyncio.gather(*(eng.get_engine() for _ in range(5)))
+    assert all(e is engines[0] for e in engines)
+    assert [x for x in StubEngine.log if x[0] == "start"] == [("start", True), ("start", False)]
+
+
+async def test_without_the_human_model_the_engine_starts_once_and_plainly(monkeypatch, tmp_path):
+    _engine_env(monkeypatch, tmp_path, with_human=False)
+    engine = await eng.get_engine()
+    assert not engine.has_human_model and StubEngine.log == [("start", False)]
+
+
+async def test_a_dead_engine_fails_its_waiting_queries_at_once():
+    import asyncio
+
+    class DeadOut:
+        def readline(self):
+            return ""  # EOF: the process has exited
+
+    class DeadProc:
+        stdout = DeadOut()
+
+    engine = KataGoEngine(KataGoConfig(model="m", config="c"))
+    engine.process = DeadProc()
+    waiting = asyncio.get_event_loop().create_future()
+    engine._pending["q0"] = waiting
+    await engine._read_loop()
+    assert waiting.done() and isinstance(waiting.exception(), RuntimeError) and not engine._pending

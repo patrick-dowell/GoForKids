@@ -372,10 +372,20 @@ async def _select_ai_move_inner(
             and engine_moves is not None
             and getattr(engine, "has_human_model", False)
         ):
-            handled, move = await _select_with_human_net(
-                engine, board, color, target_rank, profile,
-                engine_moves, engine_setup, eval_out,
-            )
+            try:
+                handled, move = await asyncio.wait_for(
+                    _select_with_human_net(
+                        engine, board, color, target_rank, profile,
+                        engine_moves, engine_setup, eval_out,
+                    ),
+                    timeout=HUMAN_PATH_BUDGET_S,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[{target_rank} {board.size}x{board.size}] human net over its "
+                    f"{HUMAN_PATH_BUDGET_S:.0f}s budget, standard selector"
+                )
+                handled, move = False, None
             if handled:
                 return move
         return await _select_with_katago(
@@ -406,6 +416,10 @@ async def _select_ai_move_inner(
 # policy puts more than half its weight on pass.
 HUMAN_TILT_LOSS_CAP = 15.0
 HUMAN_PASS_POLICY = 0.5
+# The human path's whole allowance for one move. Past it the move goes to
+# the standard selector, which still has time inside the client's request
+# timeout (each engine query alone may wait KATAGO_QUERY_TIMEOUT).
+HUMAN_PATH_BUDGET_S = 12.0
 
 
 async def _select_with_human_net(
