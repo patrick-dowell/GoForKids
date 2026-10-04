@@ -12,6 +12,7 @@ import {
 } from '../humanNetSelector';
 import { Board } from '../../engine/Board';
 import { Color, type Point, type Stone } from '../../engine/types';
+import b20Yaml from '../../../../data/profiles/b20.yaml';
 
 /**
  * The human SL path, ported from backend/tests/test_human_net.py: one test
@@ -28,6 +29,7 @@ const C7 = pt(2, 2);
 const G3 = pt(6, 6);
 const G7 = pt(2, 6); // (row, col): transposing either gives the other
 const C3 = pt(6, 2);
+const E5 = pt(4, 4);
 
 function gtp(p: Point): string {
   return `${'ABCDEFGHJ'[p.col]}${SIZE - p.row}`;
@@ -131,6 +133,33 @@ async function sweep(
 }
 
 const keys = (moves: Array<Point | null>) => new Set(moves.map((m) => (m ? gtp(m) : 'pass')));
+
+/** The stand-in for the Python tilt tests' _Capture, which records the
+ *  weights handed to random.choices: a draw just inside either end of each
+ *  expected weight's share of [0, 1) must pick that candidate, so every
+ *  share, and with it each weight against their sum, is as expected. A
+ *  zero weight has no share and is never picked. */
+async function expectWeights(
+  engine: HumanNetEngine,
+  profile: HumanNetProfile,
+  moves: number,
+  expected: Array<[Point, number]>,
+  opts: HumanNetOptions = {},
+  color: Stone = Color.Black,
+) {
+  const total = expected.reduce((a, [, w]) => a + w, 0);
+  let acc = 0;
+  for (const [p, w] of expected) {
+    const lo = acc / total;
+    acc += w;
+    const hi = acc / total;
+    if (w === 0) continue;
+    const inset = (hi - lo) * 1e-6;
+    for (const x of [lo + inset, hi - inset]) {
+      expect((await pick(engine, profile, moves, color, { ...opts, rng: fixed(x) })).move).toEqual(p);
+    }
+  }
+}
 
 describe('human net selector: the opening and the lean', () => {
   it('samples early moves from the human policy', async () => {
@@ -595,5 +624,178 @@ describe("human net selector: the Python's defaults", () => {
     });
     expect(await pick(engine, profile, 12)).toEqual({ handled: true, move: C3 });
     expect(engine.calls.filter((c) => c.kind === 'after').map((c) => c.visits)).toEqual([4, 4, 12, 12]);
+  });
+});
+
+/**
+ * The lean at a negative or infinite `human_tilt`, ported from
+ * backend/tests/test_human_net_tilt.py (one test here per test there, same
+ * scenarios and numbers): past `human_tilt_from` the candidates are scored
+ * as for a positive tilt, and a negative tilt leans toward the candidates
+ * that lose less. A tilt of 0, or none, keeps the unscored path.
+ */
+describe('human net selector: a negative tilt leans toward the better candidates', () => {
+  it('scores past tilt_from and picks the better move', async () => {
+    // G3 is the human net's first choice and loses 12 against C7.
+    const engine = new FakeEngine(policy([[C7, 0.4], [G3, 0.6]]), { leads: { C7: 5.0, G3: -7.0 } });
+    expect(keys(await sweep(engine, { ...PROFILE, human_tilt: -0.25 }, LATE))).toEqual(new Set(['C7']));
+    expect(new Set(engine.scored())).toEqual(new Set(['C7', 'G3', 'pass']));
+  });
+
+  it('gives the better candidate more than its probability', async () => {
+    // G7 (p 0.7) loses 6 against C3 (p 0.3)
+    const engine = new FakeEngine(policy([[G7, 0.7], [C3, 0.3]]), { leads: { G7: 4.0, C3: 10.0 } });
+    const worse = 0.7 * Math.exp(6.0 / -4.0);
+    await expectWeights(engine, { ...PROFILE, human_tilt: -4.0 }, LATE, [
+      [G7, worse],
+      [C3, 0.3],
+    ]);
+    expect(0.3 / (0.3 + worse)).toBeGreaterThan(0.3);
+  });
+
+  it('lets the weight fall with the loss past fifteen points', async () => {
+    // equal probabilities; losses 0, 5, 14, 20, 40 in the candidates' order
+    const human = policy([[C7, 0.2], [G7, 0.2], [E5, 0.2], [C3, 0.2], [G3, 0.2]]);
+    const leads = { C7: 40.0, G7: 35.0, E5: 26.0, C3: 20.0, G3: 0.0, pass: 0.0 };
+    const w = [0, 5, 14, 20, 40].map((loss) => 0.2 * Math.exp(loss / -8.0)); // no 15-point cap on this side
+    expect(w.every((x, i) => i === 0 || w[i - 1] > x)).toBe(true);
+    await expectWeights(new FakeEngine(human, { leads }), { ...PROFILE, human_tilt: -8.0 }, LATE, [
+      [C7, w[0]],
+      [G7, w[1]],
+      [E5, w[2]],
+      [C3, w[3]],
+      [G3, w[4]],
+    ]);
+  });
+
+  it('keeps the weights finite at extreme losses', async () => {
+    const human = policy([[C7, 0.5], [G7, 0.3], [C3, 0.2]]);
+    // an infinite loss (the leads' difference overflows) and a huge one, at a moderate and a tiny tilt
+    const leads = { C7: 1e308, G7: -1e308, C3: -1e300, pass: -1e308 };
+    for (const tilt of [-2.0, -1e-300]) {
+      const profile = { ...PROFILE, human_tilt: tilt };
+      await expectWeights(new FakeEngine(human, { leads }), profile, LATE, [
+        [C7, 0.5],
+        [G7, 0],
+        [C3, 0],
+      ]);
+      expect(keys(await sweep(new FakeEngine(human, { leads }), profile, LATE))).toEqual(new Set(['C7']));
+    }
+  });
+
+  it('keeps the loss cap, the pass check and the self-atari filter', async () => {
+    const capped = { ...PROFILE, human_tilt: -4.0, human_loss_cap: 10.0 };
+    // E5 loses 12: over the cap, dropped before the lean
+    let engine = new FakeEngine(policy([[C7, 0.4], [G7, 0.35], [E5, 0.25]]), {
+      leads: { C7: 20.0, G7: 15.0, E5: 8.0 },
+    });
+    await expectWeights(engine, capped, LATE, [
+      [C7, 0.4],
+      [G7, 0.35 * Math.exp(5.0 / -4.0)],
+    ]);
+    // nothing gains over passing: a pass
+    engine = new FakeEngine(policy([[C7, 0.6], [G7, 0.4]]), { leads: { C7: 20.0, G7: 19.5, pass: 20.0 } });
+    expect(await pick(engine, capped, LATE)).toEqual({ handled: true, move: null });
+    // a self-atari is never a candidate
+    const board = new Board(SIZE);
+    board.tryPlay(Color.White, pt(0, 1));
+    engine = new FakeEngine(policy([[pt(0, 0), 0.9], [C3, 0.1]]), { leads: { C3: 5.0 } });
+    expect((await pick(engine, capped, LATE, Color.Black, {}, board)).move).toEqual(C3);
+    expect(new Set(engine.scored())).toEqual(new Set(['C3', 'pass']));
+  });
+
+  it('gets the second look on a small gain', async () => {
+    const endgame: HumanNetProfile = {
+      ...PROFILE,
+      human_tilt: -4.0,
+      human_pass_margin: 1.0,
+      human_small_gain: 2.0,
+      human_confirm_visits: 12,
+      human_confirm_margin: 0.75,
+    };
+    const human = policy([[G7, 0.7], [C3, 0.3]]);
+    const leads = { G7: 10.5, C3: 11.5, pass: 10.0 };
+    const held = new FakeEngine(human, { leads, deepLeads: { C3: 11.2, pass: 10.0 } });
+    expect(await pick(held, endgame, LATE)).toEqual({ handled: true, move: C3 });
+    expect(new Set(held.scored(12))).toEqual(new Set(['C3', 'pass']));
+    const faded = new FakeEngine(human, { leads, deepLeads: { C3: 10.5, pass: 10.0 } });
+    expect(await pick(faded, endgame, LATE)).toEqual({ handled: true, move: null });
+  });
+
+  it("reads the loss from White's side", async () => {
+    // For White a Black-perspective lead of -7 after G3 is the better result.
+    const engine = new FakeEngine(policy([[C7, 0.6], [G3, 0.4]]), { leads: { C7: 5.0, G3: -7.0 } });
+    const moves = await sweep(engine, { ...PROFILE, human_tilt: -0.25 }, LATE + 1, Color.White);
+    expect(keys(moves)).toEqual(new Set(['G3']));
+  });
+});
+
+describe('human net selector: an infinite tilt scores with no lean', () => {
+  it('samples by probability among the kept candidates, either sign', async () => {
+    const leads = { C7: 20.0, G7: 15.0, E5: 8.0 }; // E5 loses 12: over the cap
+    for (const tilt of [Infinity, -Infinity]) {
+      const engine = new FakeEngine(policy([[C7, 0.4], [G7, 0.35], [E5, 0.25]]), { leads });
+      await expectWeights(engine, { ...PROFILE, human_tilt: tilt, human_loss_cap: 10.0 }, LATE, [
+        [C7, 0.4],
+        [G7, 0.35],
+      ]);
+      expect(new Set(engine.scored())).toEqual(new Set(['C7', 'G7', 'E5', 'pass']));
+    }
+  });
+});
+
+describe('human net selector: where the tilt starts and stops', () => {
+  it('does not score before tilt_from, whatever the tilt', async () => {
+    for (const tilt of [-0.25, -8.0, 0.0, -Infinity]) {
+      const engine = new FakeEngine(policy([[C7, 0.6], [G3, 0.4]]), { leads: { C7: 5.0, G3: -7.0 } });
+      await sweep(engine, { ...PROFILE, human_tilt: tilt }, EARLY);
+      expect(engine.calls.every((c) => c.kind === 'human')).toBe(true);
+    }
+  });
+
+  it('stays unscored past tilt_from at a zero tilt or with no tilt', async () => {
+    const noTilt: HumanNetProfile = { ...PROFILE };
+    delete noTilt.human_tilt;
+    for (const profile of [{ ...PROFILE, human_tilt: 0 }, { ...PROFILE, human_tilt: -0 }, noTilt]) {
+      const engine = new FakeEngine(policy([[C7, 0.6], [G3, 0.4]]), { leads: { C7: 5.0, G3: -7.0 } });
+      expect(keys(await sweep(engine, profile, LATE))).toEqual(new Set(['C7', 'G3']));
+      expect(engine.calls.every((c) => c.kind === 'human')).toBe(true);
+    }
+  });
+
+  it("does not lean after the opponent's pass in the opening, and does past tilt_from", async () => {
+    const engine = new FakeEngine(policy([[G7, 0.6], [C3, 0.4]]), { leads: { G7: 1.0, C3: 6.0 } });
+    const leaning = { ...PROFILE, human_tilt: -1.0 };
+    const passed = { opponentPassed: true };
+    await expectWeights(engine, leaning, EARLY, [[G7, 0.6], [C3, 0.4]], passed);
+    // past tilt_from the same pass does lean
+    await expectWeights(engine, leaning, LATE, [[G7, 0.6 * Math.exp(5.0 / -1.0)], [C3, 0.4]], passed);
+  });
+});
+
+describe('human net selector: the locked 18k', () => {
+  /** The cloud 9×9 18k, read from b20.yaml as the Python test reads it. */
+  const locked18k = (): HumanNetProfile =>
+    (b20Yaml as { profiles: Record<string, Record<string, HumanNetProfile>> }).profiles['9x9']['18k'];
+
+  it('keeps its positive lean', async () => {
+    const profile = locked18k();
+    expect(profile.human_tilt).toBe(8.0);
+    // losses 0, 4, 9 kept; 12 over the 18k's cap of 10; best gains 10 over a pass (no second look)
+    const human = policy([[C7, 0.4], [G7, 0.3], [E5, 0.2], [C3, 0.1]]);
+    const leads = { C7: 10.0, G7: 6.0, E5: 1.0, C3: -2.0, pass: 0.0 };
+    await expectWeights(new FakeEngine(human, { leads }), profile, LATE, [
+      [C7, 0.4 * Math.exp(0.0 / 8.0)],
+      [G7, 0.3 * Math.exp(4.0 / 8.0)],
+      [E5, 0.2 * Math.exp(9.0 / 8.0)],
+    ]);
+    // a loss past 15 still counts as 15 (no cap on the profile here)
+    const uncapped: HumanNetProfile = { ...profile };
+    delete uncapped.human_loss_cap;
+    const engine = new FakeEngine(policy([[C7, 0.5], [G7, 0.5]]), { leads: { C7: 40.0, G7: 0.0, pass: 0.0 } });
+    await expectWeights(engine, uncapped, LATE, [
+      [C7, 0.5],
+      [G7, 0.5 * Math.exp(15.0 / 8.0)],
+    ]);
   });
 });
