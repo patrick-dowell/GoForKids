@@ -195,9 +195,10 @@ profiles:
       human_cand_min: 0.03
       human_cand_max: 8
       human_score_visits: 4
-      # pass when no candidate gains this many points over passing; never pick a candidate that
+      # pass when no candidate gains this many points over passing (at 4 visits a pointless move in a
+      # settled position still reads about 1.5 better than a pass); never pick a candidate that
       # loses more than the cap against the best one
-      human_pass_margin: 0.75
+      human_pass_margin: 2.0
       human_loss_cap: 10.0
       pass_threshold: 0.1
       clarity_prior: 0.95
