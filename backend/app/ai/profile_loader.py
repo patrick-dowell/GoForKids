@@ -72,6 +72,13 @@ OPTIONAL_KEYS: dict[str, type] = {
     "save_atari_chance": float,
     "capture_chance": float,
     "use_katago": bool,
+    # Human SL path (move_selector._select_with_human_net).
+    "human_sl_profile": str,
+    "human_tilt": float,
+    "human_tilt_from": float,
+    "human_cand_min": float,
+    "human_cand_max": float,
+    "human_score_visits": float,
 }
 
 SUPPORTED_SIZES: tuple[int, ...] = (5, 9, 13, 19)
@@ -123,6 +130,9 @@ def _validate_profile(size: int, rank: str, profile: dict) -> None:
             if expected is bool:
                 if not isinstance(v, bool):
                     raise ValueError(f"profile {where}.{k} must be a bool, got {type(v).__name__}")
+            elif expected is str:
+                if not isinstance(v, str):
+                    raise ValueError(f"profile {where}.{k} must be a string, got {type(v).__name__}")
             else:
                 if not isinstance(v, (int, float)) or isinstance(v, bool):
                     raise ValueError(f"profile {where}.{k} must be a number, got {type(v).__name__}")

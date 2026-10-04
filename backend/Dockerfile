@@ -61,6 +61,16 @@ print(e_shoff + e_shes * e_shnm)") \
     && unsquashfs -d squashfs-root -no-progress -o "$offset" katago > /dev/null \
     && rm katago
 
+# KataGo's human SL network (rank-conditioned model of human play), loaded
+# beside the main model for profiles that set `human_sl_profile`. Fetched
+# from the same release host as the binary and pinned by checksum; if the
+# engine cannot load it the app runs without it (see engine.get_engine).
+ARG HUMAN_MODEL_URL=https://github.com/lightvector/KataGo/releases/download/v1.15.0/b18c384nbt-humanv0.bin.gz
+ARG HUMAN_MODEL_SHA256=637746e44f0efe00ad1245a50aa9bbf0716efe364c43965ead97bd6835d84ab5
+RUN set -eu \
+    && curl -fL "${HUMAN_MODEL_URL}" -o b18c384nbt-humanv0.bin.gz \
+    && echo "${HUMAN_MODEL_SHA256}  b18c384nbt-humanv0.bin.gz" | sha256sum -c -
+
 # ---------- runtime ----------
 FROM python:${PYTHON_VERSION}
 
@@ -79,6 +89,7 @@ COPY backend/configs/analysis_example.cfg     /opt/katago/configs/analysis_examp
 # Cost: extra ~87 MB of image size.
 COPY backend/models/b20.bin.gz                /opt/katago/models/b20.bin.gz
 COPY backend/models/b28.bin.gz                /opt/katago/models/b28.bin.gz
+COPY --from=builder /opt/katago/b18c384nbt-humanv0.bin.gz /opt/katago/models/b18c384nbt-humanv0.bin.gz
 
 # Bot rank profiles. Source of truth lives at data/profiles/ in the repo;
 # the image bakes them at /opt/profiles/. b28.yaml is the production-active
@@ -102,6 +113,7 @@ COPY backend/ .
 # (e.g. when Render moves to a beefier tier or for local A/B testing).
 ENV KATAGO_PATH=/opt/katago/squashfs-root/AppRun \
     KATAGO_MODEL=/opt/katago/models/b20.bin.gz \
+    KATAGO_HUMAN_MODEL=/opt/katago/models/b18c384nbt-humanv0.bin.gz \
     KATAGO_CONFIG=/opt/katago/configs/analysis_example.cfg \
     KATAGO_THREADS=1 \
     KATAGO_VISITS=100 \

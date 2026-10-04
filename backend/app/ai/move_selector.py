@@ -21,6 +21,7 @@ sometimes making genuinely bad choices in non-tactical positions.
 """
 
 from __future__ import annotations
+import asyncio
 import math
 import random
 import logging
@@ -81,7 +82,7 @@ def _is_eye_fill(board: Board, color: Color, point: Point) -> bool:
     return friendly_diags >= required
 
 
-from app.katago.engine import get_engine, MoveCandidate, PositionAnalysis
+from app.katago.engine import get_engine, MoveCandidate, PositionAnalysis, point_to_gtp
 from app.ai.profile_loader import get_profile
 
 logger = logging.getLogger(__name__)
@@ -361,12 +362,154 @@ async def _select_ai_move_inner(
 
     engine = await get_engine()
     if engine:
+        # Human SL path: the profile names a human-net rank and the model is
+        # loaded. The settle path (opponent passed) and games sent without
+        # their move history stay with the standard selector, and so does
+        # any move the human path could not produce.
+        if (
+            profile.get("human_sl_profile")
+            and not opponent_passed
+            and engine_moves is not None
+            and getattr(engine, "has_human_model", False)
+        ):
+            handled, move = await _select_with_human_net(
+                engine, board, color, target_rank, profile,
+                engine_moves, engine_setup, eval_out,
+            )
+            if handled:
+                return move
         return await _select_with_katago(
             engine, board, color, target_rank, last_opponent_move,
             opponent_passed, engine_moves, engine_setup, eval_out,
         )
     else:
         return _pick_random_legal(board, color)
+
+
+# Human SL path (2026-10-04). A profile with `human_sl_profile` takes its
+# moves from KataGo's human SL network: its prediction of what players of
+# that rank play. The standard path samples among the main net's own
+# candidates, which on 9x9 are nearly all strong moves, so weakness could
+# only be added as outliers; here the candidates are moves weak players
+# actually consider.
+#
+# Per move:
+#   1. one evaluation with the profile set -> the human policy for every point;
+#   2. early in the game (fewer than `human_tilt_from` moves played) or with
+#      no `human_tilt`: sample a legal move by human probability;
+#   3. otherwise the candidates are the human net's moves at `human_cand_min`
+#      or more (at most `human_cand_max`), the main net scores the position
+#      after each (`human_score_visits` each), and the sample leans toward
+#      the candidates that lose more: weight = p * exp(loss / human_tilt).
+#
+# Pass is not the human net's call: the bot passes when the main net's raw
+# policy puts more than half its weight on pass.
+HUMAN_TILT_LOSS_CAP = 15.0
+HUMAN_PASS_POLICY = 0.5
+
+
+async def _select_with_human_net(
+    engine, board: Board, color: Color, target_rank: str, profile: dict,
+    engine_moves: list[list[str]],
+    engine_setup: Optional[list[list[str]]] = None,
+    eval_out: Optional[SelectorEval] = None,
+) -> tuple[bool, Optional[Point]]:
+    """Returns (handled, move). handled=False sends the caller to the standard
+    selector (no human policy came back, or a query failed); move=None with
+    handled=True is a pass."""
+    size = board.size
+    n = size * size
+    player = "B" if color == Color.BLACK else "W"
+    where = f"[{target_rank} {size}x{size}]"
+    try:
+        board_2d = board.to_2d()
+        analysis = await engine.analyze(
+            board_2d, player, max_visits=1, size=size,
+            moves=engine_moves, initial_stones=engine_setup,
+            override_settings={"humanSLProfile": profile["human_sl_profile"]},
+            include_policy=True,
+            priority=10,  # live-game moves outrank scoring/finish queries
+        )
+        human, main = analysis.human_policy, analysis.policy
+        if not human or not main or len(human) <= n or len(main) <= n:
+            logger.warning(f"{where} human net: no human policy in the answer, standard selector")
+            return False, None
+
+        if eval_out is not None:
+            # The root eval of the position the bot was given (Black-perspective
+            # like every scoreLead here); first analysis wins, as in the
+            # standard path.
+            if eval_out.score_lead_before is None:
+                eval_out.score_lead_before = analysis.score_lead
+            eval_out.candidates = []
+
+        if main[n] > HUMAN_PASS_POLICY:
+            logger.info(f"{where} human net PASS: main-net pass policy {main[n]:.2f}")
+            return True, None
+
+        # Legal by OUR rules: KataGo plays simple ko under japanese rules and
+        # this engine positional superko, so its policy can offer a recapture
+        # try_play rejects.
+        def _legal(idx: int) -> bool:
+            res, _ = board.clone().try_play(color, Point(idx // size, idx % size))
+            return res == "ok"
+
+        legal = [(i, p) for i, p in enumerate(human[:n]) if p > 0 and _legal(i)]
+        if not legal:
+            return False, None
+
+        tilt = float(profile.get("human_tilt", 0.0))
+        cand_min = float(profile.get("human_cand_min", 0.03))
+        cand_max = int(profile.get("human_cand_max", 8))
+        cands = sorted((t for t in legal if t[1] >= cand_min), key=lambda t: -t[1])[:cand_max]
+
+        if tilt > 0 and len(engine_moves) >= int(profile.get("human_tilt_from", 12)) and len(cands) > 1:
+            opponent = "W" if player == "B" else "B"
+            visits = int(profile.get("human_score_visits", 4))
+            results = await asyncio.gather(*(
+                engine.analyze(
+                    board_2d, opponent, max_visits=visits, size=size,
+                    moves=engine_moves + [[player, point_to_gtp(i // size, i % size, size)]],
+                    initial_stones=engine_setup,
+                    priority=10,
+                )
+                for i, _ in cands
+            ))
+            # Lead from the mover's side after each candidate; loss against the
+            # best of them.
+            vals = [r.score_lead if color == Color.BLACK else -r.score_lead for r in results]
+            best = max(vals)
+            losses = [best - v for v in vals]
+            weights = [
+                p * math.exp(min(loss, HUMAN_TILT_LOSS_CAP) / tilt)
+                for (_, p), loss in zip(cands, losses)
+            ]
+            k = random.choices(range(len(cands)), weights=weights)[0]
+            idx, prob = cands[k]
+            if eval_out is not None:
+                eval_out.candidates = [
+                    MoveCandidate(
+                        move=(i // size, i % size), visits=visits, winrate=r.winrate,
+                        score_lead=r.score_lead, prior=p, pv=[], order=j,
+                    )
+                    for j, ((i, p), r) in enumerate(zip(cands, results))
+                ]
+            logger.info(
+                f"{where} human net {profile['human_sl_profile']}: picked "
+                f"{point_to_gtp(idx // size, idx % size, size)} (p={prob:.2f}, loss={losses[k]:.1f}) "
+                f"of {len(cands)} candidates, worst loss {max(losses):.1f}"
+            )
+        else:
+            k = random.choices(range(len(legal)), weights=[p for _, p in legal])[0]
+            idx, prob = legal[k]
+            logger.info(
+                f"{where} human net {profile['human_sl_profile']}: sampled "
+                f"{point_to_gtp(idx // size, idx % size, size)} (p={prob:.2f})"
+            )
+        return True, Point(idx // size, idx % size)
+    except Exception as e:
+        logger.warning(f"{where} human net failed ({e!r}), standard selector")
+        return False, None
 
 
 def _select_beginner_move(

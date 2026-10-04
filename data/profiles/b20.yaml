@@ -185,6 +185,16 @@ profiles:
       visits: 8
       min_candidates: 10
       opening_moves: 3
+      # Human SL path (2026-10-04): with the human model loaded, this rung takes its moves from
+      # KataGo's human net at its weakest profile and, from move 13 on, leans toward the weaker of
+      # that net's candidates. The knobs above then apply only on the settle path (the opponent
+      # has passed) and when the human model is not loaded.
+      human_sl_profile: rank_20k
+      human_tilt: 8.0
+      human_tilt_from: 12
+      human_cand_min: 0.03
+      human_cand_max: 8
+      human_score_visits: 4
       pass_threshold: 0.1
       clarity_prior: 0.95
       clarity_score_gap: 25.0

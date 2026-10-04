@@ -29,6 +29,10 @@ class KataGoConfig:
     config: str = ""
     num_threads: int = 4
     max_visits: int = 100
+    # Optional human SL network (KataGo's rank-conditioned model of human
+    # play), loaded beside the main model with -human-model. Empty = not
+    # loaded. It costs nothing on queries that don't name a profile.
+    human_model: str = ""
 
 
 @dataclass
@@ -51,6 +55,12 @@ class PositionAnalysis:
     score_lead: float
     candidates: list[MoveCandidate]
     ownership: Optional[list[float]] = None  # 361 floats: -1 (white) to +1 (black)
+    # Raw policy for every point plus pass (row-major from the top-left,
+    # pass last; illegal moves are negative). Present only when the query
+    # asked for it (include_policy). human_policy additionally needs the
+    # human SL model loaded and a humanSLProfile in override_settings.
+    policy: Optional[list[float]] = None
+    human_policy: Optional[list[float]] = None
 
 
 def point_to_gtp(row: int, col: int, size: int = BOARD_SIZE) -> str:
@@ -95,6 +105,11 @@ class KataGoEngine:
             "-model", self.config.model,
             "-config", self.config.config,
         ]
+        if self.config.human_model:
+            # No default humanSLProfile on purpose: a query gets the human
+            # policy only when it names a profile in its override settings,
+            # so every other query runs exactly as it did without the model.
+            cmd += ["-human-model", self.config.human_model]
 
         logger.info(f"Starting KataGo: {' '.join(cmd)}")
 
@@ -147,6 +162,7 @@ class KataGoEngine:
         initial_stones: Optional[list[list[str]]] = None,
         override_settings: Optional[dict] = None,
         priority: int = 0,
+        include_policy: bool = False,
     ) -> PositionAnalysis:
         """Analyze a board position. Returns candidate moves with evaluations.
 
@@ -209,6 +225,11 @@ class KataGoEngine:
             # Only move-selection callers set this; settle/score analyses stay
             # honest.
             query["overrideSettings"] = override_settings
+        if include_policy:
+            # Raw policy over the whole board. With the human SL model loaded
+            # and {"humanSLProfile": ...} in override_settings the response
+            # also carries humanPolicy: how players of that rank move here.
+            query["includePolicy"] = True
 
         async with self._lock:
             future = asyncio.get_event_loop().create_future()
@@ -300,11 +321,18 @@ class KataGoEngine:
             score_lead=root_info.get("scoreLead", 0.0),
             candidates=candidates,
             ownership=ownership,
+            policy=response.get("policy"),
+            human_policy=response.get("humanPolicy"),
         )
 
     @property
     def is_running(self) -> bool:
         return self.process is not None and self.process.poll() is None
+
+    @property
+    def has_human_model(self) -> bool:
+        """Whether the human SL model is loaded beside the main model."""
+        return bool(self.config.human_model)
 
 
 # Singleton
@@ -316,6 +344,28 @@ def _strict_katago() -> bool:
     raises instead of silently falling back to stub AI. Used by the calibration
     harness — a stub-AI bot would silently invalidate every calibration result."""
     return os.environ.get("STRICT_KATAGO", "").lower() in ("1", "true", "yes")
+
+
+async def _human_model_answers(engine: "KataGoEngine") -> bool:
+    """One tiny query that only a working human SL model can answer.
+
+    Run once at start-up. If the model failed to load (missing file, a
+    KataGo build without human SL support, not enough memory) the caller
+    restarts the engine without it, so the ordinary bots keep working.
+    Both networks load before the first answer, hence the longer wait."""
+    saved = engine._query_timeout
+    engine._query_timeout = max(saved, 90.0)
+    try:
+        res = await engine.analyze(
+            [[0] * 9 for _ in range(9)], "B", max_visits=1, komi=6.5, size=9, moves=[],
+            override_settings={"humanSLProfile": "rank_20k"}, include_policy=True,
+        )
+        return bool(res.human_policy)
+    except Exception as e:
+        logger.warning(f"KataGo human SL warm-up failed: {e!r}")
+        return False
+    finally:
+        engine._query_timeout = saved
 
 
 async def get_engine() -> Optional[KataGoEngine]:
@@ -367,10 +417,26 @@ async def get_engine() -> Optional[KataGoEngine]:
         logger.warning(f"{msg}, using stub AI")
         return None
 
+    # Optional human SL model. A missing or truncated file just leaves it
+    # unloaded: profiles that ask for it use the standard selector.
+    human_model = os.environ.get("KATAGO_HUMAN_MODEL", "")
+    if human_model:
+        try:
+            human_size = os.path.getsize(human_model)
+        except OSError:
+            human_size = -1
+        if human_size < 1024 * 1024:
+            logger.warning(
+                f"KATAGO_HUMAN_MODEL not usable ({human_model!r}, {human_size} bytes); "
+                "human-net profiles use the standard selector"
+            )
+            human_model = ""
+
     kg_config = KataGoConfig(
         executable=executable,
         model=model,
         config=config,
+        human_model=human_model,
         num_threads=int(os.environ.get("KATAGO_THREADS", "4")),
         max_visits=int(os.environ.get("KATAGO_VISITS", "100")),
     )
@@ -378,6 +444,12 @@ async def get_engine() -> Optional[KataGoEngine]:
     try:
         _engine = KataGoEngine(kg_config)
         await _engine.start()
+        if kg_config.human_model and not await _human_model_answers(_engine):
+            logger.warning("KataGo human SL model did not answer; restarting without it")
+            await _engine.stop()
+            kg_config.human_model = ""
+            _engine = KataGoEngine(kg_config)
+            await _engine.start()
         return _engine
     except Exception as e:
         _engine = None
