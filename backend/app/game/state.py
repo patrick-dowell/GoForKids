@@ -520,6 +520,7 @@ class GameManager:
             engine_moves=engine_moves,
             engine_setup=engine_setup,
             eval_out=sel_eval,
+            komi=game.komi,  # the engine reads at the game's komi, as on the device
         )
         # Eval of the position the bot analyzed = the board right after the
         # opponent's (usually the player's) move. The frontend records it one

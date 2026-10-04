@@ -275,6 +275,13 @@ def _pick_noisy_best(pool: list, sigma: float):
     return best
 
 
+def _komi_kw(komi: Optional[float]) -> dict:
+    """The game's komi for an engine query. None leaves engine.analyze's
+    default of 7.5, which every query used before 2026-10-04 whatever the
+    game's komi (6.5 even, 0.5 with a handicap); the device sends the game's."""
+    return {} if komi is None else {"komi": komi}
+
+
 # Visit count for "settle the game cleanly" moves (after the opponent passes).
 # Low-visit rank profiles never search `pass` enough to trust it; bumping to a
 # deep search lets KataGo surface pass at a settled position so the bot passes
@@ -289,6 +296,7 @@ async def select_ai_move(
     engine_moves: Optional[list[list[str]]] = None,
     engine_setup: Optional[list[list[str]]] = None,
     eval_out: Optional[SelectorEval] = None,
+    komi: Optional[float] = None,
 ) -> Optional[Point]:
     """Select a move for the AI at the given target rank.
 
@@ -304,10 +312,12 @@ async def select_ai_move(
     `eval_out`, when provided, is filled with score data from the analysis
     this selection ran anyway (see SelectorEval) — the GOFORKIDS_FAST_MOVES
     path reads it instead of paying for a second engine query.
+    `komi` is the game's komi, sent with every engine query of both paths;
+    None leaves the engine's default (7.5), as before 2026-10-04.
     """
     move = await _select_ai_move_inner(
         board, color, target_rank, last_opponent_move, opponent_passed,
-        engine_moves, engine_setup, eval_out,
+        engine_moves, engine_setup, eval_out, komi,
     )
 
     # Safety check: NEVER fill your own eye. No human above 30k does this.
@@ -317,7 +327,7 @@ async def select_ai_move(
         for _ in range(5):
             alt = await _select_ai_move_inner(
                 board, color, target_rank, last_opponent_move, opponent_passed,
-                engine_moves, engine_setup, eval_out,
+                engine_moves, engine_setup, eval_out, komi,
             )
             if alt and not _is_eye_fill(board, color, alt):
                 return alt
@@ -353,6 +363,7 @@ async def _select_ai_move_inner(
     engine_moves: Optional[list[list[str]]] = None,
     engine_setup: Optional[list[list[str]]] = None,
     eval_out: Optional[SelectorEval] = None,
+    komi: Optional[float] = None,
 ) -> Optional[Point]:
     """Inner move selection (before eye-fill safety check)."""
     profile = get_profile(target_rank, board.size)
@@ -376,7 +387,7 @@ async def _select_ai_move_inner(
                 handled, move = await asyncio.wait_for(
                     _select_with_human_net(
                         engine, board, color, target_rank, profile,
-                        engine_moves, engine_setup, eval_out, opponent_passed,
+                        engine_moves, engine_setup, eval_out, opponent_passed, komi,
                     ),
                     timeout=HUMAN_PATH_BUDGET_S,
                 )
@@ -390,7 +401,7 @@ async def _select_ai_move_inner(
                 return move
         return await _select_with_katago(
             engine, board, color, target_rank, last_opponent_move,
-            opponent_passed, engine_moves, engine_setup, eval_out,
+            opponent_passed, engine_moves, engine_setup, eval_out, komi,
         )
     else:
         return _pick_random_legal(board, color)
@@ -511,6 +522,7 @@ async def _select_with_human_net(
     engine_setup: Optional[list[list[str]]] = None,
     eval_out: Optional[SelectorEval] = None,
     opponent_passed: bool = False,
+    komi: Optional[float] = None,
 ) -> tuple[bool, Optional[Point]]:
     """Returns (handled, move). handled=False sends the caller to the standard
     selector (no human policy came back, or a query failed); move=None with
@@ -529,6 +541,7 @@ async def _select_with_human_net(
             include_policy=True,
             include_ownership=True,  # the border check's count; no extra search
             priority=10,  # live-game moves outrank scoring/finish queries
+            **_komi_kw(komi),
         )
         human, main = analysis.human_policy, analysis.policy
         if not human or not main or len(human) <= n or len(main) <= n:
@@ -556,6 +569,7 @@ async def _select_with_human_net(
                 moves=engine_moves + [[player, move]],
                 initial_stones=engine_setup,
                 priority=10,
+                **_komi_kw(komi),
             )
 
         ownership = getattr(analysis, "ownership", None)
@@ -806,6 +820,7 @@ async def _select_with_katago(
     engine_moves: Optional[list[list[str]]] = None,
     engine_setup: Optional[list[list[str]]] = None,
     eval_out: Optional[SelectorEval] = None,
+    komi: Optional[float] = None,
 ) -> Optional[Point]:
     """
     KataGo-backed rank-calibrated move selection.
@@ -845,6 +860,7 @@ async def _select_with_katago(
             moves=engine_moves, initial_stones=engine_setup,
             override_settings=overrides,
             priority=10,  # live-game moves outrank scoring/finish queries
+            **_komi_kw(komi),
         )
 
         if eval_out is not None:
