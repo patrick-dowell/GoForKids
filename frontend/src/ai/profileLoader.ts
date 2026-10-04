@@ -75,6 +75,22 @@ export interface RankProfile {
   save_atari_chance?: number;
   capture_chance?: number;
   use_katago?: boolean;
+
+  /** Human SL path knobs (backend move_selector._select_with_human_net; the
+   *  TypeScript port is humanNetSelector.ts, not yet called by the app).
+   *  `human_sl_profile` names the human net's rank profile, e.g. 'rank_20k';
+   *  the rest tune that path and are read with the Python's defaults. */
+  human_sl_profile?: string;
+  human_tilt?: number;
+  human_tilt_from?: number;
+  human_cand_min?: number;
+  human_cand_max?: number;
+  human_score_visits?: number;
+  human_pass_margin?: number;
+  human_small_gain?: number;
+  human_confirm_visits?: number;
+  human_confirm_margin?: number;
+  human_loss_cap?: number;
 }
 
 const REQUIRED_KEYS = [
