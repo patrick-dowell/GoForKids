@@ -1,0 +1,105 @@
+diff --git a/ios/KataGo iOS/KataGo iOS/KataGoHelper.h b/ios/KataGo iOS/KataGo iOS/KataGoHelper.h
+index e876d00..ee04655 100644
+--- a/ios/KataGo iOS/KataGo iOS/KataGoHelper.h	
++++ b/ios/KataGo iOS/KataGo iOS/KataGoHelper.h	
+@@ -14,6 +14,22 @@
+ 
+ + (void)runGtp;
+ 
++/// YES when the human SL net is in the bundle: its CoreML package
++/// (KataGoModel19x19fp16m1.mlpackage) and its .bin.gz stub
++/// (b18c384nbt-humanv0-null.bin.gz).
+++ (BOOL)humanModelInBundle;
++
++/// Run KataGo main command GTP with the default model and config, and with
++/// -human-model when useHumanModel is YES and the human net is in the bundle.
++/// Returns only when the engine has stopped, with the reason. Before it
++/// returns it discards unread input and writes a GTP error reply
++/// ("? engine stopped: ..."), so a caller waiting on a reply wakes up.
+++ (NSString * _Nonnull)runGtpWithHumanModel:(BOOL)useHumanModel;
++
++/// Discard commands sent to an engine that has stopped, so a restarted
++/// engine does not answer them.
+++ (void)discardPendingInput;
++
+ + (NSString * _Nonnull)getMessageLine;
+ 
+ + (void)sendCommand:(NSString * _Nonnull)command;
+diff --git a/ios/KataGo iOS/KataGo iOS/KataGoHelper.mm b/ios/KataGo iOS/KataGo iOS/KataGoHelper.mm
+index 83e4fb1..83501b2 100644
+--- a/ios/KataGo iOS/KataGo iOS/KataGoHelper.mm	
++++ b/ios/KataGo iOS/KataGo iOS/KataGoHelper.mm	
+@@ -53,6 +53,11 @@ public:
+         done = true;
+         cv.notify_all();
+     }
++
++    void clear() {
++        std::lock_guard<std::mutex> lock(m);
++        buffer.clear();
++    }
+ };
+ 
+ // Thread-safe stream buffer from KataGo
+@@ -109,6 +114,61 @@ ostream outToKataGo(&tsbToKataGo);
+ #endif
+ }
+ 
++static NSString* const humanModelStubName = @"b18c384nbt-humanv0-null"; // .bin.gz
++static NSString* const humanCoreMLPackageName = @"KataGoModel19x19fp16m1"; // .mlpackage
++
+++ (BOOL)humanModelInBundle {
++    NSBundle* mainBundle = [NSBundle mainBundle];
++    return ([mainBundle pathForResource:humanModelStubName ofType:@"bin.gz"] != nil &&
++            [mainBundle pathForResource:humanCoreMLPackageName ofType:@"mlpackage"] != nil);
++}
++
+++ (NSString * _Nonnull)runGtpWithHumanModel:(BOOL)useHumanModel {
++    NSBundle* mainBundle = [NSBundle mainBundle];
++    NSString* modelPath = [mainBundle pathForResource:@"default_model" ofType:@"bin.gz"];
++    NSString* configPath = [mainBundle pathForResource:@"default_gtp" ofType:@"cfg"];
++    NSString* humanModelPath = [mainBundle pathForResource:humanModelStubName ofType:@"bin.gz"];
++    BOOL withHuman = useHumanModel && [KataGoHelper humanModelInBundle];
++
++    // Replace the global cout and cin objects with the custom ones
++    cout.rdbuf(&tsbFromKataGo);
++    cin.rdbuf(&tsbToKataGo);
++
++    vector<string> subArgs;
++    subArgs.push_back(string("gtp"));
++    subArgs.push_back(string("-model"));
++    subArgs.push_back(string([modelPath UTF8String]));
++    if(withHuman) {
++        // The CoreML backend finds the human package in the bundle by name.
++        subArgs.push_back(string("-human-model"));
++        subArgs.push_back(string([humanModelPath UTF8String]));
++    }
++    subArgs.push_back(string("-config"));
++    subArgs.push_back(string([configPath UTF8String]));
++
++    string reason;
++    try {
++        int code = MainCmds::gtp(subArgs);
++        reason = "exited with code " + to_string(code);
++    } catch(const std::exception& e) {
++        reason = string("failed: ") + e.what();
++    } catch(...) {
++        reason = "failed with an unknown exception";
++    }
++    for(char& c : reason) {
++        if(c == '\n' || c == '\r')
++            c = ' ';
++    }
++
++    tsbToKataGo.clear();
++    cout << "? engine stopped: " << reason << endl << endl;
++    return [NSString stringWithUTF8String:reason.c_str()];
++}
++
+++ (void)discardPendingInput {
++    tsbToKataGo.clear();
++}
++
+ + (NSString * _Nonnull)getMessageLine {
+     // Get a line from the input stream from KataGo
+     string cppLine;
