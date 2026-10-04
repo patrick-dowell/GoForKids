@@ -99,6 +99,8 @@ export interface KataGoBridge {
     color: 'B' | 'W';
     /** The human SL profile, e.g. "rank_20k" (KataGo's humanSLProfile). */
     profile: string;
+    /** The selector's visits for this query (1); required by the native side. */
+    maxVisits: number;
   }): Promise<{ humanPolicy: number[] | null; policy: number[] | null; scoreLead: number }>;
   /** The human SL path's scoring query (humanNetSelector.ts ScoreAfterAnswer):
    *  the main net's search, no human profile, of the position after `color`

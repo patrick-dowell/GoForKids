@@ -61,7 +61,10 @@ function installBridge(opts: FakeOpts = {}) {
     rootVisits: Number(params.maxVisits),
     kataGoPlayedMove: 'E5',
   }));
-  const humanPolicy = vi.fn(async () => {
+  const humanPolicy = vi.fn(async (params: Record<string, unknown>) => {
+    // As the native bridge does: the visits are required, an integer of 1 or more.
+    const visits = params.visits ?? params.maxVisits;
+    if (!Number.isInteger(visits) || (visits as number) < 1) throw new Error('invalid params: visits');
     if (opts.humanPolicyFails) throw new Error('human net not loaded');
     return {
       humanPolicy: opts.humanPolicyNull ? null : policy({ [C7]: 1.0 }),
@@ -207,7 +210,19 @@ describe('the human path through the bridge', () => {
       moves: [],
       color: 'B',
       profile: 'rank_20k',
+      maxVisits: 1,
     });
+  });
+
+  it('sends the visits the native humanPolicy requires, so the human selector plays', async () => {
+    const b = installBridge({ caps: HUMAN });
+    const { api, gameId, log } = await start({ humanBots: true });
+    log.clearSelectorLog();
+    const move = await api.getAIMove(gameId, '15k', { movesForBridge: [], handicap: 0 });
+    expect(at(move.point)).toEqual([2, 2]);
+    expect(b.humanPolicy.mock.calls[0][0]).toMatchObject({ maxVisits: 1 });
+    expect(b.analyze).not.toHaveBeenCalled();
+    expect(log.snapshotSelectorLog().some((l) => l.includes('standard selector'))).toBe(false);
   });
 
   it('scores the candidates through scoreAfter past move 12, and feeds the score graph', async () => {

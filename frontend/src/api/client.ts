@@ -596,9 +596,9 @@ function humanNetEngine(
   },
 ): HumanNetEngine {
   return {
-    humanPolicy: async (profile) => {
+    humanPolicy: async (profile, visits) => {
       if (!bridge.humanPolicy) throw new Error('this native build has no humanPolicy');
-      return bridge.humanPolicy({ ...position, profile });
+      return bridge.humanPolicy({ ...position, profile, maxVisits: visits });
     },
     scoreAfter: async (move, visits) => {
       if (!bridge.scoreAfter) throw new Error('this native build has no scoreAfter');
