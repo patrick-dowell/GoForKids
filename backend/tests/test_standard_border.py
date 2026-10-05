@@ -185,8 +185,9 @@ async def test_route_pass_within_the_threshold(monkeypatch):
 
 
 async def test_route_settle_top_unplayable(monkeypatch):
-    # After the opponent's pass the honest top fills White's own territory (B3).
-    engine = Engine([Cand("B3", 0.5, -20.0, visits=60), Cand("pass", 0.3, -26.0, visits=30)], _own12())
+    # After the opponent's pass the honest top fills White's own territory (B3);
+    # it beats the pass by 4 for White (leads are Black's), so the pass check lets it through.
+    engine = Engine([Cand("B3", 0.5, -30.0, visits=60), Cand("pass", 0.3, -26.0, visits=30)], _own12())
     assert await _select(monkeypatch, engine, opponent_passed=True) == _pt("A8")
     assert engine.calls[0]["max_visits"] == ms.SETTLE_VISITS
 

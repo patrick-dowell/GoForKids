@@ -1099,11 +1099,13 @@ async def _select_with_katago(
         # backend has slightly different prior distributions, which we saw
         # on the deployed Linux Eigen build vs. local Mac Metal.
         min_pass_visits = max(4, best.visits // 10)
+        # Leads are Black's; `mover` turns a gap into the bot's own.
+        mover = 1.0 if color == Color.BLACK else -1.0
         if (
             not is_opening
             and pass_cand is not None
             and pass_cand.visits >= min_pass_visits
-            and best.score_lead - pass_cand.score_lead < pass_threshold
+            and mover * (best.score_lead - pass_cand.score_lead) < pass_threshold
         ):
             logger.warning(
                 f"[{target_rank} {board.size}x{board.size}] PASS: best={best.score_lead:.2f} "
@@ -1226,7 +1228,7 @@ async def _select_with_katago(
         if best.prior >= clarity_prior:
             return Point(best.move[0], best.move[1])
         non_pass = [c for c in analysis.candidates if c.move[0] >= 0]
-        if len(non_pass) >= 2 and non_pass[0].score_lead - non_pass[1].score_lead >= clarity_score_gap:
+        if len(non_pass) >= 2 and mover * (non_pass[0].score_lead - non_pass[1].score_lead) >= clarity_score_gap:
             return Point(non_pass[0].move[0], non_pass[0].move[1])
 
         # --- OPENING: play sensibly ---
@@ -1317,7 +1319,7 @@ async def _select_with_katago(
         if pass_cand is not None and pass_cand.visits >= min_pass_visits:
             filtered = [
                 (c, pl) for (c, pl) in filtered
-                if c.score_lead >= pass_cand.score_lead - pass_threshold
+                if mover * c.score_lead >= mover * pass_cand.score_lead - pass_threshold
             ]
 
         if not filtered:
