@@ -54,6 +54,8 @@ interface FakeOpts {
   hang?: 'humanPolicy' | 'scoreAfter' | 'ownership';
   /** The main net's pass weight in humanPolicy's answer (default 0). */
   mainPass?: number;
+  /** scoreAfter's lead after a move, Black's frame (default 5; the pass reads 0). */
+  afterLead?: number;
   /** analyze's ownership when asked for it, Black's frame (sent from the
    *  side to move's, as KataGo's GTP layer does); 'fail' rejects. */
   ownership?: number[] | 'fail';
@@ -89,7 +91,7 @@ function installBridge(opts: FakeOpts = {}) {
   const scoreAfter = vi.fn(async (params: Record<string, unknown>) => {
     if (opts.scoreAfterFails) throw new Error('engine busy');
     if (opts.hang === 'scoreAfter') return new Promise<never>(() => {});
-    return { scoreLead: params.move === 'pass' ? 0 : 5, winrate: 0.6 };
+    return { scoreLead: params.move === 'pass' ? 0 : (opts.afterLead ?? 5), winrate: 0.6 };
   });
   const capabilities = vi.fn(async () => {
     if (opts.caps === 'reject') throw new Error('no probe');
@@ -152,16 +154,20 @@ afterEach(() => {
 });
 
 describe('the routing matrix: setting × human rung × human model', () => {
-  // rung present: the 9×9 15k; rung absent: the 9×9 9k (the human set has none)
+  // rung present: the 9×9 15k, 9k and 6k; rung absent: the 9×9 3k (the human set has none)
   const cases = [
     { humanBots: false, rank: '15k', caps: HUMAN, human: false },
     { humanBots: false, rank: '15k', caps: NO_HUMAN, human: false },
-    { humanBots: false, rank: '9k', caps: HUMAN, human: false },
-    { humanBots: false, rank: '9k', caps: NO_HUMAN, human: false },
+    { humanBots: false, rank: '3k', caps: HUMAN, human: false },
+    { humanBots: false, rank: '3k', caps: NO_HUMAN, human: false },
     { humanBots: true, rank: '15k', caps: HUMAN, human: true },
     { humanBots: true, rank: '15k', caps: NO_HUMAN, human: false },
-    { humanBots: true, rank: '9k', caps: HUMAN, human: false },
-    { humanBots: true, rank: '9k', caps: NO_HUMAN, human: false },
+    { humanBots: true, rank: '3k', caps: HUMAN, human: false },
+    { humanBots: true, rank: '3k', caps: NO_HUMAN, human: false },
+    { humanBots: false, rank: '9k', caps: HUMAN, human: false },
+    { humanBots: false, rank: '6k', caps: HUMAN, human: false },
+    { humanBots: true, rank: '9k', caps: HUMAN, human: true },
+    { humanBots: true, rank: '6k', caps: HUMAN, human: true },
   ];
 
   for (const c of cases) {
@@ -197,7 +203,9 @@ describe('the standard path is what it was', () => {
 
   for (const [label, opts, settings, rank] of [
     ['setting off', { caps: HUMAN }, { humanBots: false }, '15k'],
-    ['no human rung', { caps: HUMAN }, { humanBots: true }, '9k'],
+    ['setting off, 9k', { caps: HUMAN }, { humanBots: false }, '9k'],
+    ['setting off, 6k', { caps: HUMAN }, { humanBots: false }, '6k'],
+    ['no human rung', { caps: HUMAN }, { humanBots: true }, '3k'],
     ['human model false', { caps: NO_HUMAN }, { humanBots: true }, '15k'],
     ['a build without capabilities()', {}, { humanBots: true }, '15k'],
     ['capabilities() failing', { caps: 'reject' as const }, { humanBots: true }, '15k'],
@@ -210,6 +218,51 @@ describe('the standard path is what it was', () => {
       expect(b.analyze.mock.calls).toEqual(expected);
       expect(b.humanPolicy).not.toHaveBeenCalled();
       expect(b.scoreAfter).not.toHaveBeenCalled();
+    });
+  }
+});
+
+describe('the 9×9 9k and 6k on the human path', () => {
+  afterEach(() => {
+    vi.doUnmock('../../ai/humanNetSelector');
+  });
+
+  /** The human selector, wrapped so a test can see the profile it was given. */
+  async function spySelector() {
+    vi.doMock('../../ai/humanNetSelector', async (importOriginal) => {
+      const m = await importOriginal<typeof import('../../ai/humanNetSelector')>();
+      return { ...m, selectWithHumanNet: vi.fn(m.selectWithHumanNet) };
+    });
+    return (await import('../../ai/humanNetSelector')).selectWithHumanNet as unknown as ReturnType<typeof vi.fn>;
+  }
+
+  for (const [rank, knobs] of [
+    ['9k', { human_tilt: -4.0, human_loss_cap: 4.0 }],
+    ['6k', { human_tilt: -0.5, human_loss_cap: 1.0 }],
+  ] as const) {
+    it(`setting on: the ${rank} plays through the human selector with its own rung (rank_9k)`, async () => {
+      const select = await spySelector();
+      const b = installBridge({ caps: HUMAN });
+      const { api, gameId } = await start({ humanBots: true });
+      const { getHumanProfile } = await import('../../ai/profileLoader');
+      const move = await api.getAIMove(gameId, rank, { movesForBridge: [], handicap: 0 });
+      expect(at(move.point)).toEqual([2, 2]);
+      expect(b.humanPolicy.mock.calls[0][0]).toMatchObject({ profile: 'rank_9k', maxVisits: 1 });
+      expect(select).toHaveBeenCalledTimes(1);
+      const profile = select.mock.calls[0][3];
+      expect(profile).toBe(getHumanProfile(rank, 9));
+      expect(profile).toMatchObject({ human_sl_profile: 'rank_9k', ...knobs });
+      expect(b.analyze).not.toHaveBeenCalled();
+    });
+
+    it(`setting off: the ${rank} never reaches the human selector`, async () => {
+      const select = await spySelector();
+      const b = installBridge({ caps: HUMAN });
+      const { api, gameId } = await start({ humanBots: false });
+      const move = await api.getAIMove(gameId, rank, { movesForBridge: [], handicap: 0 });
+      expect(at(move.point)).toEqual([4, 4]);
+      expect(select).not.toHaveBeenCalled();
+      expect(b.humanPolicy).not.toHaveBeenCalled();
     });
   }
 });
@@ -325,7 +378,8 @@ describe('the human path through the bridge', () => {
       const moves = [...(await twelveMoves(api, gameId)), { color: 'B' as const, point: 'E5' }];
       await api.playMove(gameId, 4, 4);
       const grid = (await api.getGame(gameId)).board;
-      const b = installBridge({ caps: HUMAN, mainPass: 0.9, ownership: ownershipOf(grid) });
+      // every move reads five better than the pass from White's side: a border move loses nothing against it
+      const b = installBridge({ caps: HUMAN, mainPass: 0.9, ownership: ownershipOf(grid), afterLead: -5 });
       const move = await api.getAIMove(gameId, '15k', { movesForBridge: moves, handicap: 0 });
       // White's first one-point move in index order: A3 closes A2
       expect(at(move.point)).toEqual([6, 0]);

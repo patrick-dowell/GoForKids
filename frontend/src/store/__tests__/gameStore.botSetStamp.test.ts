@@ -95,7 +95,7 @@ describe("the game log's start line names the bot's profile set", () => {
     useCapabilitiesStore.setState({ capabilities: { localBots: true, evalsPerSecond: 40, humanModel: true } });
     expect(await start({ lessonContext: true })).toContain(`bridge=yes${standard}`);
     expect(await start({ gameMode: 'botvsbot' })).toContain(' set=standard');
-    expect(await start({ rank: '9k' })).toContain(' set=standard rr=0.08');
+    expect(await start({ rank: '3k' })).toContain(' set=standard rr=0.24');
   });
 });
 

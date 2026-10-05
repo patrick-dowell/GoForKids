@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import {
+  BORDER_MAX_QUERIES,
   borderMoves,
   countedMargin,
   deadStonesFromOwnership,
@@ -164,6 +165,20 @@ async function select(
 
 const sorted = (xs: string[]) => [...xs].sort();
 
+// Two pockets of White's, each open to Black through one point (E7, E3): closing either gains 16
+// (F7 or F3, one point inside, 15).
+const TWO_POCKETS = [
+  '...XO....',
+  '...XO....',
+  '...X.....',
+  '...XO....',
+  '...XOOOOO',
+  '...XO....',
+  '...X.....',
+  '...XO....',
+  '...XO....',
+];
+
 describe('the border check before a pass', () => {
   it('the 12k closes the border at A8 instead of passing', async () => {
     const { board, moves } = replay(GAME_12K);
@@ -322,9 +337,10 @@ describe('the border check before a pass', () => {
       defaultLead: -15.0,
     });
     expect((await select(engine, board, moves)).move).toEqual(pt('A8'));
+    // A8 4.1 behind the pass (past the cap and its gain of four), A7 3 (its own gain of three): A7.
     const engine2 = new FakeEngine(HUMAN_12K, {
       own: ownership(board, DEAD_12K),
-      leads: { pass: -20.0, A8: -15.9, A7: -16.0, A6: -15.5 },
+      leads: { pass: -20.0, A8: -15.9, A7: -17.0, A6: -15.5 },
       defaultLead: -15.0,
     });
     expect((await select(engine2, board, moves)).move).toEqual(pt('A7'));
@@ -378,20 +394,6 @@ describe('the border check before a pass', () => {
     const engine = new FakeEngine(HUMAN_12K, { own: ownership(board, DEAD_12K), leads: { A8: -21.0 } });
     expect((await select(engine, board, moves)).move).toEqual(pt('A7'));
   });
-
-  // Two pockets of White's, each open to Black through one point (E7, E3): closing either gains 16
-  // (F7 or F3, one point inside, 15).
-  const TWO_POCKETS = [
-    '...XO....',
-    '...XO....',
-    '...X.....',
-    '...XO....',
-    '...XOOOOO',
-    '...XO....',
-    '...X.....',
-    '...XO....',
-    '...XO....',
-  ];
 
   it("equal gains go to the human net's probability, then to the first point", async () => {
     const board = fromRows(TWO_POCKETS);
@@ -458,6 +460,124 @@ describe('the border check before a pass', () => {
     const own = ownership(board, DEAD_12K);
     const w = countedMargin(board, Color.White, own).margin;
     expect(countedMargin(board, Color.Black, own).margin).toBe(-w);
+  });
+});
+
+// --- the border check's two limits (backend/tests/test_border_check_limits.py) --
+
+describe("the border check's limits: the ceiling and the loss against the pass", () => {
+  // White's one-point pockets on the top and bottom edges, each open to a region that touches Black
+  // through a gap: a stone in the gap's second row gains one, in the third row two.
+  const POCKETS = [
+    '.O.O.O.O.',
+    '.O.O.O.O.',
+    '.........',
+    'XXXXXXXXX',
+    '.........',
+    'XXXXXXXXX',
+    '.........',
+    '.O.O.O.O.',
+    '.O.O.O.O.',
+  ];
+  const CAP10: HumanNetProfile = { ...PROFILE_12K, human_loss_cap: 10.0 };
+  const passing = policy({}, 0.9); // the main net on pass: straight to the border check
+
+  it('the pockets board has twenty qualifying moves, ten of two points and ten of one', () => {
+    const board = fromRows(POCKETS);
+    const found = borderMoves(board, Color.White, ownership(board, []), 1.0);
+    expect(found).toHaveLength(20);
+    expect(found.filter(([g]) => g === 2).map(([, i]) => gtpI(i))).toEqual([
+      'A7', 'C7', 'E7', 'G7', 'J7', 'A3', 'C3', 'E3', 'G3', 'J3',
+    ]);
+    expect(found.filter(([g]) => g === 1)).toHaveLength(10);
+  });
+
+  it('many qualifying moves make at most the ceiling of queries', async () => {
+    const board = fromRows(POCKETS);
+    const found = new Set(borderMoves(board, Color.White, ownership(board, []), 1.0).map(([, i]) => i));
+    expect(BORDER_MAX_QUERIES).toBe(8);
+    const engine = new FakeEngine(policy({}), { main: passing, own: ownership(board, []), defaultLead: 0.0 });
+    const { handled, move } = await select(engine, board, 30, CAP10);
+    expect(handled).toBe(true);
+    expect(found.has(move!.row * SIZE + move!.col)).toBe(true);
+    expect(engine.scored()).toHaveLength(BORDER_MAX_QUERIES + 1);
+    expect(engine.scored().filter((m) => m === 'pass')).toHaveLength(1);
+  });
+
+  it('the largest gains are scored first, ties to the likelier, then index order', async () => {
+    // A8 (one point) is the likeliest move on the board and is not scored; of the ten two-point moves
+    // J3 and G3 come first by probability, then index order to the ceiling: C3 and E3 are left out.
+    const board = fromRows(POCKETS);
+    const engine = new FakeEngine(policy({ A8: 0.5, J3: 0.3, G3: 0.2 }), {
+      main: passing,
+      own: ownership(board, []),
+      defaultLead: 0.0,
+    });
+    expect((await select(engine, board, 30, CAP10)).move).toEqual(pt('J3'));
+    expect(engine.scored()).toEqual(['J3', 'G3', 'A7', 'C7', 'E7', 'G7', 'J7', 'A3', 'pass']);
+  });
+
+  it('a move past the ceiling is not considered when every scored one fails', async () => {
+    // Every scored two-point move loses three against the pass; C3 and E3 are never asked about.
+    const board = fromRows(POCKETS);
+    const engine = new FakeEngine(policy({ J3: 0.3, G3: 0.2 }), {
+      main: passing,
+      own: ownership(board, []),
+      leads: { pass: 0.0 },
+      defaultLead: 3.0,
+    });
+    expect(await select(engine, board, 30, CAP10)).toEqual({ handled: true, move: null });
+    expect(engine.scored()).not.toContain('C3');
+    expect(engine.scored()).not.toContain('E3');
+  });
+
+  it('a border move losing more than its gain against the pass is not played', async () => {
+    // A cap of 10: A8 (four points by the count) loses five against the pass, A7 (three) four, A6 (two) three.
+    const { board, moves } = replay(GAME_12K);
+    const own = ownership(board, DEAD_12K);
+    const leads = { A8: -21.0, A7: -22.0, A6: -23.0 };
+    let engine = new FakeEngine(HUMAN_12K, { own, leads });
+    expect(await select(engine, board, moves, CAP10)).toEqual({ handled: true, move: null });
+    // A8 losing exactly its four is played
+    engine = new FakeEngine(HUMAN_12K, { own, leads: { ...leads, A8: -22.0 } });
+    expect((await select(engine, board, moves, CAP10)).move).toEqual(pt('A8'));
+    // A8 and A7 lose too much; A6 loses two, its own gain: played
+    engine = new FakeEngine(HUMAN_12K, { own, leads: { ...leads, A6: -24.0 } });
+    expect((await select(engine, board, moves, CAP10)).move).toEqual(pt('A6'));
+  });
+
+  it('the cap against the best still applies', async () => {
+    // D4 reads 0.4 over the pass; A8 loses 0.4 against the pass and 0.8 against D4: played. When A8
+    // loses its four against the pass (inside its gain) it loses 4.4 against D4, past the cap of 4.
+    const { board, moves } = replay(GAME_12K);
+    const human = policy({ D4: 0.3, F1: 0.25, J1: 0.2, A7: 0.05, A8: 0.02 });
+    const leads = { D4: -26.4, A8: -25.6, A7: -25.0, A6: -25.0 };
+    let engine = new FakeEngine(human, { own: ownership(board, DEAD_12K), leads });
+    expect((await select(engine, board, moves)).move).toEqual(pt('A8'));
+    engine = new FakeEngine(human, {
+      own: ownership(board, DEAD_12K),
+      leads: { ...leads, A8: -22.0, A7: -22.0, A6: -22.0 },
+    });
+    expect(await select(engine, board, moves)).toEqual({ handled: true, move: null });
+  });
+
+  it('the loss against the pass is measured from the pass, not from the best candidate', async () => {
+    // D4 reads 0.4 over the pass (under the pass margin). A8 loses 3.8 against the pass, inside its
+    // four, though 4.2 against D4; the cap of 10 holds both. A8, the larger gain, is played.
+    const { board, moves } = replay(GAME_12K);
+    const engine = new FakeEngine(policy({ D4: 0.3, F1: 0.25, J1: 0.2 }), {
+      own: ownership(board, DEAD_12K),
+      leads: { D4: -26.4, A8: -22.2 },
+    });
+    expect((await select(engine, board, moves, CAP10)).move).toEqual(pt('A8'));
+  });
+
+  it('with nothing scored equal gains still go to the likelier', async () => {
+    // No loss cap: nothing is scored. E7 and E3 both gain 16; E7 comes first by index, E3 is likelier.
+    const board = fromRows(TWO_POCKETS);
+    const engine = new FakeEngine(policy({ E3: 0.05, E7: 0.02 }), { main: passing, own: ownership(board, []) });
+    expect((await select(engine, board, 30, NO_CAP)).move).toEqual(pt('E3'));
+    expect(engine.scored()).toEqual([]);
   });
 });
 

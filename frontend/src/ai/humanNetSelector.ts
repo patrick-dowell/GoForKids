@@ -48,7 +48,10 @@
  * instead of the pass (the largest gain, ties to the human net's
  * probability). Never self-atari or an own-eye fill; with `human_loss_cap`
  * set it must lose no more than the cap against the best move the main net
- * scored (moves not yet scored are scored at `human_score_visits`).
+ * scored, and no more than its own count gain against the pass (moves not
+ * yet scored are scored at `human_score_visits`, at most BORDER_MAX_QUERIES
+ * of them: the largest gains, ties to the human net's probability). With no
+ * cap nothing is scored and the count alone decides.
  *
  * Where this differs from the Python, and why:
  *  - The engine is bound to one position (the game's moves, the handicap
@@ -156,6 +159,11 @@ export interface HumanNetOptions {
 const HUMAN_TILT_LOSS_CAP = 15.0;
 const HUMAN_PASS_POLICY = 0.5;
 const HUMAN_BORDER_GAIN = 1.0;
+/** At most this many border moves are scored in one pass decision, the
+ *  largest count gains first (ties to the likelier move): the Python's
+ *  BORDER_MAX_QUERIES. Eight plus the pass is what a move's candidates cost
+ *  (human_cand_max 8). */
+export const BORDER_MAX_QUERIES = 8;
 /** A stone is dead when the ownership read gives its point to the other side
  *  past this: localGameRouter's DEAD_STONE_OWNERSHIP_THRESHOLD. */
 const DEAD_STONE_OWNERSHIP = 0.3;
@@ -318,15 +326,26 @@ export async function selectWithHumanNet(
       if (found.length === 0) return pass();
       const cap = profile.human_loss_cap;
       if (cap != null) {
+        // The largest gains first, ties to the likelier move, then index
+        // order (the Python's sort is stable, as is this one); at most
+        // BORDER_MAX_QUERIES of them are scored.
+        found = found
+          .sort((a, b) => b[0] - a[0] || human[b[1]] - human[a[1]])
+          .slice(0, BORDER_MAX_QUERIES);
         const todo = [...found.map(([, i]) => i), n].filter((i) => !scored.has(i));
         const answers = await Promise.all(
           todo.map((i) => engine.scoreAfter(i === n ? 'pass' : at(i), visits)),
         );
         todo.forEach((i, j) => scored.set(i, sign * answers[j].scoreLead));
         const top = Math.max(...scored.values());
-        found = found.filter(([, i]) => top - scored.get(i)! <= cap);
+        const passed = scored.get(n)!;
+        // No more lost against the pass than the count gains, and no more
+        // than the cap against the best scored move.
+        found = found.filter(
+          ([g, i]) => passed - scored.get(i)! <= g && top - scored.get(i)! <= cap,
+        );
         if (found.length === 0) {
-          log(`human net PASS: every border move loses more than ${cap}`);
+          log(`human net PASS: every border move loses more than its gain or the cap (${cap})`);
           return pass();
         }
       }

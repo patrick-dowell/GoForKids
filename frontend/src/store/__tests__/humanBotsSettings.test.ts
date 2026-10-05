@@ -188,6 +188,6 @@ describe('getHumanRung: the four conditions', () => {
     expect((await setup({ bridge: false })).getHumanRung('15k', 9)).toBeUndefined();
     vi.resetModules();
     installLocalStorage();
-    expect((await setup({})).getHumanRung('9k', 9)).toBeUndefined();
+    expect((await setup({})).getHumanRung('3k', 9)).toBeUndefined();
   });
 });
