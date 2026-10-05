@@ -699,7 +699,7 @@ function App() {
       {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       {scoringInProgress && <ScoringInProgressModal onGoHome={goHome} />}
       {startingGame && <GameStartingCard />}
-      {!replayActive && <BotTroubleCard onLeave={goHome} />}
+      <BotTroubleCard onLeave={goHome} />
     </div>
   );
 }

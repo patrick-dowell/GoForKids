@@ -196,15 +196,14 @@ export function gameLivesOnDevice(gameId: string | null): boolean {
 export const DEVICE_MOVE_DEADLINE_MS = 90_000;
 
 /** The bridge for one device move, with a deadline over every engine call.
- *  `failure()` is set when the deadline passes or the move's own search
- *  fails (`fail`); the move checks it before it commits anything, so an
- *  engine that hangs or breaks yields an error, never a guessed move, and a
- *  late answer can no longer commit. */
+ *  A failure is noted when the deadline passes or the move's own search
+ *  fails (`fail`), even where a selector swallows it, and `check` throws it
+ *  before the move commits anything: an engine that hangs or breaks yields
+ *  an error, never a guessed move, and a late answer can no longer commit. */
 function guardEngine(bridge: KataGoBridge) {
   let failure: unknown = null;
   let expire: (e: Error) => void = () => {};
   const expired = new Promise<never>((_, reject) => (expire = reject));
-  expired.catch(() => {}); // a deadline nobody is waiting on is not an error
   const timer = setTimeout(() => {
     failure = new Error(`the engine did not answer in ${DEVICE_MOVE_DEADLINE_MS}ms`);
     expire(failure as Error);

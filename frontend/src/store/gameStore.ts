@@ -310,7 +310,6 @@ async function lostServerMove(gameId: string, localMoves: number): Promise<AIMov
   return {
     point: server.last_move ?? { row: -1, col: -1 },
     captures: [],
-    board: server.board,
     final_state: server.phase === 'finished' ? server : null,
   };
 }
@@ -1438,7 +1437,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           set({ aiThinking: false, botTrouble: 'move' });
           return;
         }
-        set({ _unsynced: null, aiThinking: false });
+        set({ _unsynced: null });
         await get().requestAIMove();
       })();
     } else {
@@ -1472,10 +1471,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         // for again; anything else waits for Try again.
         const lost = await lostServerMove(gameId, _game.moveHistory.length).catch(() => null);
         if (gameGone(get()._game, _game)) return;
-        if (!lost) {
-          set({ aiThinking: false, botTrouble: 'move' });
-          return;
-        }
+        if (!lost) throw e;
         aiMove = lost;
       }
       if (gameGone(get()._game, _game)) return;

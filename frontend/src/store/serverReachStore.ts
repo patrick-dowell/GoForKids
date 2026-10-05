@@ -84,12 +84,11 @@ export function watchServer(): () => void {
   };
 }
 
+/** What the hooks below read changes with the reach and with the setting;
+ *  a capabilities answer that turns the bots online starts a check, which
+ *  changes the reach. */
 function subscribe(onChange: () => void): () => void {
-  const stops = [
-    useServerReachStore.subscribe(onChange),
-    useSettingsStore.subscribe(onChange),
-    useCapabilitiesStore.subscribe(onChange),
-  ];
+  const stops = [useServerReachStore.subscribe(onChange), useSettingsStore.subscribe(onChange)];
   return () => stops.forEach((stop) => stop());
 }
 
@@ -105,10 +104,4 @@ export function useCloudBotsOut(): boolean {
 /** A check is waiting for its answer, for components. */
 export function useServerChecking(): boolean {
   return useSyncExternalStore(subscribe, isChecking, isChecking);
-}
-
-/** Tests only: forget every answer. */
-export function _resetServerReach(): void {
-  inFlight = null;
-  useServerReachStore.setState({ reach: 'unknown', checking: false });
 }

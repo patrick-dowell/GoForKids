@@ -110,7 +110,6 @@ export function NewGameDialog({ onClose, onOpenProfile }: NewGameDialogProps) {
   const botInfo = BOT_AVATARS[gameMode === 'botvsbot' ? whiteRank : targetRank] || BOT_AVATARS['15k'];
 
   const handleStart = () => {
-    if (botModeOut) return;
     localStorage.setItem('goforkids_board_size', String(boardSize));
     newGame({
       playerColor,

@@ -1103,8 +1103,14 @@ test('the bots away in Custom Match: the bot modes greyed with why, a friend on 
   await page.goto('/');
   await page.getByRole('button', { name: /Custom Match/ }).click();
   const before = await overflowByViewport(page, '.dialog');
-
+  // Open on vs AI when the answer turns: Start greys until Local is picked.
   server.s.up = false;
+  await foreground(page);
+  await expect(page.locator('.new-game-bots-away')).toContainText(BOTS_AWAY);
+  await expect(page.getByRole('button', { name: 'Start Game' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Local', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start Game' })).toBeEnabled();
+
   await page.goto('/');
   await page.locator('.home-bots-away').waitFor();
   await page.getByRole('button', { name: /Custom Match/ }).click();
@@ -1177,6 +1183,30 @@ test('a ranked game whose server drops: the card fits, Try again plays on once i
     () => (window as unknown as { __autoPlayStore: { getState: () => { history: unknown[] } } }).__autoPlayStore.getState().history.length,
   );
   expect(history).toBe(0);
+  // The game left is gone: no card waits over the next screen.
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  await page.locator('.dialog').waitFor();
+  await expect(card).toHaveCount(0);
+});
+
+test('a device whose own bots could play, with "Bot plays online" on: greyed while the server is away, open as soon as the setting is off', async ({ page }) => {
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: async () => ({ localBots: true, evalsPerSecond: 40, humanModel: false }),
+    };
+    localStorage.setItem('goforkids_settings', JSON.stringify({ themeId: 'cosmic', cloudBot: true }));
+  });
+  await gameServer(page, false);
+  await page.goto('/');
+  await page.locator('.home-bots-away').waitFor();
+  await expect(page.locator('.home-btn-primary')).toBeDisabled();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('checkbox', { name: 'Bot plays online' }).click();
+  await page.getByRole('button', { name: 'Close' }).click();
+  await expect(page.locator('.home-btn-primary')).toBeEnabled();
+  await expect(page.locator('.home-bots-away')).toHaveCount(0);
 });
 
 test('a device that plays its own bots: never greyed, and never asks the server', async ({ page }) => {

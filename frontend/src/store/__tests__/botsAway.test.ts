@@ -80,7 +80,17 @@ const json = (body: unknown, status = 200) => ({ ok: status < 400, status, statu
  *  `hang` keeps /health waiting (until the request is aborted). The game counts moves as the server
  *  would; its bot plays down the first column. */
 function installServer() {
-  const s = { down: false, aiDown: false, hang: false, moves: 0, lastMove: null as null | { row: number; col: number }, aiMoves: 0 };
+  const s = {
+    down: false,
+    aiDown: false,
+    aiPass: false,
+    hang: false,
+    moves: 0,
+    lastMove: null as null | { row: number; col: number },
+    aiMoves: 0,
+    phase: 'playing',
+    result: null as null | Record<string, unknown>,
+  };
   const log: string[] = [];
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
@@ -99,7 +109,14 @@ function installServer() {
     log.push(`${method} ${path}`);
     if (s.down) return json({ detail: 'down' }, 503);
     // move_number is the next move's number, as the server sends it
-    const state = () => ({ game_id: 'srv00001', board_size: 9, move_number: s.moves + 1, last_move: s.lastMove, phase: 'playing' });
+    const state = () => ({
+      game_id: 'srv00001',
+      board_size: 9,
+      move_number: s.moves + 1,
+      last_move: s.lastMove,
+      phase: s.phase,
+      ...(s.phase === 'finished' ? { board: Array.from({ length: 9 }, () => new Array(9).fill(0)), result: s.result } : {}),
+    });
     if (path === '/games') return json(state());
     if (path === '/games/srv00001' && method === 'GET') return json(state());
     if (path === '/games/srv00001/move' || path === '/games/srv00001/pass') {
@@ -110,7 +127,7 @@ function installServer() {
     if (path === '/games/srv00001/ai-move') {
       if (s.aiDown) return json({ detail: 'busy' }, 503);
       s.moves++;
-      s.lastMove = { row: s.aiMoves++, col: 0 };
+      s.lastMove = s.aiPass ? { row: -1, col: -1 } : { row: s.aiMoves++, col: 0 };
       return json({ point: s.lastMove, captures: [], score_lead: 0 });
     }
     return json({ detail: 'no route' }, 404);
@@ -222,9 +239,13 @@ describe('the check', () => {
     server.s.hang = true;
     const { reach } = await boot();
     expect(reach.HEALTH_TIMEOUT_MS).toBe(5_000);
+    server.s.hang = false;
+    await reach.checkServer();
+    expect(vi.getTimerCount()).toBe(0); // an answer clears its bound
+    server.s.hang = true;
     const done = reach.checkServer();
     await vi.advanceTimersByTimeAsync(reach.HEALTH_TIMEOUT_MS - 1);
-    expect(reach.useServerReachStore.getState()).toEqual({ reach: 'unknown', checking: true });
+    expect(reach.useServerReachStore.getState()).toEqual({ reach: 'up', checking: true });
     await vi.advanceTimersByTimeAsync(1);
     await done;
     expect(reach.useServerReachStore.getState()).toEqual({ reach: 'down', checking: false });
@@ -378,6 +399,9 @@ describe('when the bots turn online after start', () => {
     useSettingsStore.getState().setCloudBot(true);
     await vi.waitFor(() => expect(reach.cloudBotsOut()).toBe(true));
     expect(server.health()).toBe(1);
+    useSettingsStore.getState().setTheme('classic'); // another setting, the bots still online
+    await flush();
+    expect(server.health()).toBe(1);
     useSettingsStore.getState().setCloudBot(false);
     expect(reach.cloudBotsOut()).toBe(false);
     useSettingsStore.getState().setCloudBot(false);
@@ -457,6 +481,8 @@ describe('a drop in the middle of a game on the server', () => {
     useGameStore.getState().retryBot();
     await vi.waitFor(() => expect(useGameStore.getState().botTrouble).toBe('move'));
     expect(useGameStore.getState().aiThinking).toBe(false);
+    const { snapshotSelectorLog } = await import('../../ai/selectorLog');
+    expect(snapshotSelectorLog().join('\n')).toContain('[game] resend FAILED');
 
     server.s.down = false;
     server.log.length = 0;
@@ -469,6 +495,42 @@ describe('a drop in the middle of a game on the server', () => {
     expect(st.lastMove).toEqual({ row: 0, col: 0 });
     expect(server.log).toEqual(['GET /games/srv00001', 'POST /games/srv00001/move', 'POST /games/srv00001/ai-move']);
     expect(server.s.moves).toBe(2);
+    expect(st._unsynced).toBeNull();
+  });
+
+  it('a new game starts clean: no card, nothing left to send', async () => {
+    const { server, useGameStore } = await serverGame();
+    server.s.down = true;
+    useGameStore.getState().playMove({ row: 4, col: 4 });
+    await vi.waitFor(() => expect(useGameStore.getState().botTrouble).toBe('move'));
+    await useGameStore.getState().newGame({ gameMode: 'local', boardSize: 9 });
+    expect(useGameStore.getState().botTrouble).toBeNull();
+    expect(useGameStore.getState()._unsynced).toBeNull();
+  });
+
+  it('Try again with nothing wrong asks nothing', async () => {
+    const { server, useGameStore } = await serverGame();
+    server.log.length = 0;
+    useGameStore.getState().retryBot();
+    await flush();
+    expect(server.log).toEqual([]);
+  });
+
+  it('while the move is sent again the board takes nothing; leaving then raises no card when it fails', async () => {
+    const { server, useGameStore } = await serverGame();
+    server.s.down = true;
+    useGameStore.getState().playMove({ row: 4, col: 4 });
+    await vi.waitFor(() => expect(useGameStore.getState().botTrouble).toBe('move'));
+    server.s.down = false;
+    const read = holdNext(server, '/games/srv00001');
+    useGameStore.getState().retryBot();
+    await vi.waitFor(() => expect(read.arrived()).toBe(true));
+    expect(useGameStore.getState().playMove({ row: 0, col: 0 })).toBe('game_over');
+    expect(stones(useGameStore)).toBe(1);
+    useGameStore.getState().leaveGame();
+    read.fail();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(useGameStore.getState().botTrouble).toBeNull();
   });
 
   it("the move reached it and only the answer was lost: Try again does not send it twice", async () => {
@@ -551,6 +613,8 @@ describe('a game that cannot start', () => {
     expect(st.autoplayContext).toBe(true);
     expect(useGameStore.getState().playMove({ row: 4, col: 4 })).toBe('game_over');
     expect(stones(useGameStore)).toBe(0);
+    const { snapshotSelectorLog } = await import('../../ai/selectorLog');
+    expect(snapshotSelectorLog().join('\n')).toContain('[game] create FAILED');
 
     server.s.down = false;
     useGameStore.getState().retryBot();
@@ -561,6 +625,16 @@ describe('a game that cannot start', () => {
     expect(st.autoplayContext).toBe(true);
     expect(st.targetRank).toBe('15k');
     expect(useAutoPlayStore.getState().history).toEqual([]);
+  });
+
+  it('leaving it forgets what Try again would have started', async () => {
+    installWindow();
+    const server = installServer();
+    server.s.down = true;
+    const { useGameStore } = await boot();
+    await useGameStore.getState().newGame({ boardSize: 9, useBackend: true, gameMode: 'ai' });
+    useGameStore.getState().leaveGame();
+    expect(useGameStore.getState()._retryNewGame).toBeNull();
   });
 });
 
@@ -642,6 +716,8 @@ describe('a device engine failure in a device game', () => {
     expect(st.autoCompleting).toBe(false);
     expect(st.aiThinking).toBe(false);
     expect(st.phase).toBe('playing');
+    const { snapshotSelectorLog } = await import('../../ai/selectorLog');
+    expect(snapshotSelectorLog().join('\n')).toContain('[game] finish-move FAILED');
     w.engine.broken = false;
     useGameStore.getState().retryBot();
     await vi.waitFor(() => expect(stones(useGameStore)).toBeGreaterThan(0));
@@ -672,6 +748,17 @@ describe('a device engine failure in a device game', () => {
     expect(useGameStore.getState().botTrouble).toBeNull();
   });
 
+  it('a Finish Game step whose engine hangs fails at the deadline: the card', async () => {
+    const { w, client, useGameStore } = await deviceGame();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    w.engine.broken = 'hang';
+    await useGameStore.getState().finishGame();
+    await vi.advanceTimersByTimeAsync(client.DEVICE_MOVE_DEADLINE_MS - 1);
+    expect(useGameStore.getState().botTrouble).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(useGameStore.getState().botTrouble).toBe('finish');
+  });
+
   it('Try again is one request at a time', async () => {
     const { useGameStore } = await deviceGame();
     useGameStore.setState({ botTrouble: 'finish', autoCompleting: true });
@@ -697,6 +784,8 @@ describe('bot vs bot', () => {
     expect(useGameStore.getState().botTrouble).toBe('move');
     expect(useGameStore.getState().aiThinking).toBe(false);
     expect(stones(useGameStore)).toBe(0);
+    const { snapshotSelectorLog } = await import('../../ai/selectorLog');
+    expect(snapshotSelectorLog().join('\n')).toContain('[game] ai-move FAILED move=0 (bot-vs-bot)');
     server.s.down = false;
     useGameStore.getState().retryBot();
     await vi.advanceTimersByTimeAsync(0);
@@ -760,10 +849,29 @@ describe('bot vs bot', () => {
     void useGameStore.getState().requestBotVsBotMove();
     await vi.advanceTimersByTimeAsync(0);
     useGameStore.getState().leaveGame();
-    server.s.moves = 0; // the server is not ahead: nothing to show instead
+    server.s.down = true; // and the game's own record cannot be read
     ai.fail();
     await vi.advanceTimersByTimeAsync(0);
     expect(useGameStore.getState().botTrouble).toBeNull();
+  });
+
+  it("a lost pass that ended the game on the server ends it here, with the server's count", async () => {
+    const { server, useGameStore } = await bvb();
+    server.s.aiPass = true;
+    await vi.advanceTimersByTimeAsync(500); // Black passes
+    expect(useGameStore.getState().moveCount).toBe(1);
+    server.fetchMock.mockImplementationOnce(async () => {
+      server.s.moves++;
+      server.s.lastMove = null;
+      server.s.phase = 'finished';
+      server.s.result = { winner: 'black', black_score: 10, white_score: 6.5, black_territory: 10, white_territory: 0 };
+      throw new DOMException('aborted', 'AbortError');
+    });
+    await vi.advanceTimersByTimeAsync(800); // White's pass, its answer lost
+    const st = useGameStore.getState();
+    expect(st.phase).toBe('finished');
+    expect(st.botTrouble).toBeNull();
+    expect(st.result).toMatchObject({ winner: 1, blackScore: 10, whiteScore: 6.5 });
   });
 
   it('an answer it cannot read: the card, not a stop', async () => {

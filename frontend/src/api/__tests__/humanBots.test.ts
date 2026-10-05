@@ -50,6 +50,8 @@ interface FakeOpts {
   humanPolicyFails?: boolean;
   humanPolicyNull?: boolean;
   scoreAfterFails?: boolean;
+  /** An engine call that never answers. */
+  hang?: 'humanPolicy' | 'scoreAfter' | 'ownership';
   /** The main net's pass weight in humanPolicy's answer (default 0). */
   mainPass?: number;
   /** analyze's ownership when asked for it, Black's frame (sent from the
@@ -63,6 +65,7 @@ interface FakeOpts {
 function installBridge(opts: FakeOpts = {}) {
   const analyze = vi.fn(async (params: Record<string, unknown>) => {
     if (params.ownership && opts.ownership === 'fail') throw new Error('engine busy');
+    if (params.ownership && opts.hang === 'ownership') return new Promise<never>(() => {});
     const own = params.ownership && opts.ownership !== 'fail' ? opts.ownership : undefined;
     return {
       candidates: [{ move: 'E5', visits: 16, winrate: 0.5, scoreLead: 0.5, prior: 0.95, order: 0 }],
@@ -76,6 +79,7 @@ function installBridge(opts: FakeOpts = {}) {
     const visits = params.visits ?? params.maxVisits;
     if (!Number.isInteger(visits) || (visits as number) < 1) throw new Error('invalid params: visits');
     if (opts.humanPolicyFails) throw new Error('human net not loaded');
+    if (opts.hang === 'humanPolicy') return new Promise<never>(() => {});
     return {
       humanPolicy: opts.humanPolicyNull ? null : policy({ [C7]: 1.0 }),
       policy: policy({ [C7]: 0.5 }, opts.mainPass ?? 0),
@@ -84,6 +88,7 @@ function installBridge(opts: FakeOpts = {}) {
   });
   const scoreAfter = vi.fn(async (params: Record<string, unknown>) => {
     if (opts.scoreAfterFails) throw new Error('engine busy');
+    if (opts.hang === 'scoreAfter') return new Promise<never>(() => {});
     return { scoreLead: params.move === 'pass' ? 0 : 5, winrate: 0.6 };
   });
   const capabilities = vi.fn(async () => {
@@ -140,6 +145,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   delete (globalThis as { window?: unknown }).window;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -423,4 +429,28 @@ describe('games the human path does not take', () => {
     await api.getAIMove(game2.game_id, '15k', { movesForBridge: [], handicap: 0 });
     expect(b.humanPolicy).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('an engine call on the human path that never answers', () => {
+  // The move's deadline (client.ts DEVICE_MOVE_DEADLINE_MS) covers every
+  // engine call: the move fails then, with nothing played or passed for it,
+  // even where the path itself would answer a failed call with a pass.
+  for (const hang of ['humanPolicy', 'scoreAfter', 'ownership'] as const) {
+    it(`${hang}: the move fails at the deadline and commits nothing`, async () => {
+      installBridge({ caps: HUMAN });
+      const { api, gameId } = await start({ humanBots: true });
+      const moves = await twelveMoves(api, gameId);
+      installBridge({ caps: HUMAN, hang, ...(hang === 'ownership' ? { mainPass: 0.9 } : {}) });
+      const { DEVICE_MOVE_DEADLINE_MS } = await import('../client');
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      let failed: unknown = null;
+      const move = api.getAIMove(gameId, '15k', { movesForBridge: moves, handicap: 0 }).catch((e) => (failed = e));
+      await vi.advanceTimersByTimeAsync(DEVICE_MOVE_DEADLINE_MS);
+      await move;
+      expect(String(failed)).toContain(`did not answer in ${DEVICE_MOVE_DEADLINE_MS}ms`);
+      const state = await api.getGame(gameId);
+      expect(state.move_number).toBe(13); // twelve played; the bot's is still to come
+      expect(state.current_color).toBe('black');
+    });
+  }
 });
