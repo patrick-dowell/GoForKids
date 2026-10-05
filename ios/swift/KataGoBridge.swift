@@ -14,10 +14,21 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
     /// iPad at roughly 80 a second, an older iPad at about a minute a move);
     /// to be set from real devices.
     static let localBotsMinEvalsPerSecond = 10.0
-    /// The probe: one search of this many visits on an empty 9x9 board...
+    /// The probe's method. A stored reading is trusted only under the same
+    /// version: 1 timed one 16-visit search; 2 takes the median of up to
+    /// three after an untimed warm-up search.
+    static let probeVersion = 2
+    /// The probe: searches of this many visits on an empty 9x9 board (the
+    /// size of the bots' own searches)...
     static let probeVisits = 16
-    /// ...stopped here even if its visits are not done, so a slow device is
-    /// sorted in seconds rather than a minute.
+    /// ...an untimed warm-up search first (the first search after the start
+    /// pays one-time costs), stopped here at the latest...
+    static let probeWarmUpMaxSeconds = 1.0
+    /// ...then up to this many timed searches; the reading is their median,
+    /// so one search slowed by other work at cold start does not set it...
+    static let probeTimedSearches = 3
+    /// ...inside this many seconds in all, so a slow device is sorted in
+    /// seconds rather than a minute (a search is cut at what is left).
     static let probeMaxSeconds = 4.0
     /// UserDefaults keys; each value carries the app version it was measured
     /// under and is measured again when the version changes.
@@ -73,14 +84,25 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
     /// humanPolicy sets it (and unsets it before it returns).
     private func bootEngine() {
         if KataGoHelper.humanModelInBundle() {
-            if humanPackageCompiles(), let models = launchEngine(withHumanModel: true) {
-                engineUp = true
-                humanModelLoaded = Self.modelsIncludeHumanNet(models)
-                print("[Bridge] Engine up, human SL net loaded: \(humanModelLoaded)")
-                return
+            // The pre-check and the engine's load run inside the crash-loop
+            // guard's window: if the app dies there, a later launch starts
+            // without the human net (HumanLoadGuard).
+            let loadGuard = HumanLoadGuard(url: HumanLoadGuard.defaultURL(), version: Self.appVersion())
+            if !loadGuard.shouldTryHumanNet() {
+                print("[Bridge] A launch stopped while loading the human SL net; starting the engine without it")
+            } else {
+                loadGuard.willLoad()
+                if humanPackageCompiles(), let models = launchEngine(withHumanModel: true) {
+                    loadGuard.didLoad(succeeded: true)
+                    engineUp = true
+                    humanModelLoaded = Self.modelsIncludeHumanNet(models)
+                    print("[Bridge] Engine up, human SL net loaded: \(humanModelLoaded)")
+                    return
+                }
+                loadGuard.didLoad(succeeded: false)
+                print("[Bridge] Engine did not come up with the human SL net; starting it without")
+                KataGoHelper.discardPendingInput()
             }
-            print("[Bridge] Engine did not come up with the human SL net; starting it without")
-            KataGoHelper.discardPendingInput()
         } else {
             print("[Bridge] Human SL net not in the bundle; starting the engine without it")
         }
@@ -160,40 +182,66 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
     private func resolveProbe() {
         guard engineUp else { evalsPerSecond = 0; return }
         let version = Self.appVersion()
+        // A reading stored by another app version or another probe method
+        // (version 1's records have no probeVersion) is measured again.
         if let stored = UserDefaults.standard.dictionary(forKey: Self.probeDefaultsKey),
            stored["appVersion"] as? String == version,
+           stored["probeVersion"] as? Int == Self.probeVersion,
            let eps = stored["evalsPerSecond"] as? Double {
             evalsPerSecond = eps
-            print("[Bridge] Probe (stored for \(version)): \(eps) evals/s")
+            print("[Bridge] Probe v\(Self.probeVersion) (stored for \(version)): \(eps) evals/s")
             return
         }
         do {
-            let eps = try runProbe()
+            let reads = try runProbe()
+            let eps = Self.median(reads)
             evalsPerSecond = eps
             UserDefaults.standard.set([
                 "appVersion": version,
+                "probeVersion": Self.probeVersion,
+                "probeVisits": Self.probeVisits,
+                "reads": reads,
                 "evalsPerSecond": eps,
                 "measuredAt": ISO8601DateFormatter().string(from: Date()),
             ], forKey: Self.probeDefaultsKey)
-            print("[Bridge] Probe (measured for \(version)): \(eps) evals/s")
+            print("[Bridge] Probe v\(Self.probeVersion) (measured for \(version)): \(eps) evals/s, reads \(reads.map { ($0 * 10).rounded() / 10 })")
         } catch {
             evalsPerSecond = 0
             print("[Bridge] Probe failed: \(error)")
         }
     }
 
-    /// One untimed evaluation first (the first one pays one-time costs), the
-    /// cache cleared, then the timed search.
-    private func runProbe() throws -> Double {
+    /// One untimed evaluation and one untimed warm-up search first (each
+    /// pays one-time costs), then up to `probeTimedSearches` timed searches,
+    /// each from an empty cache, until `probeMaxSeconds` of timed search is
+    /// spent. Returns each search's visits a second; at least one.
+    private func runProbe() throws -> [Double] {
         try setUpPosition(Position(boardSize: 9, komi: 7, rules: "tromp-taylor", moves: [], color: "B"))
         try gtpOK("kata-raw-nn 0")
         try gtpOK("clear_cache")
-        try setSearchParams(visits: Self.probeVisits, maxTime: Self.probeMaxSeconds)
-        let t0 = Date()
-        let reply = try gtpOK("kata-search_analyze B rootInfo true")
-        let seconds = max(Date().timeIntervalSince(t0), 0.001)
-        let visits = Self.parseRootInfo(reply)?["visits"] ?? 1
-        return visits / seconds
+        try setSearchParams(visits: Self.probeVisits, maxTime: Self.probeWarmUpMaxSeconds)
+        try gtpOK("kata-search_analyze B rootInfo true")
+        var reads: [Double] = []
+        var spent = 0.0
+        while reads.count < Self.probeTimedSearches && spent < Self.probeMaxSeconds {
+            try gtpOK("clear_cache")
+            try setSearchParams(visits: Self.probeVisits, maxTime: Self.probeMaxSeconds - spent)
+            let t0 = Date()
+            let reply = try gtpOK("kata-search_analyze B rootInfo true")
+            let seconds = max(Date().timeIntervalSince(t0), 0.001)
+            spent += seconds
+            let visits = Self.parseRootInfo(reply)?["visits"] ?? 1
+            reads.append(visits / seconds)
+        }
+        return reads
+    }
+
+    /// The middle value; the mean of the middle two for an even count.
+    static func median(_ values: [Double]) -> Double {
+        let s = values.sorted()
+        guard !s.isEmpty else { return 0 }
+        let mid = s.count / 2
+        return s.count % 2 == 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2
     }
 
     private static func appVersion() -> String {
@@ -247,6 +295,7 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
             return [
                 "localBots": engineUp && evalsPerSecond >= Self.localBotsMinEvalsPerSecond,
                 "evalsPerSecond": (evalsPerSecond * 10).rounded() / 10,
+                "probeVersion": Self.probeVersion,
                 "humanModel": engineUp && humanModelLoaded,
             ]
         case "ping":
@@ -834,6 +883,86 @@ extension KataGoBridge {
         return ["ok": true]
     }
 }
+
+// MARK: HumanLoadGuard (Foundation only; the macOS test harness compiles this block as it stands)
+
+/// The crash-loop guard for the human SL net. The pre-check compiles the
+/// package with CoreML, but the engine's own load can still take the app
+/// down (a crash, or the system ending an app that needs too much memory),
+/// and every later launch would try again. So a record is written before
+/// the load and cleared after it: a launch that finds it still open knows
+/// the last one died loading, starts without the human net (the bridge then
+/// answers `humanModel: false`) and counts the crash. The launch after that
+/// tries again, once: a second crash in the same app version leaves the
+/// human net off until the version changes. A file, written whole, so the
+/// record is on disk before the load starts.
+struct HumanLoadGuard {
+    static let maxCrashes = 2
+
+    struct Record: Codable, Equatable {
+        var appVersion: String
+        var loading: Bool
+        var crashes: Int
+    }
+
+    let url: URL
+    let version: String
+
+    static func defaultURL() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("GoForKids", isDirectory: true)
+            .appendingPathComponent("human-net-load.json")
+    }
+
+    /// This version's record; a record from another version counts as none.
+    func read() -> Record? {
+        guard let data = try? Data(contentsOf: url),
+              let record = try? JSONDecoder().decode(Record.self, from: data),
+              record.appVersion == version else { return nil }
+        return record
+    }
+
+    private func write(_ record: Record) {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(record) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// At launch, before any load: whether to give the engine the human net.
+    func shouldTryHumanNet() -> Bool {
+        guard var record = read() else { return true }
+        if record.loading {
+            // The last launch died between willLoad and didLoad.
+            record.loading = false
+            record.crashes += 1
+            write(record)
+            return false
+        }
+        return record.crashes < Self.maxCrashes
+    }
+
+    /// Just before the pre-check and the engine's load.
+    func willLoad() {
+        var record = read() ?? Record(appVersion: version, loading: false, crashes: 0)
+        record.loading = true
+        write(record)
+    }
+
+    /// After the load returned. A load that failed without a crash (the
+    /// pre-check said no, or the engine stopped) is not counted; one that
+    /// succeeded clears the count.
+    func didLoad(succeeded: Bool) {
+        var record = read() ?? Record(appVersion: version, loading: false, crashes: 0)
+        record.loading = false
+        if succeeded { record.crashes = 0 }
+        write(record)
+    }
+}
+
+// MARK: HumanLoadGuard end
 
 enum KataGoJSShim {
     static let source: String = """

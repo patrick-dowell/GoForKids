@@ -252,6 +252,13 @@ If `npm run build` fails with "command not found", check the build log to see wh
 `⌘R` to your connected iPad. First launch incurs a one-time CoreML model
 compilation (~30s on M1; cached afterward in Application Support).
 
+On an Apple-silicon Mac the scheme also offers "My Mac (Designed for
+iPad)", but with automatic signing the build stops unless the team's
+provisioning profile includes the Mac (Xcode: "Provisioning profile ...
+doesn't include the currently selected device"); adding the Mac is a
+signing change. The iOS Simulator builds with signing off and cannot run
+the nets.
+
 ## Architecture (Phase 3)
 
 ```
@@ -308,19 +315,37 @@ engine's start. Position params everywhere are `analyze`'s: `boardSize`,
   Black's side: the main net's search of the position after the side to
   move plays `move` ("E5", "pass", or `{row, col}` with row 0 at the top),
   with no human profile and `wideRootNoise` 0.
-- `capabilities()` → `{ localBots, evalsPerSecond, humanModel }`, resolved
-  at cold start: `humanModel` is whether the engine came up with the human
-  net; `evalsPerSecond` is a probe (one untimed evaluation, then a 16-visit
-  search on an empty 9×9 board, capped at 4 s), kept in UserDefaults
-  (`GoForKids.engineProbe`) for the app version; `localBots` is
-  `evalsPerSecond >= KataGoBridge.localBotsMinEvalsPerSecond` (10,
-  provisional).
+- `capabilities()` → `{ localBots, evalsPerSecond, probeVersion, humanModel }`,
+  resolved at cold start: `humanModel` is whether the engine came up with
+  the human net; `evalsPerSecond` is a probe on an empty 9×9 board (probe
+  version 2: one untimed evaluation and one untimed 16-visit warm-up search
+  capped at 1 s, then up to three timed 16-visit searches, each from an
+  empty cache, inside 4 s of search in all; the reading is their median),
+  kept in UserDefaults (`GoForKids.engineProbe`, with its version, visits
+  and each search's reading) for the app version and the probe version, so
+  a reading stored by version 1 (one timed search) is measured again;
+  `localBots` is `evalsPerSecond >= KataGoBridge.localBotsMinEvalsPerSecond`
+  (10, provisional). On an M5 Max Mac, with the fork's macOS engine and
+  this config, the probe reads about 130 to 140 a second when the machine is
+  idle and less while other work runs on it (a second engine searching
+  beside it pulls version 1 to about 73); a 400-visit search runs at about
+  270.
 
 The engine starts with `-human-model` when the package and stub are in the
 bundle and the package compiles (checked once per app version,
 `GoForKids.humanPackageCheck`); if it does not come up, it starts without.
 No search evaluates the human net unless `humanSLProfile` is set, and only
 `humanPolicy` sets it, so the standard bots play as before either way.
+
+A crash-loop guard covers that load (`HumanLoadGuard` in
+`KataGoBridge.swift`): a record in Application Support
+(`GoForKids/human-net-load.json`) is written before the pre-check and the
+engine's load and closed after them. A launch that finds it still open
+(the last one died loading) starts without the human net, so
+`capabilities()` answers `humanModel: false`, and counts the crash; the
+next launch tries again, and a second crash in the same app version keeps
+the human net off until the version changes. A load that fails without a
+crash is not counted.
 
 UI ships with the iPad app, so the React assets work even if Render is
 down. The backend (game state) still requires Render to be reachable —
