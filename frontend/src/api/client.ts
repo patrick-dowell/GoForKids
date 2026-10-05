@@ -15,6 +15,7 @@ import {
   fromGtp,
   getHumanRung,
   getKataGoBridge,
+  getNativeBridge,
   toGtp,
   type KataGoBridge,
 } from './nativeKataGo';
@@ -159,6 +160,13 @@ function useLocal(): boolean {
   return getKataGoBridge() !== null;
 }
 
+/** A game's own calls go where the game lives, decided when it was created:
+ *  a game started on the device stays there even if the device's late
+ *  capabilities answer, or the setting, sends the next games online. */
+function onDevice(gameId: string): boolean {
+  return getNativeBridge() !== null && localGameRouter.has(gameId);
+}
+
 /** Wrap the local-router's `{ error }` discriminated union to match the
  *  HTTP client's "throw on failure" contract. Keeps callers oblivious. */
 function unwrap<T>(r: T | { error: string } | null, notFoundMsg = 'Game not found'): T {
@@ -200,18 +208,15 @@ export const api = {
   },
 
   getGame: async (gameId: string): Promise<GameStateDTO> => {
-    if (useLocal()) {
-      const local = localGameRouter.getGame(gameId);
-      if (local) return local;
-      // Not in local storage — game might predate this commit, or was created
-      // on the web and the user is opening it on iPad. Fall back to Render.
-      return request<GameStateDTO>(`/games/${gameId}`);
-    }
+    // Not on the device: a game played online, or one that predates the
+    // local router. Render has it.
+    const local = onDevice(gameId) ? localGameRouter.getGame(gameId) : null;
+    if (local) return local;
     return request<GameStateDTO>(`/games/${gameId}`);
   },
 
   playMove: async (gameId: string, row: number, col: number): Promise<GameStateDTO> => {
-    if (useLocal()) return unwrap(localGameRouter.playMove(gameId, row, col));
+    if (onDevice(gameId)) return unwrap(localGameRouter.playMove(gameId, row, col));
     return request<GameStateDTO>(`/games/${gameId}/move`, {
       method: 'POST',
       body: JSON.stringify({ row, col }),
@@ -219,17 +224,17 @@ export const api = {
   },
 
   pass: async (gameId: string): Promise<GameStateDTO> => {
-    if (useLocal()) return unwrap(await localGameRouter.pass(gameId));
+    if (onDevice(gameId)) return unwrap(await localGameRouter.pass(gameId));
     return request<GameStateDTO>(`/games/${gameId}/pass`, { method: 'POST' });
   },
 
   resign: async (gameId: string): Promise<GameStateDTO> => {
-    if (useLocal()) return unwrap(localGameRouter.resign(gameId));
+    if (onDevice(gameId)) return unwrap(localGameRouter.resign(gameId));
     return request<GameStateDTO>(`/games/${gameId}/resign`, { method: 'POST' });
   },
 
   undo: async (gameId: string): Promise<GameStateDTO> => {
-    if (useLocal()) return unwrap(localGameRouter.undo(gameId));
+    if (onDevice(gameId)) return unwrap(localGameRouter.undo(gameId));
     return request<GameStateDTO>(`/games/${gameId}/undo`, { method: 'POST' });
   },
 
@@ -251,7 +256,7 @@ export const api = {
     },
   ): Promise<AIMoveDTO> => {
     await whenBotRoutingKnown();
-    const bridge = getKataGoBridge();
+    const bridge = onDevice(gameId) ? getNativeBridge() : null;
     if (bridge) return getAIMoveViaBridge(gameId, bridge, targetRank ?? '15k', options);
     // Web path: backend /ai-move doesn't know about neverPass yet — that
     // would need a body. Tutorial games typically run on iPad anyway; if
@@ -279,7 +284,7 @@ export const api = {
     options?: { movesForBridge?: Array<{ color: 'B' | 'W'; point: string }> },
   ): Promise<AIMoveDTO> => {
     await whenBotRoutingKnown();
-    const bridge = getKataGoBridge();
+    const bridge = onDevice(gameId) ? getNativeBridge() : null;
     if (bridge) return finishMoveViaBridge(gameId, bridge, options);
     return request<AIMoveDTO>(`/games/${gameId}/finish-move`, { method: 'POST' });
   },

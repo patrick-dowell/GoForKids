@@ -874,6 +874,41 @@ test('a device too slow for its own bots: no Finish Game', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Finish Game' })).toHaveCount(0);
 });
 
+test('a game asked for before the device answers: a waiting card that fits, no stone, then the game', async ({ page }) => {
+  // The capabilities answer is held until the test gives it, so Start Game
+  // lands in the wait (up to 10 s) with the last board still on screen.
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: () =>
+        new Promise((resolve) => {
+          (window as unknown as { __answerCaps: (c: object) => void }).__answerCaps = resolve;
+        }),
+    };
+  });
+  const moveCount = () =>
+    page.evaluate(() => (window as unknown as { __gameStore: { getState: () => { moveCount: number } } }).__gameStore.getState().moveCount);
+  await page.goto('/');
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.locator('.go-board-canvas').waitFor();
+  const box = (await page.locator('.go-board-canvas').boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  expect(await moveCount()).toBe(0);
+  const card = page.locator('.game-starting');
+  await expect(card).toContainText('Getting your game ready');
+  await sweep(page, 'game-starting', { strict: ['.game-starting .scoring-card', '.game-starting .scoring-title'] });
+
+  await page.evaluate(() =>
+    (window as unknown as { __answerCaps: (c: object) => void }).__answerCaps({ localBots: true, evalsPerSecond: 40, humanModel: false }),
+  );
+  await expect(card).toHaveCount(0);
+  const ready = (await page.locator('.go-board-canvas').boundingBox())!;
+  await page.mouse.click(ready.x + ready.width / 2, ready.y + ready.height / 2);
+  await expect.poll(moveCount).toBe(1);
+});
+
 test('a device too slow for its own bots still offers the share sheet in a replay', async ({ page }) => {
   await seedPickedProfile(page);
   await page.addInitScript(() => {

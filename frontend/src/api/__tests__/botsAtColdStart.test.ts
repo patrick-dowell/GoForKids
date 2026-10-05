@@ -253,7 +253,6 @@ describe('builds and answers that keep today\'s behaviour (localBots true)', () 
       expect(server.fetchMock).not.toHaveBeenCalled();
       expect(store.botRoutingKnown()).toBe(true);
       expect(store.botsPlayOnline()).toBe(false);
-      expect(store.useCapabilitiesStore.getState().gaveUp).toBe(false);
       if (caps === 'throw') expect(console.warn).toHaveBeenCalledWith('[capabilities] the bridge could not report them:', expect.any(Error));
     });
   }
@@ -423,9 +422,9 @@ describe('asked before the answer arrives', () => {
     expect(useReplayStore.getState().betterMove).toBeNull();
   });
 
-  it(`the wait is bounded: after the bound the device plays as today, and a later answer does not move it`, async () => {
+  it('the wait is bounded: after the bound the game asked for plays on the device, as today', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const b = installBridge('late');
+    installBridge('late');
     const server = installServer();
     const { caps, api } = await boot();
     expect(caps.BOT_ROUTING_WAIT_MS).toBe(10_000);
@@ -436,17 +435,69 @@ describe('asked before the answer arrives', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(done).toBe(true);
     expect((await pending).game_id).toMatch(LOCAL_ID);
-    expect(caps.useCapabilitiesStore.getState().gaveUp).toBe(true);
     expect(caps.botRoutingKnown()).toBe(true);
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('no answer in 10000ms'));
-
-    b.answer(SLOW); // too late: this launch stays on the device
-    await vi.advanceTimersByTimeAsync(0);
-    expect(caps.useCapabilitiesStore.getState().capabilities).toEqual(SLOW);
     expect(caps.botsPlayOnline()).toBe(false);
-    await api.getAIMove((await pending).game_id, '15k', { movesForBridge: [], handicap: 0 });
-    expect(b.analyze).toHaveBeenCalledTimes(1);
     expect(server.fetchMock).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('no answer in 10000ms'));
+  });
+
+  it('a late lock after the give-up governs the next game and the next hint; the game in progress stays on the device', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const b = installBridge('late');
+    const server = installServer();
+    const { caps, api } = await boot();
+    const pending = api.createGame({ board_size: 9, target_rank: '15k' });
+    await vi.advanceTimersByTimeAsync(caps.BOT_ROUTING_WAIT_MS);
+    const inProgress = (await pending).game_id;
+    expect(inProgress).toMatch(LOCAL_ID);
+
+    b.answer(SLOW);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(caps.botsPlayOnline()).toBe(true);
+
+    // the game in progress stays where it started: its moves and its bot
+    await api.playMove(inProgress, 0, 0);
+    await api.getAIMove(inProgress, '15k', { movesForBridge: [{ color: 'B', point: 'A9' }], handicap: 0 });
+    expect((await api.getGame(inProgress)).board.flat().filter((c) => c !== 0)).toHaveLength(2);
+    expect(b.analyze).toHaveBeenCalledTimes(1);
+    await api.finishMove(inProgress, { movesForBridge: [] }).catch(() => {});
+    expect(b.analyze).toHaveBeenCalledTimes(2);
+    expect(b.analyze.mock.calls[1][0].maxVisits).toBe(200);
+    await api.undo(inProgress);
+    await api.pass(inProgress);
+    await api.resign(inProgress);
+    expect(server.fetchMock).not.toHaveBeenCalled();
+
+    // a new game, its bot, and the next review hint follow the answer
+    const next = await api.createGame({ board_size: 9, target_rank: '15k' });
+    expect(next.game_id).toBe('srv00001');
+    await api.getAIMove(next.game_id, '15k', { movesForBridge: [], handicap: 0 });
+    const { useReplayStore } = await import('../../store/replayStore');
+    await loadMistakeGame(useReplayStore);
+    useReplayStore.getState().goToMove(3);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(b.analyze).toHaveBeenCalledTimes(2);
+    expect(server.paths()).toEqual(['/games', '/games/srv00001/ai-move']);
+  });
+
+  it('a hint opened at cold start trips the give-up; after a late lock the next hint asks nothing', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const b = installBridge('late');
+    installServer();
+    const { caps } = await boot();
+    const { useReplayStore } = await import('../../store/replayStore');
+    await loadMistakeGame(useReplayStore);
+    useReplayStore.getState().goToMove(3);
+    await vi.advanceTimersByTimeAsync(caps.BOT_ROUTING_WAIT_MS);
+    expect(b.analyze).toHaveBeenCalledTimes(1); // the give-up plays on the device, as before
+
+    b.answer(SLOW);
+    await vi.advanceTimersByTimeAsync(0);
+    await loadMistakeGame(useReplayStore); // a fresh review: nothing cached
+    useReplayStore.getState().goToMove(3);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(b.analyze).toHaveBeenCalledTimes(1);
+    expect(useReplayStore.getState().betterMove).toBeNull();
   });
 
   it('an answer inside the bound cancels the give-up', async () => {
@@ -459,7 +510,6 @@ describe('asked before the answer arrives', () => {
     b.answer(SLOW);
     expect((await pending).game_id).toBe('srv00001');
     await vi.advanceTimersByTimeAsync(caps.BOT_ROUTING_WAIT_MS);
-    expect(caps.useCapabilitiesStore.getState().gaveUp).toBe(false);
     expect(caps.botsPlayOnline()).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });

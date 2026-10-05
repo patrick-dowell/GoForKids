@@ -19,19 +19,17 @@ export type DeviceCapabilities = Awaited<ReturnType<NonNullable<KataGoBridge['ca
 
 interface CapabilitiesState {
   capabilities: DeviceCapabilities | null;
-  /** The start-up read is over: the bridge answered, failed, lacks the call,
-   *  or the wait for it ran out. */
+  /** The start-up read is over (the bridge answered, failed, or lacks the
+   *  call), or the wait for it ran out (whenBotRoutingKnown). After a wait
+   *  runs out the device's bots play, as before, until an answer arrives; the
+   *  answer then governs every new game, and a game already running on the
+   *  device stays there (client.ts routes a game's calls by where it lives). */
   settled: boolean;
-  /** The wait ran out before the answer (whenBotRoutingKnown): this launch's
-   *  bots play on the device as before, whatever answers later, so a game
-   *  already on the device is never moved mid-game. */
-  gaveUp: boolean;
 }
 
 export const useCapabilitiesStore = create<CapabilitiesState>(() => ({
   capabilities: null,
   settled: false,
-  gaveUp: false,
 }));
 
 function injectedBridge(): KataGoBridge | undefined {
@@ -67,11 +65,11 @@ export function hasHumanModel(): boolean {
 }
 
 /** Only an explicit `localBots: false` locks a device; a bridge without the
- *  call, a failed call, a malformed answer, or a wait that ran out keep its
- *  bots on the device. */
+ *  call, a failed call, a malformed answer, or no answer yet keep its bots on
+ *  the device. */
 function onlineOnly(s: CapabilitiesState): boolean {
   if (!injectedBridge()) return true;
-  return !s.gaveUp && s.capabilities?.localBots === false;
+  return s.capabilities?.localBots === false;
 }
 
 /** This device plays only the online bots: the web, or the native shell said
@@ -109,15 +107,16 @@ export const BOT_ROUTING_WAIT_MS = 10_000;
 let waiting: Promise<void> | null = null;
 
 /** Resolves once botRoutingKnown(): at once when it is, else when the answer
- *  arrives, or after BOT_ROUTING_WAIT_MS, when this launch gives up and plays
- *  on the device as before. Every waiter shares the one bound. */
+ *  arrives, or after BOT_ROUTING_WAIT_MS, when the waiters give up and play
+ *  on the device as before (a later answer still counts from then on). Every
+ *  waiter shares the one bound. */
 export function whenBotRoutingKnown(): Promise<void> {
   if (botRoutingKnown()) return Promise.resolve();
   if (!waiting) {
     waiting = new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         console.warn(`[capabilities] no answer in ${BOT_ROUTING_WAIT_MS}ms: this launch plays the device's bots`);
-        useCapabilitiesStore.setState({ settled: true, gaveUp: true });
+        useCapabilitiesStore.setState({ settled: true });
         resolve();
       }, BOT_ROUTING_WAIT_MS);
       void readDeviceCapabilities().then(() => {
@@ -133,5 +132,5 @@ export function whenBotRoutingKnown(): Promise<void> {
 export function _resetDeviceCapabilities(): void {
   reading = null;
   waiting = null;
-  useCapabilitiesStore.setState({ capabilities: null, settled: false, gaveUp: false });
+  useCapabilitiesStore.setState({ capabilities: null, settled: false });
 }

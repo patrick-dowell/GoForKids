@@ -4,7 +4,7 @@ import { Board } from '../engine/Board';
 import { Color, type Point, type GameResult, MoveResult, BOARD_SIZE } from '../engine/types';
 import { api } from '../api/client';
 import { getHumanRung, getKataGoBridge, getNativeBridge, toGtp } from '../api/nativeKataGo';
-import { onlineBotsOnly, whenBotRoutingKnown } from './capabilitiesStore';
+import { botRoutingKnown, onlineBotsOnly, whenBotRoutingKnown } from './capabilitiesStore';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
 import { clearSelectorLog, recordSelectorLog, snapshotSelectorLog } from '../ai/selectorLog';
@@ -366,6 +366,10 @@ interface GameState {
    *  detection (~5-10 s). UI shows a "Calculating final score…" modal and
    *  hides the placeholder score until the real values arrive. */
   scoringInProgress: boolean;
+  /** A new game is waiting for the device to say where its bots play (cold
+   *  start, at most capabilitiesStore BOT_ROUTING_WAIT_MS): the board on
+   *  screen is the last one, so it takes no stone and a card covers it. */
+  startingGame: boolean;
   scoreHistory: ScorePoint[];  // Live score per move (for the score graph)
   /** Stones merged by the most recent move (or empty). Renderer reads this
    *  to fire a connection pulse, then it gets cleared on the next move. */
@@ -630,6 +634,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   gameEndDismissed: false,
   deadStones: [],
   scoringInProgress: false,
+  startingGame: false,
   scoreHistory: [{ move: 0, lead: 0 }],
   lastMerged: { color: Color.Empty, stones: [] },
       ruleViolation: null,
@@ -644,8 +649,12 @@ export const useGameStore = create<GameState>((set, get) => ({
     const gameMode = options?.gameMode ?? 'ai';
     const useBackend = options?.useBackend || gameMode === 'botvsbot';
     // A game with a bot waits (bounded) for the device to say where its bots
-    // play, so the start line below names the side that will play them.
-    if (useBackend) await whenBotRoutingKnown();
+    // play, so the start line below names the side that will play them. Until
+    // the game is set below, startingGame covers the last board (App.tsx).
+    if (useBackend && !botRoutingKnown()) {
+      set({ startingGame: true });
+      await whenBotRoutingKnown();
+    }
 
     // Fresh diagnostic buffer so the finished game's SavedGame carries only
     // its own selector lines (autoSaveGame snapshots it). The header line
@@ -776,6 +785,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       gameEndDismissed: false,
       deadStones: [],
       scoringInProgress: false,
+      startingGame: false,
       scoreHistory: [{ move: 0, lead: currentLead(game) }],
       lastMerged: { color: Color.Empty, stones: [] },
       ruleViolation: null,
@@ -798,8 +808,9 @@ export const useGameStore = create<GameState>((set, get) => ({
     resumeAudio();
     const { _game, gameId, gameMode, aiThinking, playerColor, currentColor } = get();
 
-    // Block input while AI is thinking
-    if (aiThinking) return MoveResult.GameOver;
+    // Block input while AI is thinking, or while a new game waits to start
+    // (the board on screen is still the last one).
+    if (aiThinking || get().startingGame) return MoveResult.GameOver;
 
     // Block if it's not the player's turn. `gameMode === 'ai'` (not just
     // `gameId`) so this holds even before the backend game id is set — else

@@ -19,6 +19,7 @@ import { FeedbackButton } from './components/FeedbackButton';
 import { abortPendingRequests, api } from './api/client';
 import { PrivacyTermsModal } from './components/PrivacyTermsModal';
 import { ScoringInProgressModal } from './components/ScoringInProgressModal';
+import { GameStartingCard } from './components/GameStartingCard';
 import { useGameStore } from './store/gameStore';
 import { useLearnStore } from './store/learnStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
@@ -148,6 +149,7 @@ function App() {
   const botVsBotPaused = useGameStore((s) => s.botVsBotPaused);
   const botVsBotSpeed = useGameStore((s) => s.botVsBotSpeed);
   const scoringInProgress = useGameStore((s) => s.scoringInProgress);
+  const startingGame = useGameStore((s) => s.startingGame);
   const autoplayContext = useGameStore((s) => s.autoplayContext);
   const result = useGameStore((s) => s.result);
   const togglePause = useGameStore((s) => s.toggleBotVsBotPause);
@@ -692,6 +694,7 @@ function App() {
       <GlossaryView />
       {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       {scoringInProgress && <ScoringInProgressModal onGoHome={goHome} />}
+      {startingGame && <GameStartingCard />}
     </div>
   );
 }
