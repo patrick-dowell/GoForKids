@@ -5,8 +5,8 @@
 # data/profiles/ whole, so the file rides along there, unused.)
 #
 # What it is: the device twins of the cloud 9x9 human-path rungs. Values are b28.yaml's (its comments
-# and calibration history stay there), with the human SL block of b20.yaml's 9x9 18k, 15k and 12k
-# added to the same three rungs here, so b28 is the main net that scores the human net's candidates
+# and calibration history stay there), with the human SL block of b20.yaml's 9x9 18k, 15k, 12k, 9k and 6k
+# added to the same five rungs here, so b28 is the main net that scores the human net's candidates
 # and decides the pass. The old knobs of those rungs stay as the fallback (human model not loaded).
 # The iPad cannot use these yet: the device has no human model.
 #
@@ -286,6 +286,20 @@ profiles:
       visits: 16
       min_candidates: 10
       opening_moves: 3
+      # Human SL path (device twin of b20.yaml's 9x9 9k): the human net proposes,
+      # b28 scores the candidates and decides the pass. Knobs as the b20 twin's: the b20 twin
+      # scored 50% against it (20/40).
+      human_sl_profile: rank_9k
+      human_tilt: -4.0
+      human_tilt_from: 12
+      human_cand_min: 0.03
+      human_cand_max: 8
+      human_score_visits: 4
+      human_pass_margin: 0.5
+      human_small_gain: 2.0
+      human_confirm_visits: 12
+      human_confirm_margin: 0.75
+      human_loss_cap: 4.0
       pass_threshold: 0.1
       clarity_prior: 0.87
       clarity_score_gap: 15.0
@@ -305,6 +319,20 @@ profiles:
       visits: 16
       min_candidates: 10
       opening_moves: 3
+      # Human SL path (device twin of b20.yaml's 9x9 6k): the human net proposes,
+      # b28 scores the candidates and decides the pass. Knobs as the b20 twin's: the b20 twin
+      # scored 40% against it (16/40).
+      human_sl_profile: rank_9k
+      human_tilt: -0.5
+      human_tilt_from: 12
+      human_cand_min: 0.03
+      human_cand_max: 8
+      human_score_visits: 4
+      human_pass_margin: 0.5
+      human_small_gain: 2.0
+      human_confirm_visits: 12
+      human_confirm_margin: 0.75
+      human_loss_cap: 1.0
       pass_threshold: 0.1
       clarity_prior: 0.86
       clarity_score_gap: 13.0

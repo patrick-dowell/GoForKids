@@ -309,6 +309,23 @@ profiles:
       visits: 8
       min_candidates: 10
       opening_moves: 3
+      # Human SL path (2026-10-04): with the human model loaded, this rung takes its moves from
+      # the human net's 9k profile and, from move 13 on, leans toward the better of that net's
+      # candidates as the 12k does (tilt -4, no candidate losing more than 4 points against the
+      # best). The knobs above then apply only when the human model is not loaded. Candidates
+      # scored as the 18k's (4 visits, at most 8). Measured on 9x9: the 12k as Black wins 45% at
+      # h1 (n=110) and 85% at h2 (n=40), and loses 82% of even games (n=130).
+      human_sl_profile: rank_9k
+      human_tilt: -4.0
+      human_tilt_from: 12
+      human_cand_min: 0.03
+      human_cand_max: 8
+      human_score_visits: 4
+      human_pass_margin: 0.5
+      human_small_gain: 2.0
+      human_confirm_visits: 12
+      human_confirm_margin: 0.75
+      human_loss_cap: 4.0
       pass_threshold: 0.1
       clarity_prior: 0.87
       clarity_score_gap: 15.0
@@ -330,6 +347,23 @@ profiles:
       visits: 8
       min_candidates: 10
       opening_moves: 3
+      # Human SL path (2026-10-04): as the 9k (the human net's 9k profile), with a far steeper
+      # lean toward the better candidates (tilt -0.5) and a cap of 1 point against the best. The
+      # knobs above then apply only when the human model is not loaded. Same server cost per move
+      # as the 18k (4 visits, at most 8 candidates). Measured on 9x9: the 9k as Black wins 42% at
+      # h1 and 82% at h2 (n=40 each) and loses 78% of even games (n=130); the 12k loses 90% of
+      # even games (n=60).
+      human_sl_profile: rank_9k
+      human_tilt: -0.5
+      human_tilt_from: 12
+      human_cand_min: 0.03
+      human_cand_max: 8
+      human_score_visits: 4
+      human_pass_margin: 0.5
+      human_small_gain: 2.0
+      human_confirm_visits: 12
+      human_confirm_margin: 0.75
+      human_loss_cap: 1.0
       pass_threshold: 0.1
       clarity_prior: 0.86
       clarity_score_gap: 13.0
