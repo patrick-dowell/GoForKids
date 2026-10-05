@@ -102,6 +102,8 @@ cd frontend && npx vitest run
 cd data && python test_bot_vs_real.py --games 20
 ```
 
+**Selector parity.** The bots' move selectors exist twice, in Python for the server (`backend/app/ai/move_selector.py`, the spec) and in TypeScript for the device (`frontend/src/ai/moveSelector.ts`, `frontend/src/ai/humanNetSelector.ts`), and the two must stay equivalent: a divergence between them is a bug. `data/selector_parity/` holds seeded cases recorded from the Python (a rung's knobs, a position, the engine's answers, the random draws, the move the Python picks); `backend/tests/test_selector_parity.py` replays them against the Python (by default every light case and one in eight of the slow ones, all with `SELECTOR_PARITY_FULL=1`) and `frontend/src/ai/__tests__/selectorParity.test.ts` against the TypeScript. To change a selector: change one, port the change to the other, regenerate the cases with `backend/venv/bin/python data/selector_parity/generate.py` from the repo root, and land it with both suites green. A known disagreement is listed in the TypeScript test as an expected failure (`it.fails`) with its reason; closing one changes how a rung plays, so it is the maintainer's call, and its test turns red the day it closes so the list stays true.
+
 ### Local mirror of the Render deployment
 
 To debug bugs that only show up on Render (Linux Eigen KataGo backend

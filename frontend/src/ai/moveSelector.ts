@@ -169,11 +169,30 @@ function pickRandomLegal(board: Board, color: Stone): Point | null {
   return weightedChoice(moves, weights);
 }
 
+/** Where this file's randomness comes from: `random` is uniform in [0, 1);
+ *  `gaussian`, when given, is a standard normal (otherwise Box-Muller over
+ *  `random`). The default reads Math.random at each call, as the selector
+ *  always has. The parity test (__tests__/selectorParity.test.ts) injects the
+ *  draws recorded from the Python with _setRandomSource. */
+export interface RandomSource {
+  random: () => number;
+  gaussian?: () => number;
+}
+const MATH_RANDOM: RandomSource = { random: () => Math.random() };
+let rngSource: RandomSource = MATH_RANDOM;
+/** For tests: inject a source; null restores Math.random. */
+export function _setRandomSource(source: RandomSource | null): void {
+  rngSource = source ?? MATH_RANDOM;
+}
+function rand(): number {
+  return rngSource.random();
+}
+
 /** Random.choices(...) port: weighted single pick. */
 function weightedChoice<T>(items: T[], weights: number[]): T {
   const total = weights.reduce((a, b) => a + b, 0);
-  if (total <= 0) return items[Math.floor(Math.random() * items.length)];
-  let r = Math.random() * total;
+  if (total <= 0) return items[Math.floor(rand() * items.length)];
+  let r = rand() * total;
   for (let i = 0; i < items.length; i++) {
     r -= weights[i];
     if (r <= 0) return items[i];
@@ -183,9 +202,10 @@ function weightedChoice<T>(items: T[], weights: number[]): T {
 
 /** Standard-normal sample (Box-Muller). */
 function gaussian(): number {
+  if (rngSource.gaussian) return rngSource.gaussian();
   let u = 0;
-  while (u === 0) u = Math.random();
-  const v = Math.random();
+  while (u === 0) u = rand();
+  const v = rand();
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
@@ -409,10 +429,10 @@ function selectBeginnerMove(board: Board, color: Stone, profile: RankProfile): S
   const size = board.size;
 
   // 1. Save own atari groups.
-  if (Math.random() < (profile.save_atari_chance ?? 0.5)) {
+  if (rand() < (profile.save_atari_chance ?? 0.5)) {
     const ownAtari = board.getAtariGroups().filter((g) => g.color === color);
     if (ownAtari.length > 0) {
-      const group = ownAtari[Math.floor(Math.random() * ownAtari.length)];
+      const group = ownAtari[Math.floor(rand() * ownAtari.length)];
       const test = board.clone();
       const { result } = test.tryPlay(color, group.liberty);
       if (result === MoveResult.Ok) return group.liberty;
@@ -420,10 +440,10 @@ function selectBeginnerMove(board: Board, color: Stone, profile: RankProfile): S
   }
 
   // 2. Capture opponent atari groups.
-  if (Math.random() < (profile.capture_chance ?? 0.4)) {
+  if (rand() < (profile.capture_chance ?? 0.4)) {
     const oppAtari = board.getAtariGroups().filter((g) => g.color === opponent);
     if (oppAtari.length > 0) {
-      const group = oppAtari[Math.floor(Math.random() * oppAtari.length)];
+      const group = oppAtari[Math.floor(rand() * oppAtari.length)];
       const test = board.clone();
       const { result } = test.tryPlay(color, group.liberty);
       if (result === MoveResult.Ok) return group.liberty;
@@ -431,7 +451,7 @@ function selectBeginnerMove(board: Board, color: Stone, profile: RankProfile): S
   }
 
   // 3. Local response near an existing stone.
-  if (Math.random() < profile.local_bias) {
+  if (rand() < profile.local_bias) {
     const occupied: Point[] = [];
     for (let r = 0; r < size; r++) {
       for (let c = 0; c < size; c++) {
@@ -440,9 +460,9 @@ function selectBeginnerMove(board: Board, color: Stone, profile: RankProfile): S
     }
     if (occupied.length > 0) {
       const recent = occupied.length > 8 ? occupied.slice(-8) : occupied;
-      const anchor = recent[Math.floor(Math.random() * recent.length)];
+      const anchor = recent[Math.floor(rand() * recent.length)];
       const nearby = getNearbyMoves(board, color, anchor, 2);
-      if (nearby.length > 0) return nearby[Math.floor(Math.random() * nearby.length)];
+      if (nearby.length > 0) return nearby[Math.floor(rand() * nearby.length)];
     }
   }
 
@@ -525,6 +545,10 @@ const _readCooldown: Partial<Record<Stone, number>> = {};
 export function _resetReadCooldowns(): void {
   delete _readCooldown[Color.Black];
   delete _readCooldown[Color.White];
+}
+/** For tests: start `color` with `moves` of read cooldown. */
+export function _setReadCooldown(color: Stone, moves: number): void {
+  _readCooldown[color] = moves;
 }
 
 export function selectWithKataGo(
@@ -663,7 +687,7 @@ export function selectWithKataGo(
     // Read-streak cap (S50): a read move arms the cooldown; while it's hot
     // the bot MUST sample — no back-to-back engine-quality moves.
     const cooldown = _readCooldown[color] ?? 0;
-    const reads = cooldown === 0 && Math.random() < profile.reading_rate;
+    const reads = cooldown === 0 && rand() < profile.reading_rate;
     if (cooldown > 0) _readCooldown[color] = cooldown - 1;
     if (reads) {
       _readCooldown[color] = profile.read_cooldown ?? 0;
@@ -744,7 +768,7 @@ export function selectWithKataGo(
   // fires on 30% of moves, and unfiltered it was the main source of "fills
   // its own territory / dives into mine for 20 moves instead of passing".
   // Blunders still happen — they're just real moves now.
-  if (Math.random() < profile.random_move_chance) {
+  if (rand() < profile.random_move_chance) {
     const rand = pickLegalNonEyeMove(board, color);
     if (rand) return rand;
   }
@@ -752,7 +776,7 @@ export function selectWithKataGo(
   // --- Local bias ---
   // Profiles can opt into local_bias-during-opening with `local_bias_in_opening`.
   const localBiasActive =
-    Math.random() < profile.local_bias &&
+    rand() < profile.local_bias &&
     (!isOpening || profile.local_bias_in_opening === true);
   if (localBiasActive) {
     const sz = board.size;
@@ -768,7 +792,7 @@ export function selectWithKataGo(
       }
       if (occupied.length > 0) {
         const recent = occupied.length > 10 ? occupied.slice(-10) : occupied;
-        anchor = recent[Math.floor(Math.random() * recent.length)];
+        anchor = recent[Math.floor(rand() * recent.length)];
       }
     }
     if (anchor) {
@@ -797,7 +821,7 @@ export function selectWithKataGo(
         }
       } else {
         const nearby = getNearbyMoves(board, color, anchor, 2);
-        if (nearby.length > 0) return nearby[Math.floor(Math.random() * nearby.length)];
+        if (nearby.length > 0) return nearby[Math.floor(rand() * nearby.length)];
       }
     }
   }
@@ -877,7 +901,7 @@ export function selectWithKataGo(
     const policyW = Math.max(c.prior, 0.001) ** profile.policy_weight;
 
     let mistakeW: number;
-    if (Math.random() < profile.mistake_freq) {
+    if (rand() < profile.mistake_freq) {
       // Mistake mode: prefer moderately-bad moves over the best one.
       if (pointLoss > 0) {
         const sweet = profile.max_point_loss * 0.35;
@@ -889,7 +913,7 @@ export function selectWithKataGo(
       mistakeW = Math.exp(-pointLoss * 0.8);
     }
 
-    const jitter = 0.3 + 0.7 * Math.random() ** (1 - profile.randomness);
+    const jitter = 0.3 + 0.7 * rand() ** (1 - profile.randomness);
     return policyW * mistakeW * jitter;
   });
 
