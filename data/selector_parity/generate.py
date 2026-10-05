@@ -34,13 +34,12 @@ import yaml  # noqa: E402
 import app.ai.move_selector as ms  # noqa: E402
 from app.game.engine import Board, Color, Point  # noqa: E402
 from tests.selector_parity_harness import (  # noqa: E402
-    OWN_LEVELS, Answers, Feed, board_of, run_human, run_standard,
+    OWN_LEVELS, Answers, Feed, board_of, fast_position_keys, run_human, run_standard,
 )
 
 SEED = 20261004
-WORK = None  # set by main
-STANDARD_PER_RUNG = {9: 240, 13: 80, 19: 40}
-HUMAN_PER_RUNG = 520
+STANDARD_PER_RUNG = {9: 250, 13: 80, 19: 40}
+HUMAN_PER_RUNG = 490
 OUT = Path(__file__).resolve().parent
 CH = {Color.EMPTY: ".", Color.BLACK: "X", Color.WHITE: "O"}
 
@@ -169,7 +168,10 @@ def standard_candidates(rng, board: Board, color: Color, profile: dict, scenario
     for j, (i, v, p) in enumerate(zip(pts, vals, priors)):
         visits = top_visits if j == 0 else rng.randint(1, max(1, top_visits))
         rows.append([i // size, i % size, visits, 0.5, _r(sign * v), _r(p, 4)])
-    has_pass = scenario == "top-pass" or rng.random() < 0.4
+    # Passes mostly on the endgame boards: on an open board the border check counts
+    # the board once per open point, the bulk of the replay's time.
+    has_pass = scenario == "top-pass" or rng.random() < (
+        0.4 if scenario == "split" else 0.12 if board.size == 9 else 0.0)
     if has_pass:
         pv = base - rng.uniform(-0.6, 2.0)
         pvis = rng.choice([1, 3, 4, 6, 10, top_visits, max(1, top_visits // 5)])
@@ -183,6 +185,11 @@ def make_standard_answers(rng, board: Board, color: Color, profile: dict, scenar
     cands = standard_candidates(rng, board, color, profile, scenario)
     sign = 1 if color == Color.BLACK else -1
     pass_val = rng.uniform(-20, 20)
+    # On a quarter-point grid half the time, so a border move's loss against the
+    # pass can equal its count gain exactly (the check's `<=` boundary).
+    quarter = rng.random() < 0.5
+    if quarter:
+        pass_val = round(pass_val * 4) / 4
 
     def make(kind, req):
         if kind == "analysis":
@@ -190,12 +197,14 @@ def make_standard_answers(rng, board: Board, color: Color, profile: dict, scenar
         if kind == "ownership":
             return {"own": own}
         v = pass_val if req["move"] == "pass" else pass_val + rng.uniform(-3.0, 2.0)
+        if quarter:
+            v = round(v * 4) / 4
         return {"lead": _r(sign * v)}
 
     return make
 
 
-def make_human_answers(rng, board: Board, color: Color, own: str):
+def make_human_answers(rng, board: Board, color: Color, own: str, endgame: bool):
     size = board.size
     n = size * size
     sign = 1 if color == Color.BLACK else -1
@@ -212,9 +221,14 @@ def make_human_answers(rng, board: Board, color: Color, own: str):
     if probs and rng.random() < 0.1:
         probs[rng.randrange(len(probs))] = 0.03  # human_cand_min exactly
     human = [[i, p] for i, p in zip(pts, probs)]
-    main_pass = rng.choice([0.0, 0.01, 0.2, 0.5, 0.51, 0.9]) if rng.random() < 0.25 else _r(rng.uniform(0, 0.1), 3)
+    # The pass routes go mostly to the endgame boards (see standard_candidates).
+    pass_policies = [0.0, 0.01, 0.2, 0.5, 0.51, 0.9] if endgame else [0.0, 0.01, 0.2, 0.5]
+    main_pass = rng.choice(pass_policies) if rng.random() < 0.25 else _r(rng.uniform(0, 0.1), 3)
     pass_val = rng.uniform(-20, 20)
-    regime = rng.choice(["clear", "small", "flat", "mixed"])
+    quarter = endgame and rng.random() < 0.5  # exact ties at the border check's bounds
+    if quarter:
+        pass_val = round(pass_val * 4) / 4
+    regime = rng.choice(["clear", "small", "flat", "mixed"] if endgame else ["clear", "clear", "clear", "mixed"])
 
     def make(kind, req):
         if kind == "human":
@@ -222,13 +236,15 @@ def make_human_answers(rng, board: Board, color: Color, own: str):
         if req["move"] == "pass":
             v = pass_val + (rng.uniform(-0.3, 0.3) if req["visits"] > 4 else 0.0)
         elif regime == "clear":
-            v = pass_val + rng.uniform(-12, 8)
+            v = pass_val + rng.uniform(-12, 8) if endgame else pass_val + rng.uniform(-4, 10)
         elif regime == "small":
             v = pass_val + rng.uniform(0.0, 2.5)
         elif regime == "flat":
             v = pass_val + rng.uniform(-1.0, 0.8)
         else:
-            v = pass_val + rng.uniform(-6, 4)
+            v = pass_val + rng.uniform(-6, 4) if endgame else pass_val + rng.uniform(-3, 6)
+        if quarter:
+            v = round(v * 4) / 4
         return {"lead": _r(sign * v), "winrate": 0.5}
 
     return make
@@ -255,11 +271,10 @@ def standard_cases(rng, loop) -> list[dict]:
             for rank, base in table[f"{size}x{size}"].items():
                 for _ in range(STANDARD_PER_RUNG[size]):
                     scenario = rng.choices(
-                        ["normal", "top-pass", "split", "empty"], weights=[70, 10, 18, 2])[0]
-                    # Off 9x9 the passes go to the endgame boards: on an open 19x19 the
-                    # border check counts the board once per open point, which would
-                    # make these cases most of the replay's time.
-                    if size > 9 and scenario in ("top-pass", "empty"):
+                        ["normal", "top-pass", "split", "empty"], weights=[82, 6, 10, 2])[0]
+                    # The top-pass cases (and off 9x9 the empty ones) are endgame boards,
+                    # for the same reason.
+                    if scenario == "top-pass" or (size > 9 and scenario == "empty"):
                         board, own, last = split_board(rng, size)
                     elif scenario == "split":
                         board, own, last = split_board(rng, size)
@@ -296,9 +311,7 @@ def standard_cases(rng, loop) -> list[dict]:
                     u = Feed(make=lambda: min(round(rng.random(), 6), 0.999999))
                     g = Feed(make=lambda: round(rng.gauss(0.0, 1.0), 6))
                     closed.clear()
-                    WORK.take()
                     case["pick"] = run_standard(ms, case, u, g, answers, loop)
-                    case["work"] = WORK.take() * size * size
                     case["answers"], case["u"], case["g"] = answers.items, u.values, g.values
                     trace = []
                     if closed and case["pick"] == [closed[-1][1] // size, closed[-1][1] % size]:
@@ -318,6 +331,22 @@ def standard_cases(rng, loop) -> list[dict]:
 
 
 def human_cases(rng, loop) -> list[dict]:
+    calls: list = []
+    real_close = ms._close_border
+
+    async def spy(*a, **kw):
+        pick = await real_close(*a, **kw)
+        calls.append(pick)
+        return pick
+
+    ms._close_border = spy
+    try:
+        return _human_cases(rng, loop, calls)
+    finally:
+        ms._close_border = real_close
+
+
+def _human_cases(rng, loop, calls) -> list[dict]:
     table = yaml.safe_load((ROOT / "data/profiles/b28_human.yaml").read_text())["profiles"]
     cases: list[dict] = []
     for size_key, rungs in table.items():
@@ -336,7 +365,7 @@ def human_cases(rng, loop) -> list[dict]:
                     profile["human_tilt"] = -math.inf
                 elif variant == "no-loss-cap":
                     profile.pop("human_loss_cap", None)
-                if rng.random() < 0.3:
+                if rng.random() < 0.2:
                     board, own, _ = split_board(rng, size)
                     scenario = "split"
                 else:
@@ -356,42 +385,19 @@ def human_cases(rng, loop) -> list[dict]:
                     "scenario": scenario,
                 }
                 pboard = board_of(case)
-                answers = Answers(make=make_human_answers(rng, pboard, color, own))
+                answers = Answers(make=make_human_answers(rng, pboard, color, own, scenario == "split"))
                 u = Feed(make=lambda: min(round(rng.random(), 6), 0.999999))
-                WORK.take()
+                calls.clear()
                 handled, pick = run_human(ms, case, u, answers, loop)
-                case["work"] = WORK.take() * size * size
                 case["handled"], case["pick"] = handled, pick
+                # pass-route: the path reached a pass and ran the border check;
+                # border-closed: the move came from it.
+                case["trace"] = (["pass-route"] if calls else []) + (
+                    ["border-closed"] if calls and calls[-1] is not None
+                    and pick == [calls[-1][1] // size, calls[-1][1] % size] else [])
                 case["answers"], case["u"] = answers.items, u.values
                 cases.append(case)
     return cases
-
-
-class Work:
-    """Counts the board copies and counts a case's Python run makes: the
-    replay's cost, so the default pytest run can take the cheap cases whole."""
-
-    def __init__(self):
-        self.n = 0
-        self.clone, self.count = Board.clone, Board.score_territory
-        work = self
-
-        def clone(b):
-            work.n += 1
-            return work.clone(b)
-
-        def count(b):
-            work.n += b.size
-            return work.count(b)
-
-        Board.clone, Board.score_territory = clone, count
-
-    def take(self) -> int:
-        n, self.n = self.n, 0
-        return n
-
-    def close(self):
-        Board.clone, Board.score_territory = self.clone, self.count
 
 
 def write(name: str, cases: list[dict]) -> None:
@@ -409,13 +415,9 @@ def main() -> None:
     logging.disable(logging.CRITICAL)
     loop = asyncio.new_event_loop()
     rng = random.Random(SEED)
-    global WORK
-    WORK = Work()
-    try:
+    with fast_position_keys():
         std = standard_cases(rng, loop)
         hum = human_cases(rng, loop)
-    finally:
-        WORK.close()
     write("standard", std)
     write("human", hum)
     print(f"standard {len(std)} cases, human {len(hum)} cases")

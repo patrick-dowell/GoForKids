@@ -8,10 +8,14 @@
  *
  * Divergence is a bug: change one selector, port the other, regenerate
  * (data/selector_parity/generate.py), both suites green. The standard path's
- * known disagreements are listed in KNOWN_STANDARD below as expected failures
- * (it.fails), each with its reason; closing one changes how a device rung
- * plays, so it is the maintainer's call, and when one closes its test turns
- * red until it is taken off the list.
+ * known disagreements are pinned case by case in
+ * data/selector_parity/expected_failures.json, by class, each class with its
+ * reason and an expected failure (it.fails) here. A disagreement outside its
+ * list fails, and so does a listed case that starts agreeing; closing one
+ * changes how a device rung plays, so it is the maintainer's call. After a
+ * deliberate change, SELECTOR_PARITY_WRITE=1 rewrites the lists of the classes
+ * already in the file (never an unexplained disagreement), and the file's diff
+ * is the review.
  *
  * How the draws are fed (backend/tests/selector_parity_harness.py has the
  * Python half): `u` is one uniform per Math.random() call (the injected
@@ -22,7 +26,7 @@
  */
 
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { Color, type Point, type Stone } from '../../engine/types';
 import {
@@ -191,30 +195,31 @@ async function runStandard(c: StandardCase): Promise<Outcome & { cls: string; ts
   };
 }
 
-/** The class of a standard-path disagreement, from what the Python's run saw. */
+/** The cause of a standard-path disagreement, from what the Python's run saw
+ *  and what the TypeScript returned. */
 function classifyStandard(c: StandardCase, ts: Pick): string {
+  const border = c.trace.includes('border-closed');
   if (c.trace.includes('no-candidates')) return 'no-candidates';
-  if (c.trace.includes('top-pass')) return 'top-pass';
-  if (c.trace.includes('border-closed') && ts === null) return 'border';
+  if (c.trace.includes('top-pass')) {
+    // The TypeScript passed too: only the border check is missing.
+    if (border && ts === null) return 'border';
+    return border ? 'top-pass-then-border' : 'top-pass';
+  }
+  if (border && ts === null) return 'border';
   return 'unexplained';
 }
 
-/** Known standard-path disagreements: reported, not fixed (closing one changes
- *  how a device rung plays). A case of each in the files as generated:
- *  border s00034, top-pass s00007, no-candidates s00182. */
-const KNOWN_STANDARD: Record<string, string> = {
-  border:
-    "the border check before a pass (move_selector.py's _close_border on the standard " +
-    'path) was never ported: where the Python plays a move that closes a region the ' +
-    'count gives to nobody, moveSelector.ts passes',
-  'top-pass':
-    "KataGo's top candidate is pass after the opening: the Python passes (after its " +
-    'border check); moveSelector.ts sets the pass aside, takes the best non-pass ' +
-    'candidate and goes on through the pass threshold and the rest of the path',
-  'no-candidates':
-    'an analysis with no candidates: the Python passes (after its border check); ' +
-    'moveSelector.ts plays a random legal non-eye move',
-};
+declare const process: { env: Record<string, string | undefined> };
+interface ExpectedFailures {
+  about: string;
+  classes: Record<string, { reason: string; cases: string[] }>;
+}
+const EXPECTED_URL = new URL('../../../../data/selector_parity/expected_failures.json', import.meta.url);
+const EXPECTED = JSON.parse(new TextDecoder().decode(readFileSync(EXPECTED_URL))) as ExpectedFailures;
+const LISTED = new Map<string, string>();
+for (const [cls, { cases }] of Object.entries(EXPECTED.classes)) {
+  for (const id of cases) LISTED.set(id, cls);
+}
 
 async function runHuman(c: HumanCase): Promise<Outcome> {
   const color = colorOf(c);
@@ -279,20 +284,38 @@ describe('selector parity: standard path (moveSelector.ts against _select_with_k
     }
   });
 
-  it('agrees on every case outside the known disagreements', () => {
+  it('every disagreement is a listed expected failure of its class', () => {
     expect(results.length).toBeGreaterThan(2000);
-    const bad = results.filter((r) => !r.ok && !(r.cls in KNOWN_STANDARD));
-    expect(bad.slice(0, 15).map(show)).toEqual([]);
+    const bad = results
+      .filter((r) => !r.ok && LISTED.get(r.id) !== r.cls)
+      .map((r) => `${show(r)} [cause ${r.cls}, listed ${LISTED.get(r.id) ?? 'nowhere'}]`);
+    expect({ count: bad.length, first: bad.slice(0, 15) }).toEqual({ count: 0, first: [] });
   });
 
-  for (const [cls, reason] of Object.entries(KNOWN_STANDARD)) {
-    // Expected to fail while the disagreement stands; passes (and so turns
-    // red) the day it closes.
-    it.fails(`expected failure, ${cls}: ${reason}`, () => {
-      const bad = results.filter((r) => !r.ok && r.cls === cls);
+  it('every listed case still disagrees', () => {
+    const byId = new Map(results.map((r) => [r.id, r]));
+    const stale = [...LISTED]
+      .filter(([id]) => byId.get(id)?.ok !== false)
+      .map(([id, cls]) => `${id} (listed ${cls}) ${byId.has(id) ? 'now agrees' : 'is not a case'}`);
+    expect({ count: stale.length, first: stale.slice(0, 15) }).toEqual({ count: 0, first: [] });
+  });
+
+  for (const [cls, { reason, cases }] of Object.entries(EXPECTED.classes)) {
+    // Expected to fail while the class's disagreements stand; passes (and so
+    // turns red) the day they are all closed.
+    it.fails(`expected failure, ${cls} (${cases.length} cases): ${reason}`, () => {
+      const listed = new Set(cases);
+      const bad = results.filter((r) => listed.has(r.id) && !r.ok);
       expect(bad.slice(0, 3).map(show)).toEqual([]);
     });
   }
+
+  it.runIf(Boolean(process.env.SELECTOR_PARITY_WRITE))('rewrites the expected failures', () => {
+    for (const [cls, entry] of Object.entries(EXPECTED.classes)) {
+      entry.cases = results.filter((r) => !r.ok && r.cls === cls).map((r) => r.id);
+    }
+    writeFileSync(EXPECTED_URL, `${JSON.stringify(EXPECTED, null, 1)}\n`);
+  });
 });
 
 describe('selector parity: human path (humanNetSelector.ts against _select_with_human_net)', () => {

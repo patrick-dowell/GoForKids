@@ -9,42 +9,32 @@ case here means the Python's behaviour changed since the cases were recorded.
 """
 
 import asyncio
+import functools
 import logging
-import os
 from collections import Counter
 
 import pytest
 
 import app.ai.move_selector as ms
 from tests.selector_parity_harness import (
-    Answers, Feed, load_cases, run_human, run_standard,
+    Answers, Feed, fast_position_keys, load_cases, run_human, run_standard,
 )
 
 
-# The Python selector is slow to replay on some cases (an open 19x19 pass
-# decision counts the board once per open point), so the default run takes
-# every case whose recorded `work` (the board copies and counts its run made)
-# is light, about three in five, and every eighth of the heavy ones; the slice
-# still holds every rung, colour and route. SELECTOR_PARITY_FULL=1 replays
-# them all. The TypeScript side always replays all of them.
-FULL = bool(os.environ.get("SELECTOR_PARITY_FULL"))
-LIGHT_WORK = 10_000
-HEAVY_STRIDE = 8
+@functools.lru_cache(maxsize=None)
+def _load(name: str) -> tuple:
+    return tuple(load_cases(name))
 
 
 def _cases(name: str) -> list[dict]:
-    cases = load_cases(name)
-    if FULL:
-        return cases
-    heavy = [c for c in cases if c["work"] > LIGHT_WORK]
-    keep = {c["id"] for c in heavy[::HEAVY_STRIDE]}
-    return [c for c in cases if c["work"] <= LIGHT_WORK or c["id"] in keep]
+    return list(_load(name))
 
 
 @pytest.fixture(scope="module")
 def loop():
     lp = asyncio.new_event_loop()
-    yield lp
+    with fast_position_keys():
+        yield lp
     lp.close()
 
 
@@ -107,7 +97,7 @@ def test_cases_cover_what_they_must():
     from tests.selector_parity_harness import PARITY_DIR
 
     root = PARITY_DIR.parents[1]
-    std, hum = load_cases("standard"), load_cases("human")
+    std, hum = _cases("standard"), _cases("human")
     assert len(std) + len(hum) >= 5000
 
     b28 = yaml.safe_load((root / "data/profiles/b28.yaml").read_text())["profiles"]
