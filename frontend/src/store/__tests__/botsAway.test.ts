@@ -359,17 +359,18 @@ describe('the server coming back', () => {
   });
 
   it('a stopped watch no longer listens', async () => {
-    installWindow();
+    installWindow(FAST);
     const server = installServer();
-    const { reach, useSettingsStore } = await boot({ cloudBot: false });
+    const { caps, reach, useSettingsStore } = await boot({ cloudBot: false });
+    await caps.whenBotRoutingKnown();
     const doc = installDocument();
     const stop = reach.watchServer();
     await flush();
     stop();
     doc.show();
-    useSettingsStore.getState().setCloudBot(true);
+    useSettingsStore.getState().setCloudBot(true); // the bots turn online: nobody listens
     await flush();
-    expect(server.health()).toBe(1);
+    expect(server.health()).toBe(0);
   });
 });
 
@@ -525,6 +526,8 @@ describe('a drop in the middle of a game on the server', () => {
     const read = holdNext(server, '/games/srv00001');
     useGameStore.getState().retryBot();
     await vi.waitFor(() => expect(read.arrived()).toBe(true));
+    expect(useGameStore.getState().aiThinking).toBe(true);
+    expect(useGameStore.getState().undo()).toBe(false);
     expect(useGameStore.getState().playMove({ row: 0, col: 0 })).toBe('game_over');
     expect(stones(useGameStore)).toBe(1);
     useGameStore.getState().leaveGame();
@@ -612,7 +615,9 @@ describe('a game that cannot start', () => {
     expect(st.boardSize).toBe(9);
     expect(st.autoplayContext).toBe(true);
     expect(useGameStore.getState().playMove({ row: 4, col: 4 })).toBe('game_over');
+    useGameStore.getState().pass();
     expect(stones(useGameStore)).toBe(0);
+    expect(useGameStore.getState().moveCount).toBe(0);
     const { snapshotSelectorLog } = await import('../../ai/selectorLog');
     expect(snapshotSelectorLog().join('\n')).toContain('[game] create FAILED');
 
@@ -794,6 +799,15 @@ describe('bot vs bot', () => {
     await vi.advanceTimersByTimeAsync(800); // and on
     expect(stones(useGameStore)).toBe(2);
     useGameStore.getState().toggleBotVsBotPause();
+  });
+
+  it('a move that fails while the server is reachable and in step: the card, not a move made up from its record', async () => {
+    const { server, useGameStore } = await bvb();
+    server.s.aiDown = true;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(useGameStore.getState().botTrouble).toBe('move');
+    expect(useGameStore.getState().moveCount).toBe(0);
+    expect(server.log).toContain('GET /games/srv00001');
   });
 
   it('a move the server made whose answer was lost is shown, not asked for again', async () => {
