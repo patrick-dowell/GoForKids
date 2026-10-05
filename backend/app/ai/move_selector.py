@@ -460,7 +460,8 @@ async def _select_ai_move_inner(
 # of the pass (the largest gain; ties to the human net's probability). It
 # must not be self-atari or an own-eye fill, and with `human_loss_cap` set it
 # must lose no more than the cap against the best move the main net scored
-# (moves not yet scored are scored at `human_score_visits`).
+# (moves not yet scored are scored at `human_score_visits`). The standard
+# path runs the same check (_close_border) before each of its passes.
 HUMAN_TILT_LOSS_CAP = 15.0
 HUMAN_PASS_POLICY = 0.5
 HUMAN_BORDER_GAIN = 1.0
@@ -514,6 +515,37 @@ def _border_moves(
         if gain >= min_gain:
             found.append((gain, idx))
     return found
+
+
+async def _close_border(
+    board: Board, color: Color, ownership: Optional[list[float]], min_gain: float,
+    prob, score=None, scored: Optional[dict] = None, cap: Optional[float] = None,
+    where: str = "",
+) -> Optional[tuple[int, int]]:
+    """The border check both paths run before a pass: (gain, index) of the move
+    to play instead, or None to pass. `prob(index)` breaks ties between equal
+    gains. `score(moves)` returns the mover's value after each GTP move (and
+    "pass"), filling `scored`; None plays on the count alone. With `cap` set a
+    move must lose no more than the cap against the best scored move."""
+    if not ownership or len(ownership) < board.size * board.size:
+        return None
+    found = _border_moves(board, color, ownership, min_gain)
+    if not found:
+        return None
+    size = board.size
+    gtp = lambda i: point_to_gtp(i // size, i % size, size)  # noqa: E731
+    if score is not None:
+        scored = {} if scored is None else scored
+        todo = [m for m in [gtp(i) for _, i in found] + ["pass"] if m not in scored]
+        for m, v in zip(todo, await score(todo)):
+            scored[m] = v
+        top = max(scored.values())
+        if cap is not None:
+            found = [(g, i) for g, i in found if top - scored[gtp(i)] <= float(cap)]
+        if not found:
+            logger.info(f"{where} PASS: every border move loses more than {cap}")
+            return None
+    return max(found, key=lambda t: (t[0], prob(t[1])))
 
 
 async def _select_with_human_net(
@@ -574,30 +606,24 @@ async def _select_with_human_net(
 
         ownership = getattr(analysis, "ownership", None)
 
+        async def _score(todo: list[str]) -> list[float]:
+            return [sign * r.score_lead for r in await asyncio.gather(*(_after(m) for m in todo))]
+
         async def _pass() -> tuple[bool, Optional[Point]]:
             """Pass, unless a move closes a border the count gives to nobody."""
-            if not ownership or len(ownership) < n:
-                return True, None
-            found = _border_moves(
+            cap = profile.get("human_loss_cap")
+            pick = await _close_border(
                 board, color, ownership,
                 float(profile.get("human_border_gain", HUMAN_BORDER_GAIN)),
+                lambda i: human[i], _score if cap is not None else None, scored, cap,
+                f"{where} human net",
             )
-            if not found:
+            if pick is None:
                 return True, None
-            gtp = lambda i: point_to_gtp(i // size, i % size, size)  # noqa: E731
-            cap = profile.get("human_loss_cap")
-            if cap is not None:
-                todo = [m for m in [gtp(i) for _, i in found] + ["pass"] if m not in scored]
-                for m, r in zip(todo, await asyncio.gather(*(_after(m) for m in todo))):
-                    scored[m] = sign * r.score_lead
-                top = max(scored.values())
-                found = [(g, i) for g, i in found if top - scored[gtp(i)] <= float(cap)]
-                if not found:
-                    logger.info(f"{where} human net PASS: every border move loses more than {cap}")
-                    return True, None
-            gain, idx = max(found, key=lambda t: (t[0], human[t[1]]))
+            gain, idx = pick
             logger.info(
-                f"{where} human net {name}: closed a border at {gtp(idx)} instead of passing, "
+                f"{where} human net {name}: closed a border at "
+                f"{point_to_gtp(idx // size, idx % size, size)} instead of passing, "
                 f"+{gain} by the game's count (p={human[idx]:.2f})"
             )
             return True, Point(idx // size, idx % size)
@@ -840,6 +866,46 @@ async def _select_with_katago(
     try:
         board_2d = board.to_2d()
         player = "B" if color == Color.BLACK else "W"
+        size = board.size
+        where = f"[{target_rank} {size}x{size}]"
+
+        async def _pass() -> Optional[Point]:
+            """Pass, unless a move closes a border the count gives to nobody:
+            the human path's border check (_close_border), behind the same
+            `human_border_gain` knob (.inf switches it off). The ownership is
+            one extra 1-visit read, made only here, so a move that does not
+            pass pays nothing. A failed read or check leaves the pass."""
+            min_gain = float(profile.get("human_border_gain", HUMAN_BORDER_GAIN))
+            if min_gain == math.inf:
+                return None
+            try:
+                read = await engine.analyze(
+                    board_2d, player, max_visits=1, size=size,
+                    moves=engine_moves, initial_stones=engine_setup,
+                    include_ownership=True,
+                    priority=10,
+                    **_komi_kw(komi),
+                )
+                priors = {
+                    c.move[0] * size + c.move[1]: c.prior
+                    for c in (analysis.candidates or []) if c.move[0] >= 0
+                }
+                pick = await _close_border(
+                    board, color, getattr(read, "ownership", None), min_gain,
+                    lambda i: priors.get(i, 0.0), where=where,
+                )
+            except Exception as e:
+                logger.warning(f"{where} border check failed ({e!r}), passing")
+                return None
+            if pick is None:
+                return None
+            gain, idx = pick
+            logger.info(
+                f"{where} closed a border at {point_to_gtp(idx // size, idx % size, size)} "
+                f"instead of passing, +{gain} by the game's count"
+            )
+            return Point(idx // size, idx % size)
+
         # Opponent passed → settle cleanly: deeper search so KataGo reliably
         # surfaces `pass` at a settled position (low-visit profiles never search
         # pass enough to trust it). Mistake injection is also skipped below.
@@ -896,7 +962,7 @@ async def _select_with_katago(
 
         if not analysis.candidates:
             logger.warning(f"[{target_rank} {board.size}x{board.size}] PASS: no candidates returned")
-            return None
+            return await _pass()
 
         # Filter out illegal moves before any decision logic. KataGo only sees
         # the position we send (empty `moves`), so it can recommend ko
@@ -936,7 +1002,7 @@ async def _select_with_katago(
             logger.warning(
                 f"[{target_rank} {board.size}x{board.size}] PASS: filtered-empty-no-legal-move"
             )
-            return None
+            return await _pass()
 
         # --- Pass detection ---
         # Pass when either:
@@ -962,7 +1028,7 @@ async def _select_with_katago(
                 f"[{target_rank} {board.size}x{board.size}] PASS: KataGo top move is pass "
                 f"(visits={best.visits}, score={best.score_lead:.2f})"
             )
-            return None
+            return await _pass()
         if best.move[0] < 0 and is_opening:
             # KataGo's #1 was pass during the opening — drop pass and pick
             # the best non-pass candidate to play out instead.
@@ -971,7 +1037,7 @@ async def _select_with_katago(
                 logger.warning(
                     f"[{target_rank} {board.size}x{board.size}] PASS: opening but no non-pass candidates"
                 )
-                return None
+                return await _pass()
             best = non_pass_best
 
         pass_threshold = profile.get("pass_threshold", 0.3)
@@ -1002,7 +1068,7 @@ async def _select_with_katago(
                 f"pass={pass_cand.score_lead:.2f} (passV={pass_cand.visits} bestV={best.visits} "
                 f"thr={pass_threshold})"
             )
-            return None
+            return await _pass()
 
         # Opponent passed and a real move still beats passing (handled above):
         # play KataGo's honest top move WITHOUT mistake injection — injecting a
@@ -1019,7 +1085,7 @@ async def _select_with_katago(
                 logger.warning(
                     f"[{target_rank} {board.size}x{board.size}] PASS: settle top unplayable"
                 )
-                return None
+                return await _pass()
             return bp
 
         # --- Reading-rate roll (§3 out-of-pool mechanism, 2026-07-05) ---
@@ -1229,7 +1295,7 @@ async def _select_with_katago(
                 logger.warning(
                     f"[{target_rank} {board.size}x{board.size}] PASS: only eye-fill moves left"
                 )
-            return None
+            return await _pass()
 
         # --- score_noise path (§3 iter 2): noisy-argmax replaces the
         # mistake-weighting machinery entirely when set. The clarity gates
