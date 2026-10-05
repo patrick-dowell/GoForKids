@@ -342,10 +342,16 @@ A crash-loop guard covers that load (`HumanLoadGuard` in
 (`GoForKids/human-net-load.json`) is written before the pre-check and the
 engine's load and closed after them. A launch that finds it still open
 (the last one died loading) starts without the human net, so
-`capabilities()` answers `humanModel: false`, and counts the crash; the
-next launch tries again, and a second crash in the same app version keeps
-the human net off until the version changes. A load that fails without a
-crash is not counted.
+`capabilities()` answers `humanModel: false`, and counts it; the next
+launch tries again, and a second load in a row that never finished keeps
+the human net off for that build. A load that finishes, with the net or
+without it, clears the count. The record belongs to one build, not the
+version string (which stays the same between Xcode builds): the binary's
+Mach-O UUID plus the modification date of the bundled `web/index.html`,
+so every new build, a frontend-only one included, starts clean. A kill
+while loading (Xcode's stop, a force-quit) counts like a crash, so two in
+a row on one unchanged build leave the net off until a new build is
+installed or the app is deleted.
 
 UI ships with the iPad app, so the React assets work even if Render is
 down. The backend (game state) still requires Render to be reachable —

@@ -2,6 +2,7 @@ import Foundation
 import WebKit
 import UIKit
 import CoreML
+import MachO
 
 final class KataGoBridge: NSObject, WKScriptMessageHandler {
     static let shared = KataGoBridge()
@@ -93,13 +94,13 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
             } else {
                 loadGuard.willLoad()
                 if humanPackageCompiles(), let models = launchEngine(withHumanModel: true) {
-                    loadGuard.didLoad(succeeded: true)
+                    loadGuard.didFinishLoad()
                     engineUp = true
                     humanModelLoaded = Self.modelsIncludeHumanNet(models)
                     print("[Bridge] Engine up, human SL net loaded: \(humanModelLoaded)")
                     return
                 }
-                loadGuard.didLoad(succeeded: false)
+                loadGuard.didFinishLoad()
                 print("[Bridge] Engine did not come up with the human SL net; starting it without")
                 KataGoHelper.discardPendingInput()
             }
@@ -884,29 +885,46 @@ extension KataGoBridge {
     }
 }
 
-// MARK: HumanLoadGuard (Foundation only; the macOS test harness compiles this block as it stands)
+// MARK: HumanLoadGuard (Foundation and MachO only; the macOS test harness compiles this block as it stands)
 
 /// The crash-loop guard for the human SL net. The pre-check compiles the
 /// package with CoreML, but the engine's own load can still take the app
 /// down (a crash, or the system ending an app that needs too much memory),
 /// and every later launch would try again. So a record is written before
-/// the load and cleared after it: a launch that finds it still open knows
+/// the load and closed after it: a launch that finds it still open knows
 /// the last one died loading, starts without the human net (the bridge then
-/// answers `humanModel: false`) and counts the crash. The launch after that
-/// tries again, once: a second crash in the same app version leaves the
-/// human net off until the version changes. A file, written whole, so the
-/// record is on disk before the load starts.
+/// answers `humanModel: false`) and counts it. The launch after that tries
+/// again: a second load in a row that never finished leaves the human net
+/// off for this build. A load that finishes, with the net or without it,
+/// clears the count.
+///
+/// The record belongs to one build, not one version: the app's version
+/// string stays the same from one Xcode build to the next, and a kill while
+/// loading (Xcode's stop, a force-quit, the system ending the app) looks the
+/// same as a crash. Every new build starts with a clean count; two such
+/// kills in a row on one unchanged build do leave the net off until a new
+/// build is installed (any code or frontend change), the app is deleted, or
+/// the version changes. A file, written whole, so the record is on disk
+/// before the load starts.
 struct HumanLoadGuard {
     static let maxCrashes = 2
 
     struct Record: Codable, Equatable {
         var appVersion: String
+        var build: String
         var loading: Bool
         var crashes: Int
     }
 
     let url: URL
     let version: String
+    let build: String
+
+    init(url: URL, version: String, build: String = HumanLoadGuard.currentBuild()) {
+        self.url = url
+        self.version = version
+        self.build = build
+    }
 
     static func defaultURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -915,11 +933,42 @@ struct HumanLoadGuard {
             .appendingPathComponent("human-net-load.json")
     }
 
-    /// This version's record; a record from another version counts as none.
+    /// What tells one build installed from the next: the UUID the linker
+    /// gave the binary this code is in (under Xcode's debug dylib, that
+    /// dylib), which changes when the code changes, and the modification
+    /// date of the bundled web app's index.html, which the frontend phase
+    /// rewrites on every build (a frontend-only build does not relink).
+    /// Both are fixed for the life of one install.
+    static func currentBuild() -> String {
+        let uuid = imageUUID(#dsohandle) ?? "?"
+        var web = "-"
+        if let index = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "web"),
+           let date = (try? FileManager.default.attributesOfItem(atPath: index.path))?[.modificationDate] as? Date {
+            web = String(date.timeIntervalSince1970)
+        }
+        return "\(uuid) \(web)"
+    }
+
+    /// The LC_UUID of the Mach-O image whose header is at `header`.
+    static func imageUUID(_ header: UnsafeRawPointer) -> String? {
+        let mh = header.load(as: mach_header_64.self)
+        guard mh.magic == MH_MAGIC_64 else { return nil }
+        var command = header + MemoryLayout<mach_header_64>.size
+        for _ in 0..<mh.ncmds {
+            let lc = command.load(as: load_command.self)
+            if lc.cmd == UInt32(LC_UUID) {
+                return UUID(uuid: command.load(as: uuid_command.self).uuid).uuidString
+            }
+            command += Int(lc.cmdsize)
+        }
+        return nil
+    }
+
+    /// This build's record; one from another build or version counts as none.
     func read() -> Record? {
         guard let data = try? Data(contentsOf: url),
               let record = try? JSONDecoder().decode(Record.self, from: data),
-              record.appVersion == version else { return nil }
+              record.appVersion == version, record.build == build else { return nil }
         return record
     }
 
@@ -931,11 +980,15 @@ struct HumanLoadGuard {
         }
     }
 
+    private func fresh() -> Record {
+        Record(appVersion: version, build: build, loading: false, crashes: 0)
+    }
+
     /// At launch, before any load: whether to give the engine the human net.
     func shouldTryHumanNet() -> Bool {
         guard var record = read() else { return true }
         if record.loading {
-            // The last launch died between willLoad and didLoad.
+            // The last launch died between willLoad and didFinishLoad.
             record.loading = false
             record.crashes += 1
             write(record)
@@ -946,19 +999,15 @@ struct HumanLoadGuard {
 
     /// Just before the pre-check and the engine's load.
     func willLoad() {
-        var record = read() ?? Record(appVersion: version, loading: false, crashes: 0)
+        var record = read() ?? fresh()
         record.loading = true
         write(record)
     }
 
-    /// After the load returned. A load that failed without a crash (the
-    /// pre-check said no, or the engine stopped) is not counted; one that
-    /// succeeded clears the count.
-    func didLoad(succeeded: Bool) {
-        var record = read() ?? Record(appVersion: version, loading: false, crashes: 0)
-        record.loading = false
-        if succeeded { record.crashes = 0 }
-        write(record)
+    /// After the load returned, with the net or without it (the pre-check
+    /// said no, or the engine stopped): not a crash, so the count clears.
+    func didFinishLoad() {
+        write(fresh())
     }
 }
 
