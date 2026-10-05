@@ -11,17 +11,24 @@ import { getHumanProfile, getProfile, loadHumanTable } from '../profileLoader';
 const STANDARD_KNOBS = { max_point_loss: 30, mistake_freq: 0.8, policy_weight: 0.1, randomness: 0.7, random_move_chance: 0.1, local_bias: 0, first_line_chance: 0, visits: 16, min_candidates: 10, opening_moves: 3 };
 
 describe('the human set (b28_human.yaml)', () => {
-  it('holds the 9×9 18k, 15k and 12k with their human knobs', () => {
+  it('holds the 9×9 18k, 15k, 12k, 9k and 6k with their human knobs', () => {
     const want = {
-      '18k': { tilt: 4.0, cap: 10.0 },
-      '15k': { tilt: -8.0, cap: 10.0 },
-      '12k': { tilt: -4.0, cap: 4.0 },
+      '18k': { net: 'rank_20k', tilt: 4.0, cap: 10.0 },
+      '15k': { net: 'rank_20k', tilt: -8.0, cap: 10.0 },
+      '12k': { net: 'rank_20k', tilt: -4.0, cap: 4.0 },
+      '9k': { net: 'rank_9k', tilt: -4.0, cap: 4.0 },
+      '6k': { net: 'rank_9k', tilt: -0.5, cap: 1.0 },
     };
-    for (const [rank, { tilt, cap }] of Object.entries(want)) {
+    for (const [rank, { net, tilt, cap }] of Object.entries(want)) {
       const p = getHumanProfile(rank, 9)!;
       expect(p).toBeDefined();
+      expect(Object.keys(p).filter((k) => k.startsWith('human_')).sort()).toEqual([
+        'human_cand_max', 'human_cand_min', 'human_confirm_margin', 'human_confirm_visits', 'human_loss_cap',
+        'human_pass_margin', 'human_score_visits', 'human_sl_profile', 'human_small_gain', 'human_tilt',
+        'human_tilt_from',
+      ]);
       expect(p).toMatchObject({
-        human_sl_profile: 'rank_20k',
+        human_sl_profile: net,
         human_tilt: tilt,
         human_tilt_from: 12,
         human_cand_min: 0.03,
@@ -37,7 +44,7 @@ describe('the human set (b28_human.yaml)', () => {
   });
 
   it('carries the standard knobs of the same b28.yaml rung', () => {
-    for (const rank of ['18k', '15k', '12k']) {
+    for (const rank of ['18k', '15k', '12k', '9k', '6k']) {
       const human = getHumanProfile(rank, 9)!;
       const standard = getProfile(rank, 9) as unknown as Record<string, unknown>;
       for (const [k, v] of Object.entries(standard)) expect(human[k as keyof typeof human]).toEqual(v);
@@ -46,9 +53,11 @@ describe('the human set (b28_human.yaml)', () => {
 
   it('has nothing for any other rank or size, and does not fall back', () => {
     for (const [rank, size] of [
-      ['9k', 9],
-      ['6k', 9],
+      ['3k', 9],
+      ['1d', 9],
       ['30k', 9],
+      ['9k', 13],
+      ['6k', 19],
       ['18k', 19],
       ['15k', 13],
       ['15k', 19],
@@ -63,7 +72,7 @@ describe('the human set (b28_human.yaml)', () => {
 
 describe('the standard set (b28.yaml) is as before', () => {
   it('carries no human knobs on the 9×9 rungs the human set covers', () => {
-    for (const rank of ['18k', '15k', '12k']) {
+    for (const rank of ['18k', '15k', '12k', '9k', '6k']) {
       const p = getProfile(rank, 9);
       expect(Object.keys(p).filter((k) => k.startsWith('human_'))).toEqual([]);
     }
