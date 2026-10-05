@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useReplayStore } from '../store/replayStore';
-import { getKataGoBridge } from '../api/nativeKataGo';
+import { getNativeBridge } from '../api/nativeKataGo';
 import { api } from '../api/client';
 import { useLibraryStore } from '../store/libraryStore';
 import { currentPlayerName } from '../store/profileStore';
@@ -325,7 +325,7 @@ export function ReplayControls({ onClose }: ReplayControlsProps) {
 
       <div className="replay-actions">
         <button onClick={downloadSGF} className="btn btn-secondary" style={{ fontSize: 12 }}>
-          {getKataGoBridge() ? 'Share SGF' : 'Download SGF'}
+          {getNativeBridge() ? 'Share SGF' : 'Download SGF'}
         </button>
         <ShareGameButton />
       </div>

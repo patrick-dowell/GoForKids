@@ -1,5 +1,5 @@
 /**
- * Cloud bot toggle (Settings → "Bot plays online (for older iPads)").
+ * Cloud bot toggle (Settings → "Bot plays online").
  *
  * The setting must make the app behave EXACTLY like the web build even when
  * the native KataGo bridge is injected: getKataGoBridge() returns null, so

@@ -3,7 +3,8 @@ import { Game, type GamePhase } from '../engine/Game';
 import { Board } from '../engine/Board';
 import { Color, type Point, type GameResult, MoveResult, BOARD_SIZE } from '../engine/types';
 import { api } from '../api/client';
-import { getHumanRung, getKataGoBridge, toGtp } from '../api/nativeKataGo';
+import { getHumanRung, getKataGoBridge, getNativeBridge, toGtp } from '../api/nativeKataGo';
+import { onlineBotsOnly, whenBotRoutingKnown } from './capabilitiesStore';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
 import { clearSelectorLog, recordSelectorLog, snapshotSelectorLog } from '../ai/selectorLog';
@@ -640,6 +641,12 @@ export const useGameStore = create<GameState>((set, get) => ({
     const prevTimer = get()._botVsBotTimer;
     if (prevTimer) clearTimeout(prevTimer);
 
+    const gameMode = options?.gameMode ?? 'ai';
+    const useBackend = options?.useBackend || gameMode === 'botvsbot';
+    // A game with a bot waits (bounded) for the device to say where its bots
+    // play, so the start line below names the side that will play them.
+    if (useBackend) await whenBotRoutingKnown();
+
     // Fresh diagnostic buffer so the finished game's SavedGame carries only
     // its own selector lines (autoSaveGame snapshots it). The header line
     // makes every game saved by this build carry a non-empty log — so an
@@ -673,13 +680,21 @@ export const useGameStore = create<GameState>((set, get) => ({
     } catch {
       // Unknown rank/size (lessons, stubs) — header still logs without knobs.
     }
+    // The device rung's knobs only when the device picks the moves; a server
+    // game says so and why, a pass-and-play game has no bot moves at all.
+    const onDevice = getKataGoBridge() !== null;
+    const movesStamp =
+      gameMode === 'local'
+        ? ' moves=none'
+        : onDevice
+          ? knobStamp
+          : ` moves=server why=${!getNativeBridge() ? 'web' : onlineBotsOnly() ? 'device' : 'setting'}`;
     recordSelectorLog(
       `[game] start capture=v2 build=${__BUILD_TS__} size=${options?.boardSize ?? BOARD_SIZE} ` +
         `rank=${options?.targetRank ?? '15k'} mode=${options?.gameMode ?? 'ai'} ` +
-        `bridge=${getKataGoBridge() ? 'yes' : 'no'}${knobStamp}`,
+        `bridge=${onDevice ? 'yes' : 'no'}${movesStamp}`,
     );
 
-    const gameMode = options?.gameMode ?? 'ai';
     const requestedSize = options?.boardSize ?? BOARD_SIZE;
     // 5 is supported for the lesson 5 first-game flow; the rest are full-game sizes.
     const boardSize = [5, 9, 13, 19].includes(requestedSize) ? requestedSize : BOARD_SIZE;
@@ -713,7 +728,6 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     let gameId: string | null = null;
 
-    const useBackend = options?.useBackend || gameMode === 'botvsbot';
     if (useBackend) {
       try {
         const res = await api.createGame({

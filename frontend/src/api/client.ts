@@ -36,6 +36,7 @@ import {
 import { Color, type Stone, type Point } from '../engine/types';
 import type { Board } from '../engine/Board';
 import { recordSelectorLog } from '../ai/selectorLog';
+import { whenBotRoutingKnown } from '../store/capabilitiesStore';
 import { localGameRouter, ownershipViaBridge } from './localGameRouter';
 import type { SavedGame } from '../store/libraryStore';
 import type {
@@ -150,9 +151,10 @@ export async function requestWithStatus<T>(
   throw lastError;
 }
 
-/** True when the iPad's native KataGo bridge is injected; we then run game
- *  state on-device. Recomputed on every call (cheap) so a developer can
- *  toggle the bridge without restarting. */
+/** True when the bots play on this device (getKataGoBridge: the bridge is
+ *  injected and neither the device's lock nor the setting sends them online);
+ *  we then run game state on-device. Recomputed on every call (cheap) so a
+ *  developer can toggle the bridge without restarting. */
 function useLocal(): boolean {
   return getKataGoBridge() !== null;
 }
@@ -177,6 +179,9 @@ localGameRouter.setRenderScorePositionFn((board) =>
 
 export const api = {
   createGame: async (options: CreateGameOptions = {}): Promise<GameStateDTO> => {
+    // Where a game lives decides where its bot plays, so it waits for the
+    // device's capabilities answer at cold start (bounded; see the store).
+    await whenBotRoutingKnown();
     if (useLocal()) return localGameRouter.createGame(options);
     return request<GameStateDTO>('/games', {
       method: 'POST',
@@ -245,6 +250,7 @@ export const api = {
       handicap?: number;
     },
   ): Promise<AIMoveDTO> => {
+    await whenBotRoutingKnown();
     const bridge = getKataGoBridge();
     if (bridge) return getAIMoveViaBridge(gameId, bridge, targetRank ?? '15k', options);
     // Web path: backend /ai-move doesn't know about neverPass yet — that
@@ -272,6 +278,7 @@ export const api = {
     gameId: string,
     options?: { movesForBridge?: Array<{ color: 'B' | 'W'; point: string }> },
   ): Promise<AIMoveDTO> => {
+    await whenBotRoutingKnown();
     const bridge = getKataGoBridge();
     if (bridge) return finishMoveViaBridge(gameId, bridge, options);
     return request<AIMoveDTO>(`/games/${gameId}/finish-move`, { method: 'POST' });

@@ -804,6 +804,89 @@ test('settings without the human model: no human-style row', async ({ page }) =>
   await expect(page.locator('.settings-human-bots')).toHaveCount(0);
 });
 
+// Where the bots can only play online (the web, or a device whose engine
+// reported localBots: false), "Bot plays online" is on and stays on; a tap
+// shows one sentence and stores nothing. The sentence must not make the
+// dialog scroll anywhere.
+for (const where of ['the web', 'a device too slow for its own bots'] as const) {
+  test(`settings on ${where}: the online row is locked on, a tap shows why, and it fits at every viewport`, async ({ page }) => {
+    await seedPickedProfile(page);
+    if (where !== 'the web') {
+      await page.addInitScript(() => {
+        (window as unknown as { kataGo: object }).kataGo = {
+          ping: async () => ({ pong: true }),
+          capabilities: async () => ({ localBots: false, evalsPerSecond: 3, humanModel: true }),
+        };
+      });
+    }
+    await page.goto('/');
+    await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.locator('.settings-cloud-bot.locked').waitFor();
+    const box = page.getByRole('checkbox', { name: 'Bot plays online' });
+    await expect(box).toBeChecked();
+    await expect(page.locator('.settings-note')).toHaveCount(0);
+    await box.click();
+    await expect(box).toBeChecked();
+    await expect(page.locator('.settings-note')).toHaveText('The bot always plays online here.');
+    // the person's own choice underneath is untouched
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('goforkids_settings') ?? '{}'));
+    expect(saved.cloudBot).not.toBe(true);
+    // a device that cannot play its own bots has no use for the human-style row
+    await expect(page.locator('.settings-human-bots')).toHaveCount(0);
+    // the sentence sits right under its label and ends the row
+    const [labelBottom, noteTop, noteBottom, rowBottom] = await page.evaluate(() => {
+      const r = (s: string) => document.querySelector(s)!.getBoundingClientRect();
+      return [r('.settings-cloud-bot label').bottom, r('.settings-note').top, r('.settings-note').bottom, r('.settings-cloud-bot').bottom];
+    });
+    expect(noteTop - labelBottom, 'label to sentence').toBeLessThanOrEqual(8);
+    expect(rowBottom - noteBottom, 'sentence to row end').toBeLessThanOrEqual(1);
+    await sweep(page, 'settings-locked', {
+      strict: ['.dialog', '.dialog h2', 'btn:Close', '.theme-picker', '.mode-picker', '.settings-cloud-bot', '.settings-note'],
+      noOverflow: ['.dialog'],
+      noBodyScroll: true,
+    });
+  });
+}
+
+test('a device too slow for its own bots: no Finish Game', async ({ page }) => {
+  // The late-game state of the worst-case test above, on a device whose
+  // engine reported localBots: false: Finish Game (on-device only) stays off.
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: async () => ({ localBots: false, evalsPerSecond: 3, humanModel: false }),
+    };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  await page.getByRole('button', { name: 'Local', exact: true }).click();
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.locator('.go-board-canvas').waitFor();
+  await page.evaluate(() => {
+    (window as unknown as { __gameStore: { setState: (s: object) => void } }).__gameStore.setState({
+      moveCount: 180,
+      gameId: 'layout-probe',
+    });
+  });
+  await page.getByRole('button', { name: 'Resign' }).waitFor();
+  await expect(page.getByRole('button', { name: 'Finish Game' })).toHaveCount(0);
+});
+
+test('a device too slow for its own bots still offers the share sheet in a replay', async ({ page }) => {
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: async () => ({ localBots: false, evalsPerSecond: 3, humanModel: false }),
+    };
+  });
+  await page.goto('/?replay=demo');
+  await page.locator('.replay-controls').waitFor();
+  await expect(page.getByRole('button', { name: 'Share SGF' })).toBeVisible();
+});
+
 test('library: sanctioned scroll screen — list reachable, close visible', async ({ page }) => {
   await seedPickedProfile(page);
   await page.goto('/');

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { getKataGoBridge, toGtp, fromGtp } from '../api/nativeKataGo';
+import { getKataGoBridge, getNativeBridge, toGtp, fromGtp } from '../api/nativeKataGo';
+import { botRoutingKnown, whenBotRoutingKnown } from './capabilitiesStore';
 import { Game } from '../engine/Game';
 import { Board } from '../engine/Board';
 import { Color, BOARD_SIZE, type Point, type Stone } from '../engine/types';
@@ -330,8 +331,17 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
       if (get().betterMove !== cached) set({ betterMove: cached });
       return;
     }
+    // Opened at cold start, before the device said where its bots play: ask
+    // again once it has (or the wait ran out), if the cursor is still here.
+    if (!botRoutingKnown()) {
+      clear();
+      void whenBotRoutingKnown().then(() => {
+        if (get().active && get().currentMove === moveNum) get()._maybeAnalyzeBetterMove(moveNum);
+      });
+      return;
+    }
     const bridge = getKataGoBridge();
-    if (!bridge) return clear(); // web: no on-device engine, no hint
+    if (!bridge) return clear(); // web or online bots: no on-device engine, no hint
 
     let game: Game;
     try {
@@ -547,7 +557,9 @@ export const useReplayStore = create<ReplayState>((set, get) => ({
     // WKWebView (TestFlight bug, 2026-05-14) — hand the SGF to Swift for the
     // iOS share sheet (AirDrop / Files / other Go apps) instead. Falls back
     // to the web path if the native build predates the shareSGF handler.
-    const bridge = getKataGoBridge();
+    // The share sheet is not the engine: a device playing the online bots
+    // still has it.
+    const bridge = getNativeBridge();
     const webDownload = () => {
       const blob = new Blob([sgf], { type: 'application/x-go-sgf' });
       const url = URL.createObjectURL(blob);

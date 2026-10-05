@@ -11,7 +11,9 @@
  * Cloud bot (July 2026): the Settings toggle "Bot plays online" makes
  * getKataGoBridge() return null even inside the iPad app, forcing all bot
  * moves onto the HTTP/Render path — the escape hatch for old iPads whose
- * on-device analysis is unplayably slow.
+ * on-device analysis is unplayably slow. Since October 2026 a device whose
+ * capabilities() says `localBots: false` is held there whatever the toggle
+ * says (capabilitiesStore.ts botsPlayOnline), as the web always is.
  *
  * Human-style bots (October 2026): a build whose engine carries KataGo's
  * human SL net answers capabilities(), humanPolicy() and scoreAfter(); with
@@ -21,7 +23,7 @@
  */
 
 import { useSettingsStore } from '../store/settingsStore';
-import { hasHumanModel } from '../store/capabilitiesStore';
+import { botsPlayOnline, hasHumanModel } from '../store/capabilitiesStore';
 import { getHumanProfile, type HumanRankProfile } from '../ai/profileLoader';
 
 /** One candidate from `kata-genmove_analyze`. Bridge passes through the
@@ -128,14 +130,23 @@ declare global {
 }
 
 export function getKataGoBridge(): KataGoBridge | null {
-  // Cloud bot (Settings → "Bot plays online"): report "no bridge" even when
-  // Swift injected one, so EVERY consumer — game routing (client.ts useLocal),
-  // the finish loop, replay better-move analysis, SGF share, the bridge=
-  // game-log header — uniformly falls back to the HTTP/web path. Exists for
-  // older iPads where on-device analysis takes ~1 min/move vs ~2s on Render.
-  // Checked on every call (nothing caches the bridge) so the toggle takes
-  // effect immediately, no reload needed.
-  if (useSettingsStore.getState().cloudBot) return null;
+  // Cloud bot (Settings → "Bot plays online", or a device whose capabilities
+  // said localBots: false): report "no bridge" even when Swift injected one,
+  // so EVERY engine consumer — game routing (client.ts useLocal), the finish
+  // loop, replay better-move analysis, the bridge= game-log header —
+  // uniformly falls back to the HTTP/web path. Exists for older iPads where
+  // on-device analysis takes ~1 min/move vs ~2s on Render. Checked on every
+  // call (nothing caches the bridge) so the toggle takes effect immediately,
+  // no reload needed. Before the capabilities answer this reads as unlocked;
+  // callers that start a game or ask the engine await whenBotRoutingKnown().
+  if (botsPlayOnline()) return null;
+  return typeof window !== 'undefined' && window.kataGo ? window.kataGo : null;
+}
+
+/** The bridge Swift injected, whatever the routing: for calls that are not
+ *  the engine's (the SGF share sheet), which a device playing the online
+ *  bots still has. Null on the web. */
+export function getNativeBridge(): KataGoBridge | null {
   return typeof window !== 'undefined' && window.kataGo ? window.kataGo : null;
 }
 
