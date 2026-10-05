@@ -337,13 +337,14 @@ describe('the border check before a pass', () => {
       defaultLead: -15.0,
     });
     expect((await select(engine, board, moves)).move).toEqual(pt('A8'));
-    // A8 4.1 behind the pass (past the cap and its gain of four), A7 3 (its own gain of three): A7.
+    // A cap of 3: A8 is 3.5 behind the pass, inside its gain of four but past the cap (dropped);
+    // A7 is 3 behind, inside both: A7. Only the cap, measured from the pass, tells them apart.
     const engine2 = new FakeEngine(HUMAN_12K, {
       own: ownership(board, DEAD_12K),
-      leads: { pass: -20.0, A8: -15.9, A7: -17.0, A6: -15.5 },
+      leads: { pass: -20.0, A8: -16.5, A7: -17.0, A6: -15.5 },
       defaultLead: -15.0,
     });
-    expect((await select(engine2, board, moves)).move).toEqual(pt('A7'));
+    expect((await select(engine2, board, moves, { ...PROFILE_12K, human_loss_cap: 3.0 })).move).toEqual(pt('A7'));
   });
 
   it('no legal move in the human policy still closes the border', async () => {
