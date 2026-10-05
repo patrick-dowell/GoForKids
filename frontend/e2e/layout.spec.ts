@@ -175,6 +175,12 @@ async function sweep(page: Page, screen: string, spec: ProbeSpec) {
 // API address. Aborted requests fail the way offline ones do — silently.
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/sync/**', (route) => route.abort());
+  // The game server's health route, answered up (a test may answer it
+  // otherwise): ranked Play and the bot modes are open, nothing leaves.
+  await page.route(
+    (url) => url.pathname === '/health',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }),
+  );
 });
 
 /** Mark the one-time avatar pick as done so tests land on their target
@@ -191,6 +197,12 @@ async function seedPickedProfile(page: Page) {
 
 test('game screen: board and controls fit at every viewport', async ({ page }) => {
   await seedPickedProfile(page);
+  // The vs-AI default creates its game on the server: answered here.
+  await page.route(
+    (url) => url.pathname === '/api/games',
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ game_id: 'e2e00001', move_number: 1, phase: 'playing' }) }),
+  );
   await page.goto('/');
   await page.getByRole('button', { name: /Custom Match/ }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();
@@ -212,8 +224,10 @@ test('game screen, late-game worst case: full trays + graph + all buttons', asyn
   await page.addInitScript(() => {
     // Fake the iPad bridge so Finish Game mounts: the button is
     // on-device-only as of 2026-09-01 (cloud finish disabled server-side),
-    // and this worst case is precisely the iPad scenario. The stub is never
-    // invoked — the injected late-game state doesn't run the finish loop.
+    // and shows for a game that lives on the device; this worst case is
+    // precisely the iPad scenario. The stub is never invoked — the player
+    // moves first and the injected late-game state doesn't run the finish
+    // loop.
     (window as unknown as { kataGo: object }).kataGo = {};
     localStorage.setItem(
       'goforkids_settings',
@@ -222,22 +236,22 @@ test('game screen, late-game worst case: full trays + graph + all buttons', asyn
   });
   await page.goto('/');
   await page.getByRole('button', { name: /Custom Match/ }).click();
-  // Local mode: no backend createGame in flight — the vs-AI default's failed
-  // request resolves mid-sweep and clobbers the injected gameId, unmounting
-  // Finish Game and turning the sweep flaky.
-  await page.getByRole('button', { name: 'Local', exact: true }).click();
+  // The vs-AI default: with the bridge, its game is created on the device
+  // (no request), and Finish Game follows where the game lives.
   await page.getByRole('button', { name: '19×19' }).click();
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.locator('.go-board-canvas').waitFor();
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __gameStore: { getState: () => { gameId: string | null } } }).__gameStore.getState().gameId))
+    .toMatch(/^[0-9a-f]{8}$/);
   // Late-game worst case via the dev store hook: both trays maxed (+N
-  // overflow), Undo (moveCount>0) and Finish Game (gameId + >=20) mounted,
-  // score-graph fed real-looking data.
+  // overflow), Undo (moveCount>0) and Finish Game (a device game + >=20)
+  // mounted, score-graph fed real-looking data.
   await page.evaluate(() => {
     (window as unknown as { __gameStore: { setState: (s: object) => void } }).__gameStore.setState({
       blackCaptures: 55,
       whiteCaptures: 52,
       moveCount: 180,
-      gameId: 'layout-probe',
       scoreHistory: Array.from({ length: 40 }, (_, i) => ({ move: i, lead: Math.sin(i / 5) * 10 })),
     });
   });
@@ -804,6 +818,124 @@ test('settings without the human model: no human-style row', async ({ page }) =>
   await expect(page.locator('.settings-human-bots')).toHaveCount(0);
 });
 
+// Where the bots can only play online (the web, or a device whose engine
+// reported localBots: false), "Bot plays online" is on and stays on; a tap
+// shows one sentence and stores nothing. The sentence must not make the
+// dialog scroll anywhere.
+for (const where of ['the web', 'a device too slow for its own bots'] as const) {
+  test(`settings on ${where}: the online row is locked on, a tap shows why, and it fits at every viewport`, async ({ page }) => {
+    await seedPickedProfile(page);
+    if (where !== 'the web') {
+      await page.addInitScript(() => {
+        (window as unknown as { kataGo: object }).kataGo = {
+          ping: async () => ({ pong: true }),
+          capabilities: async () => ({ localBots: false, evalsPerSecond: 3, humanModel: true }),
+        };
+      });
+    }
+    await page.goto('/');
+    await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.locator('.settings-cloud-bot.locked').waitFor();
+    const box = page.getByRole('checkbox', { name: 'Bot plays online' });
+    await expect(box).toBeChecked();
+    await expect(page.locator('.settings-note')).toHaveCount(0);
+    await box.click();
+    await expect(box).toBeChecked();
+    await expect(page.locator('.settings-note')).toHaveText('The bot always plays online here.');
+    // the person's own choice underneath is untouched
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('goforkids_settings') ?? '{}'));
+    expect(saved.cloudBot).not.toBe(true);
+    // a device that cannot play its own bots has no use for the human-style row
+    await expect(page.locator('.settings-human-bots')).toHaveCount(0);
+    // the sentence sits right under its label and ends the row
+    const [labelBottom, noteTop, noteBottom, rowBottom] = await page.evaluate(() => {
+      const r = (s: string) => document.querySelector(s)!.getBoundingClientRect();
+      return [r('.settings-cloud-bot label').bottom, r('.settings-note').top, r('.settings-note').bottom, r('.settings-cloud-bot').bottom];
+    });
+    expect(noteTop - labelBottom, 'label to sentence').toBeLessThanOrEqual(8);
+    expect(rowBottom - noteBottom, 'sentence to row end').toBeLessThanOrEqual(1);
+    await sweep(page, 'settings-locked', {
+      strict: ['.dialog', '.dialog h2', 'btn:Close', '.theme-picker', '.mode-picker', '.settings-cloud-bot', '.settings-note'],
+      noOverflow: ['.dialog'],
+      noBodyScroll: true,
+    });
+  });
+}
+
+test('a device too slow for its own bots: no Finish Game', async ({ page }) => {
+  // The late-game state of the worst-case test above, on a device whose
+  // engine reported localBots: false: Finish Game (on-device only) stays off.
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: async () => ({ localBots: false, evalsPerSecond: 3, humanModel: false }),
+    };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  await page.getByRole('button', { name: 'Local', exact: true }).click();
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.locator('.go-board-canvas').waitFor();
+  await page.evaluate(() => {
+    (window as unknown as { __gameStore: { setState: (s: object) => void } }).__gameStore.setState({
+      moveCount: 180,
+      gameId: 'layout-probe',
+    });
+  });
+  await page.getByRole('button', { name: 'Resign' }).waitFor();
+  await expect(page.getByRole('button', { name: 'Finish Game' })).toHaveCount(0);
+});
+
+test('a game asked for before the device answers: a waiting card that fits, no stone, then the game', async ({ page }) => {
+  // The capabilities answer is held until the test gives it, so Start Game
+  // lands in the wait (up to 10 s) with the last board still on screen.
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: () =>
+        new Promise((resolve) => {
+          (window as unknown as { __answerCaps: (c: object) => void }).__answerCaps = resolve;
+        }),
+    };
+  });
+  const moveCount = () =>
+    page.evaluate(() => (window as unknown as { __gameStore: { getState: () => { moveCount: number } } }).__gameStore.getState().moveCount);
+  await page.goto('/');
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.locator('.go-board-canvas').waitFor();
+  const box = (await page.locator('.go-board-canvas').boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  expect(await moveCount()).toBe(0);
+  const card = page.locator('.game-starting');
+  await expect(card).toContainText('Getting your game ready');
+  await sweep(page, 'game-starting', { strict: ['.game-starting .scoring-card', '.game-starting .scoring-title'] });
+
+  await page.evaluate(() =>
+    (window as unknown as { __answerCaps: (c: object) => void }).__answerCaps({ localBots: true, evalsPerSecond: 40, humanModel: false }),
+  );
+  await expect(card).toHaveCount(0);
+  const ready = (await page.locator('.go-board-canvas').boundingBox())!;
+  await page.mouse.click(ready.x + ready.width / 2, ready.y + ready.height / 2);
+  await expect.poll(moveCount).toBe(1);
+});
+
+test('a device too slow for its own bots still offers the share sheet in a replay', async ({ page }) => {
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: async () => ({ localBots: false, evalsPerSecond: 3, humanModel: false }),
+    };
+  });
+  await page.goto('/?replay=demo');
+  await page.locator('.replay-controls').waitFor();
+  await expect(page.getByRole('button', { name: 'Share SGF' })).toBeVisible();
+});
+
 test('library: sanctioned scroll screen — list reachable, close visible', async ({ page }) => {
   await seedPickedProfile(page);
   await page.goto('/');
@@ -813,4 +945,381 @@ test('library: sanctioned scroll screen — list reachable, close visible', asyn
     // The close affordance must always be visible; the list itself may scroll.
     strict: ['btn:Close'],
   });
+});
+
+// --- No bots, no frozen board ----------------------------------------------
+// While the bots play online, a server that does not answer its health route
+// greys every game against a bot, with one sentence and a Try again; lessons
+// and play with a friend stay open. A game whose bot stops answering waits
+// under a card with Try again and Leave. The sentence, the card and the
+// greyed screens must fit at every viewport.
+
+const BOTS_AWAY = "The bots can't play right now. You can still do lessons, or play with a friend next to you.";
+
+/** The game server, answered here: its health route (`up` false: no
+ *  connection) and one game's routes. `dropMoves`: a player's move gets no
+ *  answer. `hold()` keeps the next health answers waiting until `release()`. */
+async function gameServer(page: Page, up: boolean) {
+  const s = { up, dropMoves: false, health: 0, moves: 0, aiMoves: 0 };
+  let held: Promise<void> | null = null;
+  let release = () => {};
+  await page.route(
+    (url) => url.pathname === '/health',
+    async (route) => {
+      s.health++;
+      if (held) await held;
+      return s.up ? route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }) : route.abort('connectionrefused');
+    },
+  );
+  await page.route(
+    (url) => url.pathname.startsWith('/api/games'),
+    (route) => {
+      const req = route.request();
+      const path = new URL(req.url()).pathname.replace(/^\/api/, '');
+      if (!s.up || (s.dropMoves && path.endsWith('/move'))) return route.abort('connectionrefused');
+      const reply = (body: unknown) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+      // move_number is the next move's number, as the server sends it
+      const state = () => ({ game_id: 'e2e00001', move_number: s.moves + 1, phase: 'playing', last_move: null });
+      if (path.endsWith('/ai-move')) {
+        s.moves++;
+        return reply({ point: { row: s.aiMoves++, col: 0 }, captures: [], score_lead: 0 });
+      }
+      if (req.method() === 'POST' && path !== '/games') s.moves++;
+      return reply(state());
+    },
+  );
+  return {
+    s,
+    hold: () => void (held = new Promise((r) => (release = r))),
+    release: () => {
+      held = null;
+      release();
+    },
+  };
+}
+
+interface GameView {
+  gameId: string | null;
+  aiThinking: boolean;
+  currentColor: number;
+  playerColor: number;
+  moveCount: number;
+  gameMode: string;
+  boardSize: number;
+}
+const gameView = (page: Page) =>
+  page.evaluate(() => {
+    const s = (window as unknown as { __gameStore: { getState: () => GameView } }).__gameStore.getState();
+    return { gameId: s.gameId, aiThinking: s.aiThinking, currentColor: s.currentColor, playerColor: s.playerColor, moveCount: s.moveCount, gameMode: s.gameMode, boardSize: s.boardSize };
+  });
+const playAt = (page: Page, row: number, col: number) =>
+  page.evaluate(([r, c]) => (window as unknown as { __gameStore: { getState: () => { playMove: (p: object) => void } } }).__gameStore.getState().playMove({ row: r, col: c }), [row, col]);
+const foreground = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+
+/** How far `sel`'s content overflows it (px it would scroll) at each viewport. */
+async function overflowByViewport(page: Page, sel: string): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  for (const vp of VIEWPORTS) {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await page.evaluate((ins) => {
+      let el = document.getElementById('e2e-safe-area') as HTMLStyleElement | null;
+      if (!el) {
+        el = document.createElement('style');
+        el.id = 'e2e-safe-area';
+        document.head.appendChild(el);
+      }
+      el.textContent = `:root { --safe-top: ${ins.top}px; --safe-bottom: ${ins.bottom}px; --safe-left: ${ins.left}px; --safe-right: ${ins.right}px; }`;
+    }, vp.insets);
+    await page.waitForTimeout(150);
+    out[vp.name] = await page.evaluate((s) => {
+      const el = document.querySelector(s)!;
+      return Math.max(0, el.scrollHeight - el.clientHeight);
+    }, sel);
+  }
+  return out;
+}
+
+test('the bots away on the web: home greys Play with why, keeps lessons and Custom Match, fits, and Try again un-greys', async ({ page }) => {
+  await seedPickedProfile(page);
+  const server = await gameServer(page, false);
+  await page.goto('/');
+  const note = page.locator('.home-bots-away');
+  await expect(note).toContainText(BOTS_AWAY);
+  await expect(page.locator('.home-btn-primary')).toBeDisabled();
+  await expect(page.getByRole('button', { name: /Learn to Play/ })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /Custom Match/ })).toBeEnabled();
+  await expect(page.locator('.home-bots')).toHaveCount(0);
+  const home = ['.home-player-btn', 'button[aria-label^="Open 9×9"]', 'button[aria-label^="Open 19×19"]', 'btn:✨Learn to Play', 'btn:▶Play', 'btn:⚙Custom Match', '.home-btn-friends'];
+  await sweep(page, 'home-bots-away', { strict: [...home, '.home-bots-away', 'btn:Try again'] });
+
+  // Try again, while the answer is on its way, then the server is back.
+  server.s.up = true;
+  server.hold();
+  await note.getByRole('button', { name: 'Try again' }).click();
+  await expect(note.getByRole('button', { name: 'Checking…' })).toBeDisabled();
+  await sweep(page, 'home-bots-checking', { strict: [...home, '.home-bots-away', 'btn:Checking…'] });
+  server.release();
+  await expect(page.locator('.home-btn-primary')).toBeEnabled();
+  await expect(note).toHaveCount(0);
+  await page.locator('.home-bots').waitFor();
+});
+
+test('the home screen appearing asks again, and un-greys when the server is back', async ({ page }) => {
+  await seedPickedProfile(page);
+  const server = await gameServer(page, false);
+  await page.goto('/');
+  await page.locator('.home-bots-away').waitFor();
+  const asked = server.s.health;
+  server.s.up = true;
+  await page.getByRole('button', { name: /Friends/ }).click();
+  await page.locator('.friends-page-home .home-button').click();
+  await expect(page.locator('.home-btn-primary')).toBeEnabled();
+  expect(server.s.health).toBeGreaterThan(asked);
+});
+
+test('the bots away on the ranked picker: Play greyed with why, fits, and the return to the foreground re-checks', async ({ page }) => {
+  await seedPickedProfile(page);
+  const server = await gameServer(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^▶/ }).click();
+  await page.locator('.autoplay-view').waitFor();
+  server.s.up = false;
+  await foreground(page);
+  const note = page.locator('.autoplay-bots-away');
+  await expect(note).toContainText(BOTS_AWAY);
+  await expect(page.locator('.autoplay-play-btn')).toBeDisabled();
+  await sweep(page, 'ranked-picker-bots-away', { strict: ['.autoplay-back-btn', 'btn:▶Play', '.autoplay-bots-away', 'btn:Try again'] });
+  server.s.up = true;
+  await foreground(page);
+  await expect(page.locator('.autoplay-play-btn')).toBeEnabled();
+  await expect(note).toHaveCount(0);
+});
+
+test('the bots away in Custom Match: the bot modes greyed with why, a friend on this device open, and no more scrolling than before', async ({ page }) => {
+  await seedPickedProfile(page);
+  const server = await gameServer(page, true);
+  // The dialog as it opens with the bots there (vs AI): it already scrolls
+  // in its own container on a phone held sideways, and nowhere else.
+  await page.goto('/');
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  const before = await overflowByViewport(page, '.dialog');
+  // Open on vs AI when the answer turns: Start greys until Local is picked.
+  server.s.up = false;
+  await foreground(page);
+  await expect(page.locator('.new-game-bots-away')).toContainText(BOTS_AWAY);
+  await expect(page.getByRole('button', { name: 'Start Game' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Local', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start Game' })).toBeEnabled();
+
+  await page.goto('/');
+  await page.locator('.home-bots-away').waitFor();
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  const dialog = page.locator('.dialog');
+  await expect(dialog.locator('.new-game-bots-away')).toContainText(BOTS_AWAY);
+  await expect(dialog.getByRole('button', { name: 'Play vs AI' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Bot vs Bot' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Local', exact: true })).toHaveClass(/selected/);
+  const after = await overflowByViewport(page, '.dialog');
+  for (const vp of VIEWPORTS) expect(after[vp.name], `${vp.name}: ${before[vp.name]}px before`).toBeLessThanOrEqual(before[vp.name]);
+  await sweep(page, 'new-game-bots-away', {
+    strict: ['.dialog h2'],
+    reachable: ['.new-game-bots-away', 'btn:Try again', 'btn:Start Game', 'btn:Cancel'],
+    noBodyScroll: true,
+  });
+  await dialog.getByRole('button', { name: 'Start Game' }).click();
+  await page.locator('.go-board-canvas').waitFor();
+  expect((await gameView(page)).gameMode).toBe('local');
+});
+
+test("the bots away at a lesson's game: Let's Go! greyed with why, it fits, and Try again un-greys", async ({ page }) => {
+  await seedPickedProfile(page);
+  const server = await gameServer(page, false);
+  await page.goto('/?learn=4');
+  await expect(page.locator('.learn-game-title')).toHaveText('First Battle Time!');
+  const note = page.locator('.learn-game-card .bots-away');
+  await expect(note).toContainText(BOTS_AWAY);
+  await expect(page.getByRole('button', { name: "Let's Go!" })).toBeDisabled();
+  await sweep(page, 'lesson-game-bots-away', {
+    strict: ['.learn-back-btn', '.learn-game-title', '.learn-game-btn', '.learn-game-card .bots-away', 'btn:Try again'],
+  });
+  server.s.up = true;
+  await note.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByRole('button', { name: "Let's Go!" })).toBeEnabled();
+  await expect(note).toHaveCount(0);
+});
+
+test('a ranked game whose server drops: the card fits, Try again plays on once it is back, Leave goes home and records nothing', async ({ page }) => {
+  await seedPickedProfile(page);
+  const server = await gameServer(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^▶/ }).click();
+  await page.locator('.autoplay-play-btn').click();
+  const playersTurn = async () => {
+    const g = await gameView(page);
+    return g.gameId === 'e2e00001' && !g.aiThinking && g.currentColor === g.playerColor;
+  };
+  await expect.poll(playersTurn).toBe(true);
+  const last = (await gameView(page)).boardSize - 1;
+
+  server.s.dropMoves = true;
+  await playAt(page, 2, last);
+  const card = page.locator('.bot-trouble');
+  await expect(card).toContainText("The bot isn't answering");
+  await expect(card).toContainText("You can try again, or leave. Leaving won't count as a loss.");
+  await sweep(page, 'bot-trouble', { strict: ['.bot-trouble .bot-passed-card', 'btn:Try again', 'btn:Leave'] });
+
+  server.s.dropMoves = false;
+  const before = (await gameView(page)).moveCount;
+  await card.getByRole('button', { name: 'Try again' }).click();
+  await expect(card).toHaveCount(0);
+  await expect.poll(async () => (await gameView(page)).moveCount).toBe(before + 1); // the bot answered
+  await expect.poll(playersTurn).toBe(true);
+
+  server.s.dropMoves = true;
+  await playAt(page, 4, last);
+  await card.getByRole('button', { name: 'Leave' }).click();
+  await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+  const history = await page.evaluate(
+    () => (window as unknown as { __autoPlayStore: { getState: () => { history: unknown[] } } }).__autoPlayStore.getState().history.length,
+  );
+  expect(history).toBe(0);
+  // The game left is gone: no card waits over the next screen.
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  await page.locator('.dialog').waitFor();
+  await expect(card).toHaveCount(0);
+});
+
+// A game left by any way home is gone: Custom Match then Cancel goes back
+// home rather than to its board, and the dropped game takes no stone (one
+// that landed would wait forever on a bot that no longer answers it). A
+// game still being played keeps its board after Cancel, and plays on.
+for (const via of ['Home', "the card's Leave"] as const) {
+  test(`after ${via}, Custom Match then Cancel shows no board for the game left; a live game plays on after Cancel`, async ({ page }) => {
+    await seedPickedProfile(page);
+    const server = await gameServer(page, true);
+    const playersTurn = async () => {
+      const g = await gameView(page);
+      return g.gameId === 'e2e00001' && !g.aiThinking && g.currentColor === g.playerColor;
+    };
+    await page.goto('/');
+    await page.getByRole('button', { name: /Custom Match/ }).click();
+    await page.getByRole('button', { name: '9×9' }).click();
+    await page.getByRole('button', { name: 'Start Game' }).click();
+    await expect.poll(playersTurn).toBe(true);
+
+    // a live game: New Game, Cancel, and the bot still answers
+    await page.getByRole('button', { name: 'New Game' }).click();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await playAt(page, 2, 8);
+    await expect.poll(async () => (await gameView(page)).moveCount).toBe(2);
+    await expect.poll(playersTurn).toBe(true);
+
+    if (via === 'Home') {
+      await page.getByRole('button', { name: 'Go to the home screen' }).click();
+      await page.locator('.home-confirm-card').getByRole('button', { name: 'Leave' }).click();
+    } else {
+      server.s.dropMoves = true;
+      await playAt(page, 4, 8);
+      await page.locator('.bot-trouble').getByRole('button', { name: 'Leave' }).click();
+      server.s.dropMoves = false;
+    }
+    await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+    await page.getByRole('button', { name: /Custom Match/ }).click();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    // whatever reaches the dropped game, it takes nothing and nothing waits
+    const before = await gameView(page);
+    await playAt(page, 6, 8);
+    await page.evaluate(() => (window as unknown as { __gameStore: { getState: () => { pass: () => void } } }).__gameStore.getState().pass());
+    await page.waitForTimeout(3000);
+    const after = await gameView(page);
+    expect({ moves: after.moveCount, thinking: after.aiThinking }).toEqual({ moves: before.moveCount, thinking: false });
+    await expect(page.getByRole('button', { name: /Learn to Play/ })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('.go-board-canvas')).toHaveCount(0);
+  });
+}
+
+test('a device whose own bots could play, with "Bot plays online" on: greyed while the server is away, open as soon as the setting is off', async ({ page }) => {
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: async () => ({ localBots: true, evalsPerSecond: 40, humanModel: false }),
+    };
+    localStorage.setItem('goforkids_settings', JSON.stringify({ themeId: 'cosmic', cloudBot: true }));
+  });
+  await gameServer(page, false);
+  await page.goto('/');
+  await page.locator('.home-bots-away').waitFor();
+  await expect(page.locator('.home-btn-primary')).toBeDisabled();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('checkbox', { name: 'Bot plays online' }).click();
+  await page.getByRole('button', { name: 'Close' }).click();
+  await expect(page.locator('.home-btn-primary')).toBeEnabled();
+  await expect(page.locator('.home-bots-away')).toHaveCount(0);
+});
+
+test('a device that plays its own bots: never greyed, and never asks the server', async ({ page }) => {
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: async () => ({ localBots: true, evalsPerSecond: 40, humanModel: false }),
+    };
+  });
+  const server = await gameServer(page, false);
+  await page.goto('/');
+  await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+  await foreground(page);
+  await expect(page.locator('.home-btn-primary')).toBeEnabled();
+  await expect(page.locator('.home-bots-away')).toHaveCount(0);
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  await expect(page.getByRole('button', { name: 'Play vs AI' })).toBeEnabled();
+  await page.waitForTimeout(300);
+  expect(server.s.health).toBe(0);
+});
+
+test('Finish Game follows where the game lives, not a later flip of "Bot plays online"', async ({ page }) => {
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = {
+      ping: async () => ({ pong: true }),
+      capabilities: async () => ({ localBots: true, evalsPerSecond: 40, humanModel: false }),
+    };
+    if (!sessionStorage.getItem('seeded-settings')) {
+      sessionStorage.setItem('seeded-settings', '1');
+      localStorage.setItem('goforkids_settings', JSON.stringify({ themeId: 'cosmic', cloudBot: true }));
+    }
+  });
+  await gameServer(page, true);
+  const lateGame = () =>
+    page.evaluate(() => (window as unknown as { __gameStore: { setState: (s: object) => void } }).__gameStore.setState({ moveCount: 180 }));
+  const flipOnline = async () => {
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('checkbox', { name: 'Bot plays online' }).click();
+    await page.getByRole('button', { name: 'Close' }).click();
+  };
+  const finish = page.getByRole('button', { name: 'Finish Game' });
+
+  // A game on the server ("Bot plays online" on), then the setting off.
+  await page.goto('/');
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await expect.poll(async () => (await gameView(page)).gameId).toBe('e2e00001');
+  await lateGame();
+  await page.getByRole('button', { name: 'Resign' }).waitFor();
+  await expect(finish).toHaveCount(0);
+  await flipOnline();
+  await lateGame();
+  await expect(finish).toHaveCount(0);
+
+  // A game on the device, then the setting on.
+  await page.getByRole('button', { name: 'New Game' }).click();
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await expect.poll(async () => (await gameView(page)).gameId).toMatch(/^[0-9a-f]{8}$/);
+  await lateGame();
+  await expect(finish).toBeVisible();
+  await flipOnline();
+  await lateGame();
+  await expect(finish).toBeVisible();
 });

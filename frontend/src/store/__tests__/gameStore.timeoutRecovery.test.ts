@@ -72,7 +72,7 @@ function setupGame(): Game {
     scoreHistory: [],
     desyncReported: false,
     botJustPassed: false,
-    botStuck: false,
+    botTrouble: null,
   });
   return game;
 }
@@ -84,7 +84,8 @@ function serverStateDTO(game: Game, overrides: Record<string, unknown> = {}) {
     board_size: 9,
     komi: 5.5,
     current_color: 'black',
-    move_number: game.moveHistory.length,
+    // the next move's number, as the server and the device send it
+    move_number: game.moveHistory.length + 1,
     captures: { black: 0, white: 0 },
     phase: 'playing',
     last_move: null,
@@ -111,7 +112,7 @@ describe('gameStore — ai-move timeout recovery ladder', () => {
     serverGrid[4][4] = Color.White;
     vi.mocked(api.getGame).mockResolvedValue(
       serverStateDTO(game, {
-        move_number: game.moveHistory.length + 1,
+        move_number: game.moveHistory.length + 2,
         board: serverGrid,
         last_move: { row: 4, col: 4 },
       }) as never,
@@ -124,7 +125,7 @@ describe('gameStore — ai-move timeout recovery ladder', () => {
     const last = game.moveHistory[game.moveHistory.length - 1];
     expect(last.point).toEqual({ row: 4, col: 4 });
     expect(last.color).toBe(Color.White);
-    expect(useGameStore.getState().botStuck).toBe(false);
+    expect(useGameStore.getState().botTrouble).toBeNull();
     expect(useGameStore.getState().aiThinking).toBe(false);
     expect(snapshotSelectorLog().join('\n')).toContain('server had committed');
   });
@@ -134,7 +135,7 @@ describe('gameStore — ai-move timeout recovery ladder', () => {
     vi.mocked(api.getAIMove).mockRejectedValue(new Error('AbortError: timeout'));
     vi.mocked(api.getGame).mockResolvedValue(
       serverStateDTO(game, {
-        move_number: game.moveHistory.length + 1,
+        move_number: game.moveHistory.length + 2,
         last_move: null,
       }) as never,
     );
@@ -144,7 +145,7 @@ describe('gameStore — ai-move timeout recovery ladder', () => {
     expect(api.getAIMove).toHaveBeenCalledTimes(1);
     expect(game.consecutivePasses).toBe(1);
     expect(useGameStore.getState().botJustPassed).toBe(true);
-    expect(useGameStore.getState().botStuck).toBe(false);
+    expect(useGameStore.getState().botTrouble).toBeNull();
   });
 
   it('world (b): server in sync — retries once silently, applies the retry', async () => {
@@ -167,11 +168,11 @@ describe('gameStore — ai-move timeout recovery ladder', () => {
     expect(api.getAIMove).toHaveBeenCalledTimes(2);
     const last = game.moveHistory[game.moveHistory.length - 1];
     expect(last.point).toEqual({ row: 4, col: 4 });
-    expect(useGameStore.getState().botStuck).toBe(false);
+    expect(useGameStore.getState().botTrouble).toBeNull();
     expect(snapshotSelectorLog().join('\n')).toContain('retrying once');
   });
 
-  it('world (b) then failure: retry also fails — surfaces botStuck', async () => {
+  it('world (b) then failure: retry also fails — surfaces the trouble card', async () => {
     const game = setupGame();
     vi.mocked(api.getAIMove).mockRejectedValue(new Error('AbortError: timeout'));
     vi.mocked(api.getGame).mockResolvedValue(serverStateDTO(game) as never);
@@ -180,7 +181,7 @@ describe('gameStore — ai-move timeout recovery ladder', () => {
 
     // Original + exactly one silent retry — never a storm.
     expect(api.getAIMove).toHaveBeenCalledTimes(2);
-    expect(useGameStore.getState().botStuck).toBe(true);
+    expect(useGameStore.getState().botTrouble).toBe('move');
     expect(useGameStore.getState().aiThinking).toBe(false);
     expect(snapshotSelectorLog().join('\n')).toContain('surfacing tap-to-retry');
   });
@@ -193,16 +194,16 @@ describe('gameStore — ai-move timeout recovery ladder', () => {
     await useGameStore.getState().requestAIMove();
 
     expect(api.getAIMove).toHaveBeenCalledTimes(1); // no blind retry on a dead link
-    expect(useGameStore.getState().botStuck).toBe(true);
+    expect(useGameStore.getState().botTrouble).toBe('move');
     expect(snapshotSelectorLog().join('\n')).toContain('state fetch failed');
   });
 
-  it('retryAIMove re-enters the ladder and recovers when the blip has passed', async () => {
+  it('retryBot re-enters the ladder and recovers when the blip has passed', async () => {
     const game = setupGame();
     vi.mocked(api.getAIMove).mockRejectedValue(new Error('AbortError: timeout'));
     vi.mocked(api.getGame).mockResolvedValue(serverStateDTO(game) as never);
     await useGameStore.getState().requestAIMove();
-    expect(useGameStore.getState().botStuck).toBe(true);
+    expect(useGameStore.getState().botTrouble).toBe('move');
 
     // The blip clears; the kid taps.
     const serverGrid = emptyGrid(9);
@@ -215,23 +216,23 @@ describe('gameStore — ai-move timeout recovery ladder', () => {
       board: serverGrid,
     } as never);
 
-    useGameStore.getState().retryAIMove();
-    // botStuck clears synchronously; the applied move is the async proof.
+    useGameStore.getState().retryBot();
+    // botTrouble clears synchronously; the applied move is the async proof.
     await vi.waitFor(() => {
       const last = game.moveHistory[game.moveHistory.length - 1];
       expect(last.point).toEqual({ row: 4, col: 4 });
     });
-    expect(useGameStore.getState().botStuck).toBe(false);
+    expect(useGameStore.getState().botTrouble).toBeNull();
     expect(useGameStore.getState().aiThinking).toBe(false);
   });
 
-  it('retryAIMove is single-flight while a request is in progress', async () => {
+  it('retryBot is single-flight while a request is in progress', async () => {
     setupGame();
-    useGameStore.setState({ aiThinking: true, botStuck: true });
+    useGameStore.setState({ aiThinking: true, botTrouble: 'move' });
 
-    useGameStore.getState().retryAIMove();
+    useGameStore.getState().retryBot();
 
     expect(api.getAIMove).not.toHaveBeenCalled();
-    expect(useGameStore.getState().botStuck).toBe(true); // untouched
+    expect(useGameStore.getState().botTrouble).toBe('move'); // untouched
   });
 });

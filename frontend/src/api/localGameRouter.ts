@@ -378,6 +378,11 @@ export const localGameRouter = {
     return toDTO(lg);
   },
 
+  /** This game lives on the device (in memory or saved here). */
+  has(gameId: string): boolean {
+    return getOrLoad(gameId) !== null;
+  },
+
   getGame(gameId: string): GameStateDTO | null {
     const lg = getOrLoad(gameId);
     return lg ? toDTO(lg) : null;

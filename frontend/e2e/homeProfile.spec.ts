@@ -13,6 +13,16 @@ import { test, expect, type Page } from '@playwright/test';
  * here for the logged-in Friends page.
  */
 
+// The game server's health route: answered up here (a test may answer it
+// otherwise), so ranked Play and the bot modes are open and the check never
+// leaves the browser.
+test.beforeEach(async ({ page }) => {
+  await page.route(
+    (url) => url.pathname === '/health',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }),
+  );
+});
+
 const AUTOPLAY = {
   byBoardSize: {
     '9x9': { rungState: { currentRung: '15k', winsAtCurrentRung: 1, lossStreak: 0 }, history: [], promotionEvents: [] },

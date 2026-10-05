@@ -1,7 +1,7 @@
 import { useGameStore } from '../store/gameStore';
 import { useAutoPlayStore } from '../store/autoPlayStore';
 import { useSettingsStore } from '../store/settingsStore';
-import { getKataGoBridge } from '../api/nativeKataGo';
+import { gameLivesOnDevice } from '../api/client';
 import { BOT_AVATARS } from './Avatar';
 import { Color } from '../engine/types';
 import { ScoreGraph } from './ScoreGraph';
@@ -33,21 +33,17 @@ export function GameControls() {
   const resign = useGameStore((s) => s.resign);
   const undo = useGameStore((s) => s.undo);
   const finishGame = useGameStore((s) => s.finishGame);
-  const botStuck = useGameStore((s) => s.botStuck);
-  const retryAIMove = useGameStore((s) => s.retryAIMove);
   const lessonContext = useGameStore((s) => s.lessonContext);
   const autoplayContext = useGameStore((s) => s.autoplayContext);
   const undoBank = useAutoPlayStore((s) => s.undoBank);
   const showScoreGraph = useSettingsStore((s) => s.showScoreGraph);
-  // Subscribed (not just read) so the button reacts if the cloud-bot
-  // setting flips mid-session.
-  const cloudBot = useSettingsStore((s) => s.cloudBot);
   // Finish Game runs a tight loop of full-strength engine moves. On-device
   // that's free; through the backend it's the most expensive request class
   // per unit of user value, so the server disables it (403) and we don't
-  // offer it. getKataGoBridge() already returns null under cloudBot, but the
-  // subscription above is what makes this re-render when the toggle moves.
-  const onDeviceFinish = !cloudBot && getKataGoBridge() !== null;
+  // offer it. Like the game's other calls it follows where the game lives,
+  // not the routing for new games, which a mid-game flip of "Bot plays
+  // online" or the device's late answer can change.
+  const onDeviceFinish = gameLivesOnDevice(gameId);
 
   const isBotVsBot = gameMode === 'botvsbot';
   const isAIGame = !!gameId && !isBotVsBot;
@@ -118,16 +114,6 @@ export function GameControls() {
 
         {lessonContext ? <WhoIsWinning /> : showScoreGraph && <ScoreGraph />}
       </div>
-
-      {/* Timeout-recovery affordance: both silent recovery attempts failed,
-          the game is parked on the bot's turn, and this is the kid's way to
-          unstick it. The tap re-enters the recovery ladder (resync first —
-          never a blind retry). */}
-      {botStuck && phase === 'playing' && (
-        <button onClick={retryAIMove} className="btn btn-accent" disabled={aiThinking}>
-          The bot got stuck — tap to try again
-        </button>
-      )}
 
       {phase === 'playing' && !isBotVsBot && (
         <div className="control-buttons">

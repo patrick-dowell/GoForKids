@@ -26,7 +26,9 @@ interface PersistedSettings {
    *  older iPads where on-device analysis takes ~1 min/move vs ~2s on
    *  Render. Enforced inside getKataGoBridge() — when ON the getter returns
    *  null, so every bridge consumer uniformly behaves like the web build.
-   *  Default OFF: bridge behavior unchanged. */
+   *  Default OFF: bridge behavior unchanged. This is the person's stored
+   *  choice; on the web or a device that cannot play its own bots the
+   *  effective value is on whatever is stored (capabilitiesStore.ts). */
   cloudBot: boolean;
   /** Human-style bots (2026-10-04): on a device whose engine has the human
    *  SL net, a rank with a rung in b28_human.yaml plays on the human path

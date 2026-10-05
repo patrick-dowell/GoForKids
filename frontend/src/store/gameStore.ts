@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import { Game, type GamePhase } from '../engine/Game';
 import { Board } from '../engine/Board';
 import { Color, type Point, type GameResult, MoveResult, BOARD_SIZE } from '../engine/types';
-import { api } from '../api/client';
-import { getHumanRung, getKataGoBridge, toGtp } from '../api/nativeKataGo';
+import { api, type AIMoveDTO } from '../api/client';
+import { getHumanRung, getKataGoBridge, getNativeBridge, toGtp } from '../api/nativeKataGo';
+import { botRoutingKnown, onlineBotsOnly, whenBotRoutingKnown } from './capabilitiesStore';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
 import { clearSelectorLog, recordSelectorLog, snapshotSelectorLog } from '../ai/selectorLog';
@@ -287,6 +288,48 @@ interface NewGameOptions {
   autoplayContext?: boolean;
 }
 
+/** A game waiting on a bot that did not answer (BotTroubleCard): 'start',
+ *  the game could not be created; 'move', a bot move did not come, or the
+ *  player's move or pass it answers did not reach the game; 'finish', a
+ *  Finish Game step failed. The game stays as it was, neither ended nor
+ *  scored, until the child taps Try again (retryBot) or leaves. */
+export type BotTrouble = 'start' | 'move' | 'finish' | null;
+
+/** Moves the game has played by its own record: `move_number` is the next
+ *  move's number, on the server and the device alike (len + 1). */
+function movesPlayed(state: { move_number: number }): number {
+  return state.move_number - 1;
+}
+
+/** The game asked whether it is ahead of what the server has. A bot move the
+ *  server made but whose answer was lost comes back as that answer, so it is
+ *  shown, not asked for again; null when the server is not ahead. */
+async function lostServerMove(gameId: string, localMoves: number): Promise<AIMoveDTO | null> {
+  const server = await api.getGame(gameId);
+  if (movesPlayed(server) <= localMoves) return null;
+  return {
+    point: server.last_move ?? { row: -1, col: -1 },
+    captures: [],
+    final_state: server.phase === 'finished' ? server : null,
+  };
+}
+
+/** The game the player left for home (leaveGame). Work still in flight for
+ *  it ends quietly: no card, no further bot move, nothing recorded. */
+let leftGame: Game | null = null;
+
+/** The game on the board was left (or none has started yet): it takes no
+ *  stone and no pass, and no screen shows it as one to play (App). */
+export function gameLeft(): boolean {
+  return leftGame === useGameStore.getState()._game;
+}
+
+/** Work begun for `game` ends quietly when another game has replaced it on
+ *  the board, or the player left it. */
+function gameGone(current: Game, game: Game): boolean {
+  return current !== game || leftGame === game;
+}
+
 interface GameState {
   grid: GridSnapshot;
   boardSize: number;
@@ -340,13 +383,16 @@ interface GameState {
    *  a "what just happened" modal so newcomers don't think the game silently
    *  ended. Cleared by either the user passing back or dismissing. */
   botJustPassed: boolean;
-  /** Timeout-recovery ladder terminal state (2026-09-01): both silent
-   *  recovery attempts failed, so the game is parked on the bot's turn.
-   *  UI surfaces a kid-readable tap-to-retry; the tap re-enters the ladder
-   *  via retryAIMove. Before this existed, an ai-move failure was a
+  /** See BotTrouble. A failed bot move gets here when the timeout-recovery
+   *  ladder (2026-09-01) runs out: before it, an ai-move failure was a
    *  console.warn and a silently stuck game — the client half of the
    *  2026-07-15 "bots just stopped" incident. */
-  botStuck: boolean;
+  botTrouble: BotTrouble;
+  /** What Try again replays for 'start': the new game's options. */
+  _retryNewGame: NewGameOptions | null;
+  /** The player's move (a point) or pass (null) that never reached the
+   *  game; Try again sends it before asking the bot. */
+  _unsynced: { point: Point | null } | null;
   /** Lesson-context only: true when the player has no legal moves on their
    *  turn. Surfaces a "you're out of choices, pass to end the game" modal
    *  with a single Pass & end action that fires both sides' passes in
@@ -365,6 +411,10 @@ interface GameState {
    *  detection (~5-10 s). UI shows a "Calculating final score…" modal and
    *  hides the placeholder score until the real values arrive. */
   scoringInProgress: boolean;
+  /** A new game is waiting for the device to say where its bots play (cold
+   *  start, at most capabilitiesStore BOT_ROUTING_WAIT_MS): the board on
+   *  screen is the last one, so it takes no stone and a card covers it. */
+  startingGame: boolean;
   scoreHistory: ScorePoint[];  // Live score per move (for the score graph)
   /** Stones merged by the most recent move (or empty). Renderer reads this
    *  to fire a connection pulse, then it gets cleared on the next move. */
@@ -385,8 +435,13 @@ interface GameState {
   resign: () => void;
   undo: () => boolean;
   requestAIMove: (opts?: { isRetry?: boolean }) => Promise<void>;
-  /** Re-enter the recovery ladder from the tap-to-retry affordance. */
-  retryAIMove: () => void;
+  /** Try again from BotTroubleCard: the same request from the same
+   *  position (a failed move re-enters the recovery ladder). */
+  retryBot: () => void;
+  /** The player went home (App's goHome): the game is dropped as it is,
+   *  neither ended nor scored, and work still in flight for it ends
+   *  quietly (it cannot be resumed). */
+  leaveGame: () => void;
   requestBotVsBotMove: () => Promise<void>;
   setBotVsBotSpeed: (ms: number) => void;
   toggleBotVsBotPause: () => void;
@@ -623,12 +678,15 @@ export const useGameStore = create<GameState>((set, get) => ({
   undosThisGame: 0,
   desyncReported: false,
   botJustPassed: false,
-  botStuck: false,
+  botTrouble: null,
+  _retryNewGame: null,
+  _unsynced: null,
   playerOutOfMoves: false,
   lessonGameEndDismissed: false,
   gameEndDismissed: false,
   deadStones: [],
   scoringInProgress: false,
+  startingGame: false,
   scoreHistory: [{ move: 0, lead: 0 }],
   lastMerged: { color: Color.Empty, stones: [] },
       ruleViolation: null,
@@ -639,6 +697,16 @@ export const useGameStore = create<GameState>((set, get) => ({
     // Clear any running bot-vs-bot timer
     const prevTimer = get()._botVsBotTimer;
     if (prevTimer) clearTimeout(prevTimer);
+
+    const gameMode = options?.gameMode ?? 'ai';
+    const useBackend = options?.useBackend || gameMode === 'botvsbot';
+    // A game with a bot waits (bounded) for the device to say where its bots
+    // play, so the start line below names the side that will play them. Until
+    // the game is set below, startingGame covers the last board (App.tsx).
+    if (useBackend && !botRoutingKnown()) {
+      set({ startingGame: true });
+      await whenBotRoutingKnown();
+    }
 
     // Fresh diagnostic buffer so the finished game's SavedGame carries only
     // its own selector lines (autoSaveGame snapshots it). The header line
@@ -673,13 +741,21 @@ export const useGameStore = create<GameState>((set, get) => ({
     } catch {
       // Unknown rank/size (lessons, stubs) — header still logs without knobs.
     }
+    // The device rung's knobs only when the device picks the moves; a server
+    // game says so and why, a pass-and-play game has no bot moves at all.
+    const onDevice = getKataGoBridge() !== null;
+    const movesStamp =
+      gameMode === 'local'
+        ? ' moves=none'
+        : onDevice
+          ? knobStamp
+          : ` moves=server why=${!getNativeBridge() ? 'web' : onlineBotsOnly() ? 'device' : 'setting'}`;
     recordSelectorLog(
       `[game] start capture=v2 build=${__BUILD_TS__} size=${options?.boardSize ?? BOARD_SIZE} ` +
         `rank=${options?.targetRank ?? '15k'} mode=${options?.gameMode ?? 'ai'} ` +
-        `bridge=${getKataGoBridge() ? 'yes' : 'no'}${knobStamp}`,
+        `bridge=${onDevice ? 'yes' : 'no'}${movesStamp}`,
     );
 
-    const gameMode = options?.gameMode ?? 'ai';
     const requestedSize = options?.boardSize ?? BOARD_SIZE;
     // 5 is supported for the lesson 5 first-game flow; the rest are full-game sizes.
     const boardSize = [5, 9, 13, 19].includes(requestedSize) ? requestedSize : BOARD_SIZE;
@@ -712,8 +788,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
 
     let gameId: string | null = null;
+    let failedToStart = false;
 
-    const useBackend = options?.useBackend || gameMode === 'botvsbot';
     if (useBackend) {
       try {
         const res = await api.createGame({
@@ -728,7 +804,11 @@ export const useGameStore = create<GameState>((set, get) => ({
         });
         gameId = res.game_id;
       } catch (e) {
-        console.warn('Backend unavailable, falling back to local play', e);
+        // A game with a bot and no game behind it would freeze on the bot's
+        // first turn: the card says so instead (it used to play on locally).
+        console.warn('The game could not be created:', e);
+        recordSelectorLog(`[game] create FAILED (${e instanceof Error ? e.message : e}) — surfacing`);
+        failedToStart = true;
       }
     }
 
@@ -756,12 +836,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       undosThisGame: 0,
       desyncReported: false,
       botJustPassed: false,
-      botStuck: false,
+      botTrouble: failedToStart ? 'start' : null,
+      _retryNewGame: failedToStart ? (options ?? null) : null,
+      _unsynced: null,
       playerOutOfMoves: false,
       lessonGameEndDismissed: false,
       gameEndDismissed: false,
       deadStones: [],
       scoringInProgress: false,
+      startingGame: false,
       scoreHistory: [{ move: 0, lead: currentLead(game) }],
       lastMerged: { color: Color.Empty, stones: [] },
       ruleViolation: null,
@@ -784,8 +867,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     resumeAudio();
     const { _game, gameId, gameMode, aiThinking, playerColor, currentColor } = get();
 
-    // Block input while AI is thinking
-    if (aiThinking) return MoveResult.GameOver;
+    // Block input while AI is thinking, while a new game waits to start
+    // (the board on screen is still the last one), while the game waits on a
+    // bot that did not answer, or on a game left (its bot answers no more).
+    if (aiThinking || get().startingGame || get().botTrouble || leftGame === _game) return MoveResult.GameOver;
 
     // Block if it's not the player's turn. `gameMode === 'ai'` (not just
     // `gameId`) so this holds even before the backend game id is set — else
@@ -855,6 +940,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           })
           .catch((e) => {
             console.warn('playMove sync failed:', e);
+            if (gameGone(get()._game, _game)) return;
             // The local board kept the stone but the server never saw it —
             // from here every legality verdict can differ between the two
             // engines (the desync seed behind the silent ko-fight passes).
@@ -863,8 +949,9 @@ export const useGameStore = create<GameState>((set, get) => ({
               `[game] player move server-sync FAILED move=${_game.moveHistory.length} ` +
               `at (${point.row},${point.col}): ${e instanceof Error ? e.message : e} — boards may desync`,
             );
-            // Unstick the UI — without this aiThinking would stay true forever.
-            set({ aiThinking: false });
+            // The bot answers a move its game never got only after Try
+            // again sends it; until then the card covers the waiting board.
+            set({ aiThinking: false, botTrouble: 'move', _unsynced: { point } });
           });
       }
     }
@@ -872,8 +959,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   pass: () => {
-    const { _game, gameId, gameMode, aiThinking, playerColor, currentColor } = get();
-    if (aiThinking) return;
+    const { _game, gameId, gameMode, aiThinking, playerColor, currentColor, botTrouble } = get();
+    if (aiThinking || botTrouble || leftGame === _game) return;
     // In AI games, only the player should pass via this action — guard
     // against off-turn calls (e.g. the player rapidly taps Pass right after
     // playing a stone, before aiThinking has been set, or before the bot's
@@ -965,7 +1052,9 @@ export const useGameStore = create<GameState>((set, get) => ({
           })
           .catch((e) => {
             console.warn('pass sync failed:', e);
-            set({ aiThinking: false });
+            if (gameGone(get()._game, _game)) return;
+            // As a move that did not reach the game: Try again sends it.
+            set({ aiThinking: false, botTrouble: 'move', _unsynced: { point: null } });
           });
       } else if (_game.phase === 'playing') {
         setTimeout(() => get().requestAIMove(), 400);
@@ -1068,7 +1157,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   requestAIMove: async (opts?: { isRetry?: boolean }) => {
     const { gameId, _game, phase, targetRank, lessonContext, playerColor } = get();
-    if (!gameId || phase !== 'playing') return;
+    if (!gameId || phase !== 'playing' || leftGame === _game) return;
 
     // Tutorial auto-pass: before fetching a bot move, check whether the
     // current side (= the bot, since we're in requestAIMove) has any legal
@@ -1096,7 +1185,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
     }
 
-    set({ aiThinking: true, botStuck: false });
+    set({ aiThinking: true, botTrouble: null });
 
     try {
       // Pass targetRank so the iPad bridge path can apply rank-calibrated
@@ -1135,6 +1224,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         // stones placed, not the handicap number: a handicap of 1 places none
         handicap: handicapPositions(_game.board.size, get().handicap).length,
       });
+      // A move for a game left, or replaced, while the bot thought is dropped.
+      if (gameGone(get()._game, _game)) return;
       // Re-check state hasn't changed (e.g., user resigned while AI was thinking)
       if (get().phase !== 'playing') {
         set({ aiThinking: false });
@@ -1254,6 +1345,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       // is down — surface a kid-readable tap-to-retry. Before this ladder,
       // the catch was a console.warn and a silently stuck game: the client
       // half of the 2026-07-15 "bots just stopped playing" incident.
+      if (gameGone(get()._game, _game)) return;
       const isRetry = opts?.isRetry === true;
       const reason = e instanceof Error ? e.message : String(e);
       recordSelectorLog(
@@ -1267,7 +1359,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Step 1: resync — did the server complete work we never saw?
       try {
         const server = await api.getGame(gameId);
-        if (server.move_number > _game.moveHistory.length) {
+        if (movesPlayed(server) > _game.moveHistory.length) {
           if (server.last_move && typeof server.last_move.row === 'number') {
             const pt = { row: server.last_move.row, col: server.last_move.col };
             const captures = _game.forceApplyServerMove(pt, server.board);
@@ -1280,7 +1372,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             // point beats a doubled move.
             set({
               aiThinking: false,
-              botStuck: false,
+              botTrouble: null,
               ...snapshot(_game, { lastMove: pt, lastCaptures: captures }),
             });
           } else {
@@ -1293,7 +1385,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             recordSelectorLog('[game] recovery: server had committed a pass — resynced');
             set({
               aiThinking: false,
-              botStuck: false,
+              botTrouble: null,
               ...snapshot(_game),
               botJustPassed: wasPlaying && _game.phase === 'playing',
             });
@@ -1307,7 +1399,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           `[game] recovery: state fetch failed ` +
             `(${syncErr instanceof Error ? syncErr.message : syncErr}) — surfacing`,
         );
-        set({ aiThinking: false, botStuck: true });
+        set({ aiThinking: false, botTrouble: 'move' });
         return;
       }
       // Step 2: server reachable and still waiting on the bot's move — one
@@ -1319,19 +1411,54 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Step 3: both attempts failed with a reachable server. Hand the
       // player the fix; the tap re-enters this ladder from the top.
       recordSelectorLog('[game] recovery: retry also failed — surfacing tap-to-retry');
-      set({ aiThinking: false, botStuck: true });
+      set({ aiThinking: false, botTrouble: 'move' });
     }
   },
 
-  retryAIMove: () => {
-    if (get().aiThinking) return; // single-flight: taps can't stack requests
-    set({ botStuck: false });
-    void get().requestAIMove();
+  retryBot: () => {
+    const { botTrouble, aiThinking, autoCompleting, gameMode, gameId, _game, _unsynced, _retryNewGame } = get();
+    // single-flight: taps can't stack requests
+    if (!botTrouble || aiThinking || autoCompleting) return;
+    set({ botTrouble: null });
+    if (botTrouble === 'start') {
+      void get().newGame(_retryNewGame ?? undefined);
+    } else if (botTrouble === 'finish') {
+      void get().finishGame();
+    } else if (gameMode === 'botvsbot') {
+      void get().requestBotVsBotMove();
+    } else if (_unsynced && gameId) {
+      // Send the player's move or pass first, unless the game got it and
+      // only its answer was lost; then ask the bot as usual.
+      set({ aiThinking: true });
+      void (async () => {
+        try {
+          const server = await api.getGame(gameId);
+          if (movesPlayed(server) < _game.moveHistory.length) {
+            if (_unsynced.point) await api.playMove(gameId, _unsynced.point.row, _unsynced.point.col);
+            else await api.pass(gameId);
+          }
+        } catch (e) {
+          recordSelectorLog(`[game] resend FAILED (${e instanceof Error ? e.message : e})`);
+          if (gameGone(get()._game, _game)) return;
+          set({ aiThinking: false, botTrouble: 'move' });
+          return;
+        }
+        set({ _unsynced: null });
+        await get().requestAIMove();
+      })();
+    } else {
+      void get().requestAIMove();
+    }
+  },
+
+  leaveGame: () => {
+    leftGame = get()._game;
+    set({ botTrouble: null, _retryNewGame: null, _unsynced: null, aiThinking: false, autoCompleting: false });
   },
 
   requestBotVsBotMove: async () => {
     const { gameId, _game, phase, botVsBotPaused, botVsBotSpeed, blackRank, whiteRank } = get();
-    if (!gameId || phase !== 'playing' || botVsBotPaused) return;
+    if (!gameId || phase !== 'playing' || botVsBotPaused || leftGame === _game) return;
 
     set({ aiThinking: true });
 
@@ -1339,7 +1466,21 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Bot-vs-bot: pick the rank for whoever's turn it is. iPad bridge path
       // uses this to apply per-bot calibration; HTTP path ignores it.
       const sideRank = _game.currentColor === Color.Black ? blackRank : whiteRank;
-      const aiMove = await api.getAIMove(gameId, sideRank ?? '15k');
+      let aiMove: AIMoveDTO;
+      try {
+        aiMove = await api.getAIMove(gameId, sideRank ?? '15k');
+      } catch (e) {
+        recordSelectorLog(
+          `[game] ai-move FAILED move=${_game.moveHistory.length} (bot-vs-bot) (${e instanceof Error ? e.message : e})`,
+        );
+        // A move the server made but never sent back is shown, not asked
+        // for again; anything else waits for Try again.
+        const lost = await lostServerMove(gameId, _game.moveHistory.length).catch(() => null);
+        if (gameGone(get()._game, _game)) return;
+        if (!lost) throw e;
+        aiMove = lost;
+      }
+      if (gameGone(get()._game, _game)) return;
       if (get().phase !== 'playing') {
         set({ aiThinking: false });
         return;
@@ -1422,7 +1563,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
     } catch (e) {
       console.warn('Bot-vs-bot move failed:', e);
-      set({ aiThinking: false });
+      set({ aiThinking: false, botTrouble: 'move' });
     }
   },
 
@@ -1470,9 +1611,12 @@ export const useGameStore = create<GameState>((set, get) => ({
           _game.board.size,
         );
         aiMove = await api.finishMove(gid, { movesForBridge });
+        if (gameGone(get()._game, _game)) return;
       } catch (e) {
         console.warn('finish-move failed:', e);
-        set({ autoCompleting: false, aiThinking: false });
+        if (gameGone(get()._game, _game)) return;
+        recordSelectorLog(`[game] finish-move FAILED move=${_game.moveHistory.length} (${e instanceof Error ? e.message : e})`);
+        set({ autoCompleting: false, aiThinking: false, botTrouble: 'finish' });
         return;
       }
 
@@ -1674,6 +1818,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 }));
+
+// No game has started yet: the empty board the store begins with is no game
+// to play (Custom Match then Cancel goes home rather than to it).
+leftGame = useGameStore.getState()._game;
 
 // Dev convenience: expose gameStore on `window.__gameStore` to mirror
 // the shims for autoPlayStore + profileStore. Gated by Vite's DEV flag.

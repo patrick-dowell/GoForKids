@@ -340,3 +340,8 @@
     font-size: 11px;
   }
 }
+
+/* Where the progress was, while the online bots can't be reached. */
+.autoplay-bots-away {
+  width: 100%;
+}

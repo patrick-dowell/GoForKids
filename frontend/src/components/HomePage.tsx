@@ -1,9 +1,12 @@
+import { useEffect } from 'react';
 import { Avatar, BOT_AVATARS } from './Avatar';
 import { useAutoPlayStore } from '../store/autoPlayStore';
 import { useGlossaryStore } from '../store/glossaryStore';
 import { useProfileStore } from '../store/profileStore';
 import { useFriendsStore, useFriendsWatch } from '../store/friendsStore';
 import { STARTING_RUNG, type BoardSize } from '../autoplay/matchmaker';
+import { checkServerIfNeeded, useCloudBotsOut } from '../store/serverReachStore';
+import { BotsAwayNote } from './BotsAwayNote';
 import './HomePage.css';
 
 interface HomePageProps {
@@ -32,6 +35,10 @@ export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onProf
   const rank19 = useAutoPlayStore((s) =>
     s.boardSize === 19 ? s.rungState.currentRung : (s.slots['19x19']?.rungState.currentRung ?? STARTING_RUNG),
   );
+  // The online bots, asked again each time home appears; while they do not
+  // answer, ranked Play is greyed and the roster gives way to why.
+  useEffect(() => void checkServerIfNeeded(), []);
+  const botsOut = useCloudBotsOut();
 
   return (
     <div className="home-page">
@@ -88,7 +95,7 @@ export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onProf
             <span className="home-btn-icon">✨</span>
             Learn to Play
           </button>
-          <button onClick={onAutoPlay} className="home-btn home-btn-primary">
+          <button onClick={onAutoPlay} className="home-btn home-btn-primary" disabled={botsOut}>
             <span className="home-btn-icon">▶</span>
             Play
           </button>
@@ -119,24 +126,28 @@ export function HomePage({ onAutoPlay, onCustomMatch, onLibrary, onLearn, onProf
           </button>
         </div>
 
-        {/* Bot roster preview */}
-        <div className="home-bots">
-          <p className="home-bots-label">Choose your opponent</p>
-          <div className="home-bots-row">
-            {BOTS.map(([rank, info]) => (
-              <div
-                key={rank}
-                className={`home-bot-preview${info.validated ? '' : ' home-bot-preview-locked'}`}
-                title={info.validated ? '' : 'Coming soon — not yet calibrated'}
-              >
-                <Avatar type={info.type} size={44} />
-                <span className="home-bot-name">{info.name}</span>
-                <span className="home-bot-rank">{rank}</span>
-                {!info.validated && <span className="home-bot-badge">Soon</span>}
-              </div>
-            ))}
+        {/* Bot roster preview, or why the bots can't play */}
+        {botsOut ? (
+          <BotsAwayNote className="home-bots-away" />
+        ) : (
+          <div className="home-bots">
+            <p className="home-bots-label">Choose your opponent</p>
+            <div className="home-bots-row">
+              {BOTS.map(([rank, info]) => (
+                <div
+                  key={rank}
+                  className={`home-bot-preview${info.validated ? '' : ' home-bot-preview-locked'}`}
+                  title={info.validated ? '' : 'Coming soon — not yet calibrated'}
+                >
+                  <Avatar type={info.type} size={44} />
+                  <span className="home-bot-name">{info.name}</span>
+                  <span className="home-bot-rank">{rank}</span>
+                  {!info.validated && <span className="home-bot-badge">Soon</span>}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {onShowPrivacy && (
           <button className="home-privacy-link" onClick={onShowPrivacy}>

@@ -40,8 +40,8 @@ vi.mock('../../api/client', () => ({
 
 import { useGameStore } from '../gameStore';
 import { useSettingsStore } from '../settingsStore';
-import { useCapabilitiesStore } from '../capabilitiesStore';
-import { snapshotSelectorLog } from '../../ai/selectorLog';
+import { _resetDeviceCapabilities, readDeviceCapabilities, useCapabilitiesStore } from '../capabilitiesStore';
+import { clearSelectorLog, snapshotSelectorLog } from '../../ai/selectorLog';
 import { Color } from '../../engine/types';
 import { api } from '../../api/client';
 
@@ -96,8 +96,90 @@ describe("the game log's start line names the bot's profile set", () => {
     expect(await start({ lessonContext: true })).toContain(`bridge=yes${standard}`);
     expect(await start({ gameMode: 'botvsbot' })).toContain(' set=standard');
     expect(await start({ rank: '9k' })).toContain(' set=standard rr=0.08');
+  });
+});
+
+/**
+ * The start line stamps the device rung's knobs only when the device picks
+ * the moves. A game the server plays says so, and why: the web, a device
+ * whose capabilities said localBots: false, or the stored setting. A
+ * pass-and-play game has no bot moves at all.
+ */
+describe("the start line says who picks the moves", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.createGame).mockResolvedValue({ game_id: 'abcd1234' } as never);
+    _resetDeviceCapabilities();
+    useSettingsStore.getState().setCloudBot(false);
+    useSettingsStore.getState().setHumanBots(false);
+  });
+
+  afterEach(() => {
+    delete (globalThis as { window?: unknown }).window;
+    _resetDeviceCapabilities();
+    useSettingsStore.getState().setCloudBot(false);
+  });
+
+  const bridge = () => {
+    (globalThis as { window?: unknown }).window = { kataGo: { ping: async () => ({ pong: true }) } };
+  };
+  const caps = (localBots: boolean) =>
+    useCapabilitiesStore.setState({ capabilities: { localBots, evalsPerSecond: 40, humanModel: false } });
+  const start = async (gameMode: 'ai' | 'local' = 'ai') => {
+    await useGameStore.getState().newGame({
+      boardSize: 9,
+      targetRank: '15k',
+      useBackend: gameMode !== 'local',
+      gameMode,
+      playerColor: Color.Black,
+    });
+    return snapshotSelectorLog().find((l) => l.includes('[game] start'))!;
+  };
+  const tail = (line: string) => line.slice(line.indexOf(' bridge='));
+
+  it('the device picks them: the rung knobs, as before', async () => {
+    bridge();
+    caps(true);
+    expect(tail(await start())).toBe(' bridge=yes set=standard rr=0.05 temp=2.6 lapse=0.45 mf=0.75 v=16');
+  });
+
+  it('the web: the server picks them, no device knobs', async () => {
+    expect(tail(await start())).toBe(' bridge=no moves=server why=web');
+  });
+
+  it('a device whose engine is too slow: the server, and why', async () => {
+    bridge();
+    caps(false);
+    expect(tail(await start())).toBe(' bridge=no moves=server why=device');
+  });
+
+  it('the stored setting on a device that may play its own: the server, and why', async () => {
+    bridge();
+    caps(true);
     useSettingsStore.getState().setCloudBot(true);
-    expect(await start()).toContain(`bridge=no${standard}`);
+    expect(tail(await start())).toBe(' bridge=no moves=server why=setting');
+  });
+
+  it('a game started before the answer waits for it, then names the side that plays', async () => {
+    let answer: (c: { localBots: boolean; evalsPerSecond: number; humanModel: boolean }) => void = () => {};
+    (globalThis as { window?: unknown }).window = {
+      kataGo: { ping: async () => ({ pong: true }), capabilities: () => new Promise((r) => (answer = r)) },
+    };
+    void readDeviceCapabilities();
+    clearSelectorLog();
+    const line = start();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(snapshotSelectorLog().some((l) => l.includes('[game] start'))).toBe(false);
+    expect(api.createGame).not.toHaveBeenCalled();
+    answer({ localBots: false, evalsPerSecond: 3, humanModel: false });
+    expect(tail(await line)).toBe(' bridge=no moves=server why=device');
+  });
+
+  it('pass-and-play: no bot moves to stamp', async () => {
+    expect(tail(await start('local'))).toBe(' bridge=no moves=none');
+    bridge();
+    caps(true);
+    expect(tail(await start('local'))).toBe(' bridge=yes moves=none');
   });
 });
 

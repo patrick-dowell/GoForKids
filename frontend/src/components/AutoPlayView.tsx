@@ -4,6 +4,8 @@ import { isLoggedIn } from '../store/syncStore';
 import { playRanked } from '../autoplay/rankedPlay';
 import { Avatar, BOT_AVATARS } from './Avatar';
 import { ConceptLink } from './ConceptLink';
+import { BotsAwayNote } from './BotsAwayNote';
+import { useCloudBotsOut } from '../store/serverReachStore';
 import {
   winsToPromote,
   nextRung,
@@ -75,6 +77,9 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
   // Play pulls first (at most 2 s) and the button waits; otherwise the game
   // starts at once.
   const [starting, setStarting] = useState(false);
+  // The online bots, when they are the ones that play here and do not
+  // answer: Play is greyed and the progress gives way to why.
+  const botsOut = useCloudBotsOut();
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -153,22 +158,26 @@ export function AutoPlayView({ onExit, onStart }: AutoPlayViewProps) {
             {detailConcept && <> · <ConceptLink id={detailConcept}>what's this?</ConceptLink></>}
           </div>
 
-          <div className="autoplay-progress">
-            <div className="autoplay-progress-label">{promotionLine}</div>
-            <div className="autoplay-progress-bar" role="progressbar" aria-valuenow={rungState.winsAtCurrentRung} aria-valuemax={winsNeeded}>
-              {Array.from({ length: winsNeeded }).map((_, i) => (
-                <div
-                  key={i}
-                  className={'autoplay-progress-seg' + (i < rungState.winsAtCurrentRung ? ' autoplay-progress-seg-filled' : '')}
-                />
-              ))}
+          {botsOut ? (
+            <BotsAwayNote className="autoplay-bots-away" />
+          ) : (
+            <div className="autoplay-progress">
+              <div className="autoplay-progress-label">{promotionLine}</div>
+              <div className="autoplay-progress-bar" role="progressbar" aria-valuenow={rungState.winsAtCurrentRung} aria-valuemax={winsNeeded}>
+                {Array.from({ length: winsNeeded }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={'autoplay-progress-seg' + (i < rungState.winsAtCurrentRung ? ' autoplay-progress-seg-filled' : '')}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <button
             className="autoplay-play-btn"
             onClick={handleStart}
-            disabled={!matchup.validated || starting}
+            disabled={!matchup.validated || starting || botsOut}
             aria-busy={starting}
           >
             <span className="autoplay-play-icon">▶</span>

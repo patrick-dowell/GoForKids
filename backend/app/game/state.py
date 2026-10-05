@@ -23,6 +23,7 @@ from app.models.schemas import (
 from app.ai.move_selector import select_ai_move, _pick_legal_non_eye_move, SelectorEval
 from app.katago.engine import get_engine, point_to_gtp
 from app.game import storage
+from app.game.scoring import dead_stones_from_ownership, remove_dead_and_count
 
 logger = logging.getLogger(__name__)
 
@@ -519,6 +520,7 @@ class GameManager:
             engine_moves=engine_moves,
             engine_setup=engine_setup,
             eval_out=sel_eval,
+            komi=game.komi,  # the engine reads at the game's komi, as on the device
         )
         # Eval of the position the bot analyzed = the board right after the
         # opponent's (usually the player's) move. The frontend records it one
@@ -652,13 +654,9 @@ class GameManager:
                                     "B" if stone == Color.BLACK else "W",
                                     own,
                                 ))
-
-                            if stone == Color.BLACK and own < -0.3:
-                                # Black stone in white-owned territory = dead
-                                dead_stones.append(Point(row, col))
-                            elif stone == Color.WHITE and own > 0.3:
-                                # White stone in black-owned territory = dead
-                                dead_stones.append(Point(row, col))
+                    # A stone on a point owned by the other side past ±0.3 is
+                    # dead (shared with the human path's border check).
+                    dead_stones = dead_stones_from_ownership(game.board, analysis.ownership)
 
                     own_summary = ", ".join(
                         f"({r},{c}){col}:{own:+.2f}"
@@ -674,19 +672,10 @@ class GameManager:
             except Exception as e:
                 logger.warning(f"KataGo ownership analysis failed: {e}")
 
-        # Remove dead stones from the board before scoring
-        scoring_board = game.board.clone()
-        for ds in dead_stones:
-            stone_color = scoring_board.get(ds)
-            scoring_board.grid[ds.index(scoring_board.size)] = Color.EMPTY
-            # Count dead stones as captures for the opponent
-            if stone_color == Color.BLACK:
-                scoring_board.captures[Color.WHITE] += 1
-            elif stone_color == Color.WHITE:
-                scoring_board.captures[Color.BLACK] += 1
-
-        # Japanese scoring: territory + captures (not stones on board)
-        black_terr, white_terr, _ = scoring_board.score_territory()
+        # Remove dead stones from the board (counted as the opponent's
+        # captures), then Japanese scoring: territory + captures (not stones
+        # on board).
+        scoring_board, black_terr, white_terr, _ = remove_dead_and_count(game.board, dead_stones)
         black_caps = scoring_board.captures[Color.BLACK]
         white_caps = scoring_board.captures[Color.WHITE]
 

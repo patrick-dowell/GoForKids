@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { useSettingsStore, type Density } from '../store/settingsStore';
-import { useCapabilitiesStore } from '../store/capabilitiesStore';
+import { useCapabilitiesStore, useOnlineBotsOnly } from '../store/capabilitiesStore';
+import { CLOUD_LOCKED_NOTE, tapCloudBotRow } from './cloudBotRow';
 import { THEMES, type ThemeId } from '../theme/themes';
 
 interface SettingsDialogProps {
@@ -18,6 +20,10 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const humanBots = useSettingsStore((s) => s.humanBots);
   const setHumanBots = useSettingsStore((s) => s.setHumanBots);
   const humanModel = useCapabilitiesStore((s) => s.capabilities?.humanModel === true);
+  // The web, or a device whose engine is too slow: online bots only. The row
+  // shows on and stays on; the stored choice underneath is left alone.
+  const cloudLocked = useOnlineBotsOnly();
+  const [lockNote, setLockNote] = useState(false);
 
   const options: ThemeId[] = ['cosmic', 'classic'];
   const densityOptions: { value: Density; label: string; desc: string }[] = [
@@ -90,22 +96,21 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 
           {/* Cloud bot: routes bot moves to the Render backend even when the
               native bridge exists — for older iPads where on-device KataGo is
-              unplayably slow. An adult flips this per-device; needs internet. */}
-          <div className="dialog-field settings-cloud-bot">
-            <label>
-              <input
-                type="checkbox"
-                checked={cloudBot}
-                onChange={(e) => setCloudBot(e.target.checked)}
-              />
-              {' '}Bot plays online (for older iPads)
-            </label>
-          </div>
+              unplayably slow. An adult flips this per-device; needs internet.
+              Locked on where the device cannot play its own bots: a tap then
+              only shows why. */}
+          <CloudBotRow
+            checked={cloudLocked || cloudBot}
+            locked={cloudLocked}
+            noteShown={cloudLocked && lockNote}
+            onToggle={(v) => tapCloudBotRow(cloudLocked, v, { setCloudBot, showNote: () => setLockNote(true) })}
+          />
 
           {/* Human-style bots: only on a device whose engine reported the human
-              SL net at start. A rank with a rung in b28_human.yaml then plays
-              on the human path; "Bot plays online" still wins. */}
-          {humanModel && (
+              SL net at start and may play its own bots. A rank with a rung in
+              b28_human.yaml then plays on the human path; "Bot plays online"
+              still wins. */}
+          {humanModel && !cloudLocked && (
             <div className="dialog-field settings-human-bots">
               <label>
                 <input
@@ -119,6 +124,30 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The "Bot plays online" row. Locked, it stays checked: a tap calls
+ *  onToggle (which shows the note) and React keeps the box as it was. */
+export function CloudBotRow({
+  checked,
+  locked,
+  noteShown,
+  onToggle,
+}: {
+  checked: boolean;
+  locked: boolean;
+  noteShown: boolean;
+  onToggle: (v: boolean) => void;
+}) {
+  return (
+    <div className={`dialog-field settings-cloud-bot${locked ? ' locked' : ''}`}>
+      <label>
+        <input type="checkbox" checked={checked} onChange={(e) => onToggle(e.target.checked)} />
+        {' '}Bot plays online
+      </label>
+      {noteShown && <p className="settings-note">{CLOUD_LOCKED_NOTE}</p>}
     </div>
   );
 }
