@@ -1189,6 +1189,56 @@ test('a ranked game whose server drops: the card fits, Try again plays on once i
   await expect(card).toHaveCount(0);
 });
 
+// A game left by any way home is gone: Custom Match then Cancel goes back
+// home rather than to its board, and the dropped game takes no stone (one
+// that landed would wait forever on a bot that no longer answers it). A
+// game still being played keeps its board after Cancel, and plays on.
+for (const via of ['Home', "the card's Leave"] as const) {
+  test(`after ${via}, Custom Match then Cancel shows no board for the game left; a live game plays on after Cancel`, async ({ page }) => {
+    await seedPickedProfile(page);
+    const server = await gameServer(page, true);
+    const playersTurn = async () => {
+      const g = await gameView(page);
+      return g.gameId === 'e2e00001' && !g.aiThinking && g.currentColor === g.playerColor;
+    };
+    await page.goto('/');
+    await page.getByRole('button', { name: /Custom Match/ }).click();
+    await page.getByRole('button', { name: '9×9' }).click();
+    await page.getByRole('button', { name: 'Start Game' }).click();
+    await expect.poll(playersTurn).toBe(true);
+
+    // a live game: New Game, Cancel, and the bot still answers
+    await page.getByRole('button', { name: 'New Game' }).click();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await playAt(page, 2, 8);
+    await expect.poll(async () => (await gameView(page)).moveCount).toBe(2);
+    await expect.poll(playersTurn).toBe(true);
+
+    if (via === 'Home') {
+      await page.getByRole('button', { name: 'Go to the home screen' }).click();
+      await page.locator('.home-confirm-card').getByRole('button', { name: 'Leave' }).click();
+    } else {
+      server.s.dropMoves = true;
+      await playAt(page, 4, 8);
+      await page.locator('.bot-trouble').getByRole('button', { name: 'Leave' }).click();
+      server.s.dropMoves = false;
+    }
+    await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+    await page.getByRole('button', { name: /Custom Match/ }).click();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    // whatever reaches the dropped game, it takes nothing and nothing waits
+    const before = await gameView(page);
+    await playAt(page, 6, 8);
+    await page.evaluate(() => (window as unknown as { __gameStore: { getState: () => { pass: () => void } } }).__gameStore.getState().pass());
+    await page.waitForTimeout(3000);
+    const after = await gameView(page);
+    expect({ moves: after.moveCount, thinking: after.aiThinking }).toEqual({ moves: before.moveCount, thinking: false });
+    await expect(page.getByRole('button', { name: /Learn to Play/ })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('.go-board-canvas')).toHaveCount(0);
+  });
+}
+
 test('a device whose own bots could play, with "Bot plays online" on: greyed while the server is away, open as soon as the setting is off', async ({ page }) => {
   await seedPickedProfile(page);
   await page.addInitScript(() => {

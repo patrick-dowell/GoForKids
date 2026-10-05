@@ -9,6 +9,9 @@ import { cloudBotsOut, useCloudBotsOut } from '../store/serverReachStore';
 
 interface NewGameDialogProps {
   onClose: () => void;
+  /** Cancel, when it should do more than close (App: home, when the game
+   *  under the dialog was left). Defaults to onClose. */
+  onCancel?: () => void;
   /** Optional: link to the Profile page from the "playing as" display so
    *  the player can change their avatar without leaving the dialog flow. */
   onOpenProfile?: () => void;
@@ -71,7 +74,7 @@ function getSavedBoardSize(): number {
   return 19;
 }
 
-export function NewGameDialog({ onClose, onOpenProfile }: NewGameDialogProps) {
+export function NewGameDialog({ onClose, onCancel = onClose, onOpenProfile }: NewGameDialogProps) {
   // While the online bots can't be reached, the two bot modes are greyed
   // and the dialog opens on Local (a friend on this device).
   const botsOut = useCloudBotsOut();
@@ -283,7 +286,7 @@ export function NewGameDialog({ onClose, onOpenProfile }: NewGameDialogProps) {
         )}
 
         <div className="dialog-actions">
-          <button onClick={onClose} className="btn btn-secondary">Cancel</button>
+          <button onClick={onCancel} className="btn btn-secondary">Cancel</button>
           <button onClick={handleStart} className="btn btn-primary" disabled={botModeOut}>
             {gameMode === 'botvsbot' ? 'Watch Game' : 'Start Game'}
           </button>

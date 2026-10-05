@@ -318,6 +318,12 @@ async function lostServerMove(gameId: string, localMoves: number): Promise<AIMov
  *  it ends quietly: no card, no further bot move, nothing recorded. */
 let leftGame: Game | null = null;
 
+/** The game on the board was left (or none has started yet): it takes no
+ *  stone and no pass, and no screen shows it as one to play (App). */
+export function gameLeft(): boolean {
+  return leftGame === useGameStore.getState()._game;
+}
+
 /** Work begun for `game` ends quietly when another game has replaced it on
  *  the board, or the player left it. */
 function gameGone(current: Game, game: Game): boolean {
@@ -862,9 +868,9 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { _game, gameId, gameMode, aiThinking, playerColor, currentColor } = get();
 
     // Block input while AI is thinking, while a new game waits to start
-    // (the board on screen is still the last one), or while the game waits
-    // on a bot that did not answer.
-    if (aiThinking || get().startingGame || get().botTrouble) return MoveResult.GameOver;
+    // (the board on screen is still the last one), while the game waits on a
+    // bot that did not answer, or on a game left (its bot answers no more).
+    if (aiThinking || get().startingGame || get().botTrouble || leftGame === _game) return MoveResult.GameOver;
 
     // Block if it's not the player's turn. `gameMode === 'ai'` (not just
     // `gameId`) so this holds even before the backend game id is set — else
@@ -954,7 +960,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   pass: () => {
     const { _game, gameId, gameMode, aiThinking, playerColor, currentColor, botTrouble } = get();
-    if (aiThinking || botTrouble) return;
+    if (aiThinking || botTrouble || leftGame === _game) return;
     // In AI games, only the player should pass via this action — guard
     // against off-turn calls (e.g. the player rapidly taps Pass right after
     // playing a stone, before aiThinking has been set, or before the bot's
@@ -1812,6 +1818,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 }));
+
+// No game has started yet: the empty board the store begins with is no game
+// to play (Custom Match then Cancel goes home rather than to it).
+leftGame = useGameStore.getState()._game;
 
 // Dev convenience: expose gameStore on `window.__gameStore` to mirror
 // the shims for autoPlayStore + profileStore. Gated by Vite's DEV flag.

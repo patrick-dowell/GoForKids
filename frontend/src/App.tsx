@@ -21,7 +21,7 @@ import { PrivacyTermsModal } from './components/PrivacyTermsModal';
 import { ScoringInProgressModal } from './components/ScoringInProgressModal';
 import { GameStartingCard } from './components/GameStartingCard';
 import { BotTroubleCard } from './components/BotTroubleCard';
-import { useGameStore } from './store/gameStore';
+import { gameLeft, useGameStore } from './store/gameStore';
 import { useLearnStore } from './store/learnStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
 import { useReplayStore } from './store/replayStore';
@@ -673,6 +673,12 @@ function App() {
       {showNewGame && (
         <NewGameDialog
           onClose={() => setShowNewGame(false)}
+          // The game under the dialog was left on the way home (or none has
+          // started): Cancel goes back home, never to a board nobody plays.
+          onCancel={() => {
+            setShowNewGame(false);
+            if (gameLeft()) setShowHome(true);
+          }}
           onOpenProfile={handleStartProfile}
         />
       )}

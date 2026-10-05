@@ -915,6 +915,35 @@ function holdNext(server: ReturnType<typeof installServer>, path: string) {
 }
 
 describe('leaving, or a new game, while a bot is still at work', () => {
+  it('a game left takes no stone and no pass, so nothing waits on its bot; a new game is not left', async () => {
+    const { server, useGameStore } = await serverGame();
+    const gs = await import('../gameStore');
+    useGameStore.getState().playMove({ row: 4, col: 4 });
+    await vi.waitFor(() => expect(stones(useGameStore)).toBe(2)); // the bot answered
+    expect(gs.gameLeft()).toBe(false);
+    useGameStore.getState().leaveGame();
+    expect(gs.gameLeft()).toBe(true);
+    server.log.length = 0;
+    expect(useGameStore.getState().playMove({ row: 6, col: 6 })).toBe('game_over');
+    useGameStore.getState().pass();
+    await flush();
+    const st = useGameStore.getState();
+    expect({ moves: st.moveCount, thinking: st.aiThinking }).toEqual({ moves: 2, thinking: false });
+    expect(server.log).toEqual([]);
+    await useGameStore.getState().newGame({ gameMode: 'local', boardSize: 9 });
+    expect(gs.gameLeft()).toBe(false);
+  });
+
+  it('before any game has started, the empty board counts as left and takes nothing', async () => {
+    installWindow();
+    installServer();
+    const { useGameStore } = await boot();
+    const gs = await import('../gameStore');
+    expect(gs.gameLeft()).toBe(true);
+    expect(useGameStore.getState().playMove({ row: 4, col: 4 })).toBe('game_over');
+    expect(stones(useGameStore)).toBe(0);
+  });
+
   it("a player's move in flight when the player leaves: its failure raises no card", async () => {
     const { server, useGameStore } = await serverGame();
     const move = holdNext(server, '/move');
