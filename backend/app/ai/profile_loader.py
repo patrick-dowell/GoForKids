@@ -84,6 +84,7 @@ OPTIONAL_KEYS: dict[str, type] = {
     "human_small_gain": float,
     "human_confirm_visits": float,
     "human_confirm_margin": float,
+    "human_border_gain": float,
 }
 
 SUPPORTED_SIZES: tuple[int, ...] = (5, 9, 13, 19)
