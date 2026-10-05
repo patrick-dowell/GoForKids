@@ -1082,6 +1082,14 @@ button:active {
   background: rgba(88, 166, 255, 0.08);
 }
 
+/* The bot modes, and Start on one, while the online bots can't be reached
+   (NewGameDialog). */
+.mode-btn:disabled,
+.dialog-actions .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Handicap slider */
 .handicap-slider {
   width: 100%;

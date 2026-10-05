@@ -1,0 +1,53 @@
+/* The note beside a greyed game against a bot (BotsAwayNote.tsx). */
+.bots-away {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 209, 102, 0.08);
+  border: 1px solid rgba(255, 209, 102, 0.3);
+  text-align: center;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.bots-away-text {
+  margin: 0;
+  flex: 1 1 220px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #e6edf3;
+}
+
+.bots-away-retry {
+  flex: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #1a1a30;
+  background: linear-gradient(135deg, #ffd166, #d4a045);
+  border: none;
+}
+
+.bots-away-retry:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .bots-away {
+    padding: 6px 10px;
+  }
+  .bots-away-text {
+    font-size: 12px;
+  }
+  .bots-away-retry {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+}

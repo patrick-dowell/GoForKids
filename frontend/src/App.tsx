@@ -20,6 +20,7 @@ import { abortPendingRequests, api } from './api/client';
 import { PrivacyTermsModal } from './components/PrivacyTermsModal';
 import { ScoringInProgressModal } from './components/ScoringInProgressModal';
 import { GameStartingCard } from './components/GameStartingCard';
+import { BotTroubleCard } from './components/BotTroubleCard';
 import { useGameStore } from './store/gameStore';
 import { useLearnStore } from './store/learnStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
@@ -240,6 +241,9 @@ function App() {
     useGlossaryStore.getState().close();
     useGameReviewStore.getState().close();
     useGameStore.getState().dismissGameEnd();
+    // The game on the board is left as it is: not ended, not scored,
+    // nothing recorded, and a bot still thinking about it stops there.
+    useGameStore.getState().leaveGame();
     setActiveGameLessonId(null);
     setShowNewGame(false);
     setShowAutoPlay(false);
@@ -695,6 +699,7 @@ function App() {
       {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       {scoringInProgress && <ScoringInProgressModal onGoHome={goHome} />}
       {startingGame && <GameStartingCard />}
+      {!replayActive && <BotTroubleCard onLeave={goHome} />}
     </div>
   );
 }

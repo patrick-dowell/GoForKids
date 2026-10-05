@@ -917,3 +917,12 @@
 .learn-view-results .learn-board-wrap {
   align-items: flex-start;
 }
+
+/* A game lesson's start while the online bots can't be reached. */
+.learn-game-btn:disabled {
+  opacity: 0.4;
+  filter: grayscale(0.8);
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}

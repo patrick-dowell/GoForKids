@@ -13,6 +13,16 @@ import { test, expect, type Page } from '@playwright/test';
  * routes a push uses. No backend runs.
  */
 
+// The game server's health route: answered up here (a test may answer it
+// otherwise), so ranked Play and the bot modes are open and the check never
+// leaves the browser.
+test.beforeEach(async ({ page }) => {
+  await page.route(
+    (url) => url.pathname === '/health',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }),
+  );
+});
+
 const BACKEND_ID = 'c0ffee42';
 
 interface Logged {
@@ -126,7 +136,6 @@ function pushedEntries(log: Logged[]) {
 
 for (const { name, backendDown, shape } of [
   { name: 'the backend game id', backendDown: false, shape: new RegExp(`^${BACKEND_ID}$`) },
-  { name: 'a local id when the backend was out of reach', backendDown: true, shape: /^local-\d+$/ },
 ]) {
   test(`a finished ranked game's result names the replay it was saved as: ${name}`, async ({ page }) => {
     const log = await fakeBackend(page, { backendDown });
@@ -149,3 +158,23 @@ for (const { name, backendDown, shape } of [
     await expect.poll(() => pushedEntries(log).map((e) => e.gameId ?? null)).toContain(id);
   });
 }
+
+// A ranked game the backend cannot create no longer plays on locally against
+// a bot that never moves: the card says so, and leaving records nothing.
+test('a ranked game the backend cannot start: the card, no game, and Leave records nothing', async ({ page }) => {
+  const log = await fakeBackend(page, { backendDown: true });
+  await seedLoggedIn(page);
+  await page.goto('/');
+  await page.locator('.home-btn-primary').click();
+  await page.locator('.autoplay-play-btn').click();
+  const card = page.locator('.bot-trouble');
+  await expect(card).toContainText("The bot isn't answering");
+  expect(await page.evaluate(() => (window as unknown as GameHook).__gameStore.getState().phase)).toBe('playing');
+  await card.getByRole('button', { name: 'Leave' }).click();
+  await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+  const after = await afterTheGame(page);
+  expect(after.entries).toBe(0);
+  expect(after.libraryId).toBeNull();
+  expect(after.savedGameId).toBeNull();
+  expect(pushedEntries(log)).toEqual([]);
+});

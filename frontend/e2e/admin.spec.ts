@@ -13,6 +13,16 @@ import { test, expect, type Page, type Request } from '@playwright/test';
  * machine that runs the suite.
  */
 
+// The game server's health route: answered up here (a test may answer it
+// otherwise), so ranked Play and the bot modes are open and the check never
+// leaves the browser.
+test.beforeEach(async ({ page }) => {
+  await page.route(
+    (url) => url.pathname === '/health',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }),
+  );
+});
+
 test.use({ timezoneId: 'America/Los_Angeles', locale: 'en-US' });
 
 const SELF_DEVICE = 'd-self';

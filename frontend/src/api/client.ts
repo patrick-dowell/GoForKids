@@ -47,7 +47,24 @@ import type {
   PointDTO,
 } from './types';
 
-export const API_BASE = `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'}/api`;
+const SERVER_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+export const API_BASE = `${SERVER_BASE}/api`;
+
+/** Whether the server answers its health route (`GET /health`, outside
+ *  /api) within `timeoutMs`. Never throws, never retries, and stays out of
+ *  `inFlight`: leaving a screen must not turn an answer into "no answer". */
+export async function serverAnswers(timeoutMs: number): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${SERVER_BASE}/health`, { signal: controller.signal, cache: 'no-store' });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** A non-OK HTTP response. Keeps the status and the parsed JSON body so a
  *  caller can act on them (sync reads the 409 body and tells 404 from 429);
@@ -166,6 +183,52 @@ function useLocal(): boolean {
 function onDevice(gameId: string): boolean {
   return getNativeBridge() !== null && localGameRouter.has(gameId);
 }
+
+/** The game with this id lives on the device (see onDevice): its bot, and
+ *  its Finish Game, play there whatever the routing says now. */
+export function gameLivesOnDevice(gameId: string | null): boolean {
+  return gameId !== null && onDevice(gameId);
+}
+
+/** How long one device bot move, or one Finish Game step, may wait on the
+ *  engine before it counts as failed. Generous: an old native build plays
+ *  its own bots at up to about a minute a move. */
+export const DEVICE_MOVE_DEADLINE_MS = 90_000;
+
+/** The bridge for one device move, with a deadline over every engine call.
+ *  `failure()` is set when the deadline passes or the move's own search
+ *  fails (`fail`); the move checks it before it commits anything, so an
+ *  engine that hangs or breaks yields an error, never a guessed move, and a
+ *  late answer can no longer commit. */
+function guardEngine(bridge: KataGoBridge) {
+  let failure: unknown = null;
+  let expire: (e: Error) => void = () => {};
+  const expired = new Promise<never>((_, reject) => (expire = reject));
+  expired.catch(() => {}); // a deadline nobody is waiting on is not an error
+  const timer = setTimeout(() => {
+    failure = new Error(`the engine did not answer in ${DEVICE_MOVE_DEADLINE_MS}ms`);
+    expire(failure as Error);
+  }, DEVICE_MOVE_DEADLINE_MS);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const race = <F extends (...a: any[]) => Promise<unknown>>(fn: F | undefined): F | undefined =>
+    fn && ((async (...a: Parameters<F>) => Promise.race([fn.apply(bridge, a), expired])) as F);
+  const guarded: KataGoBridge = {
+    ...bridge,
+    analyze: race(bridge.analyze)!,
+    humanPolicy: race(bridge.humanPolicy),
+    scoreAfter: race(bridge.scoreAfter),
+  };
+  return {
+    bridge: guarded,
+    fail: (e: unknown) => void (failure ??= e),
+    check: () => {
+      if (failure) throw failure;
+    },
+    done: () => clearTimeout(timer),
+  };
+}
+
+type GuardedEngine = ReturnType<typeof guardEngine>;
 
 /** Wrap the local-router's `{ error }` discriminated union to match the
  *  HTTP client's "throw on failure" contract. Keeps callers oblivious. */
@@ -346,6 +409,25 @@ async function getAIMoveViaBridge(
     handicap?: number;
   },
 ): Promise<AIMoveDTO> {
+  const engine = guardEngine(bridge);
+  try {
+    return await moveViaBridge(gameId, engine, targetRank, options);
+  } finally {
+    engine.done();
+  }
+}
+
+async function moveViaBridge(
+  gameId: string,
+  engine: GuardedEngine,
+  targetRank: string,
+  options?: {
+    neverPass?: boolean;
+    movesForBridge?: Array<{ color: 'B' | 'W'; point: string }>;
+    handicap?: number;
+  },
+): Promise<AIMoveDTO> {
+  const bridge = engine.bridge;
   // [perf-js] Outer envelope — sums GET state + selector + analyze(s) +
   // commit POST. Compare against the Swift [perf] total to isolate the
   // non-engine cost of an AI move.
@@ -386,6 +468,8 @@ async function getAIMoveViaBridge(
     // [perf-js] Measure JS-perceived bridge round-trip. Difference vs the
     // Swift-side [perf] total = pure bridge marshaling cost. Should be <20ms.
     const tAnalyzeStart = performance.now();
+    // The selector answers a failed search with a random legal move; the
+    // failure is noted so the move fails instead (engine.check below).
     const result = await bridge.analyze({
       boardSize: state.board_size,
       // Real komi + japanese rules, matching the backend engine the b28
@@ -403,6 +487,9 @@ async function getAIMoveViaBridge(
       // bridge ALWAYS applies this via kata-set-param (0 when absent) so the
       // long-lived GTP engine never carries a stale value between calls.
       wideRootNoise: opts?.wideRootNoise ?? 0,
+    }).catch((e: unknown) => {
+      engine.fail(e);
+      throw e;
     });
     const analyzeMs = Math.round(performance.now() - tAnalyzeStart);
     console.log(`[perf-js] bridge.analyze visits=${visits} jsRT=${analyzeMs}ms`);
@@ -505,6 +592,7 @@ async function getAIMoveViaBridge(
     human,
   });
   const tAfterSelect = performance.now();
+  engine.check();
 
   // A move from the human path read the position without `analyze`: its
   // root lead and scored candidates feed the score graph instead.
@@ -680,6 +768,19 @@ const FINISH_PASS_THRESHOLD = 0.5;
  * kept filling its own liberties. Switched to japanese + pass-threshold.
  */
 async function finishMoveViaBridge(
+  gameId: string,
+  rawBridge: KataGoBridge,
+  options?: { movesForBridge?: Array<{ color: 'B' | 'W'; point: string }> },
+): Promise<AIMoveDTO> {
+  const engine = guardEngine(rawBridge);
+  try {
+    return await finishStepViaBridge(gameId, engine.bridge, options);
+  } finally {
+    engine.done();
+  }
+}
+
+async function finishStepViaBridge(
   gameId: string,
   bridge: KataGoBridge,
   options?: { movesForBridge?: Array<{ color: 'B' | 'W'; point: string }> },

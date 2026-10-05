@@ -6,6 +6,8 @@ import { AdvancedLessonsMenu } from './AdvancedLessonsMenu';
 import { LessonStepModal } from './LessonStepModal';
 import { ChooseAvatarScreen } from './ChooseAvatarScreen';
 import { ConceptLink } from './ConceptLink';
+import { BotsAwayNote } from './BotsAwayNote';
+import { useCloudBotsOut } from '../store/serverReachStore';
 import { getConcept } from '../learn/concepts';
 import './LearnView.css';
 
@@ -42,6 +44,9 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
   const avatarPicked = useProfileStore((s) => s.avatarPicked);
   const showAdvancedMenu = useLearnStore((s) => s.showAdvancedMenu);
   const activeQuestion = isQuizLesson && lesson.questions ? lesson.questions[quizIndex] : null;
+  // A game lesson's game is against a bot: greyed, with why, while the
+  // online bots can't be reached.
+  const botsOut = useCloudBotsOut();
 
   const handleExit = () => {
     exit();
@@ -138,9 +143,10 @@ export function LearnView({ onExit, onStartGameLesson }: LearnViewProps) {
               </ul>
             </div>
 
-            <button className="learn-game-btn" onClick={handleStartGame}>
+            <button className="learn-game-btn" onClick={handleStartGame} disabled={botsOut}>
               Let's Go!
             </button>
+            {botsOut && <BotsAwayNote />}
           </div>
         </main>
       </div>

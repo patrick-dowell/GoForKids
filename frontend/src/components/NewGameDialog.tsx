@@ -4,6 +4,8 @@ import { useProfileStore } from '../store/profileStore';
 import { renderName } from '../profile/names';
 import { Color } from '../engine/types';
 import { Avatar, BOT_AVATARS } from './Avatar';
+import { BotsAwayNote } from './BotsAwayNote';
+import { cloudBotsOut, useCloudBotsOut } from '../store/serverReachStore';
 
 interface NewGameDialogProps {
   onClose: () => void;
@@ -70,7 +72,11 @@ function getSavedBoardSize(): number {
 }
 
 export function NewGameDialog({ onClose, onOpenProfile }: NewGameDialogProps) {
-  const [gameMode, setGameMode] = useState<GameMode>('ai');
+  // While the online bots can't be reached, the two bot modes are greyed
+  // and the dialog opens on Local (a friend on this device).
+  const botsOut = useCloudBotsOut();
+  const [gameMode, setGameMode] = useState<GameMode>(() => (cloudBotsOut() ? 'local' : 'ai'));
+  const botModeOut = botsOut && gameMode !== 'local';
   const [playerColor, setPlayerColor] = useState<Color>(Color.Black);
   const [targetRank, setTargetRank] = useState('30k');
   const [handicap, setHandicap] = useState(0);
@@ -104,6 +110,7 @@ export function NewGameDialog({ onClose, onOpenProfile }: NewGameDialogProps) {
   const botInfo = BOT_AVATARS[gameMode === 'botvsbot' ? whiteRank : targetRank] || BOT_AVATARS['15k'];
 
   const handleStart = () => {
+    if (botModeOut) return;
     localStorage.setItem('goforkids_board_size', String(boardSize));
     newGame({
       playerColor,
@@ -132,12 +139,14 @@ export function NewGameDialog({ onClose, onOpenProfile }: NewGameDialogProps) {
             <button
               className={`mode-btn ${gameMode === 'ai' ? 'selected' : ''}`}
               onClick={() => setGameMode('ai')}
+              disabled={botsOut}
             >
               Play vs AI
             </button>
             <button
               className={`mode-btn ${gameMode === 'botvsbot' ? 'selected' : ''}`}
               onClick={() => setGameMode('botvsbot')}
+              disabled={botsOut}
             >
               Bot vs Bot
             </button>
@@ -149,6 +158,7 @@ export function NewGameDialog({ onClose, onOpenProfile }: NewGameDialogProps) {
             </button>
           </div>
         </div>
+        {botsOut && <BotsAwayNote className="new-game-bots-away" />}
 
         {/* Board size */}
         <div className="dialog-field">
@@ -275,7 +285,7 @@ export function NewGameDialog({ onClose, onOpenProfile }: NewGameDialogProps) {
 
         <div className="dialog-actions">
           <button onClick={onClose} className="btn btn-secondary">Cancel</button>
-          <button onClick={handleStart} className="btn btn-primary">
+          <button onClick={handleStart} className="btn btn-primary" disabled={botModeOut}>
             {gameMode === 'botvsbot' ? 'Watch Game' : 'Start Game'}
           </button>
         </div>
