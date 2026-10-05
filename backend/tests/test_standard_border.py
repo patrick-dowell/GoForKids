@@ -48,24 +48,33 @@ class Analysis:
 
 class Engine:
     """The path's own search answers `candidates`; the border check's
-    ownership read (include_ownership) answers `ownership`."""
+    ownership read (include_ownership) answers `ownership`; a scoring query
+    (Black to move after White's move or pass) answers a Black-perspective
+    lead from `leads` by that move, else `default_lead`."""
 
-    def __init__(self, candidates, ownership=None, fail=False):
+    def __init__(self, candidates, ownership=None, fail=False, leads=None, default_lead=-26.0):
         self.candidates = candidates
         self.ownership = ownership
         self.fail = fail
+        self.leads = leads or {}
+        self.default_lead = default_lead
         self.calls = []
 
-    async def analyze(self, *args, **kwargs):
-        self.calls.append(kwargs)
+    async def analyze(self, board_2d, player, **kwargs):
+        self.calls.append(dict(kwargs, player=player))
         if kwargs.get("include_ownership"):
             if self.fail:
                 raise RuntimeError("engine down")
             return Analysis(ownership=self.ownership)
+        if player == "B":
+            return Analysis(score_lead=self.leads.get(kwargs["moves"][-1][1], self.default_lead))
         return Analysis(list(self.candidates))
 
     def reads(self):
         return [c for c in self.calls if c.get("include_ownership")]
+
+    def scored(self):
+        return [c["moves"][-1][1] for c in self.calls if c["player"] == "B"]
 
 
 def _own12():
@@ -96,11 +105,14 @@ async def test_top_move_pass_becomes_the_border_move(monkeypatch):
 async def test_the_read_is_one_1_visit_query_at_the_games_komi(monkeypatch):
     engine = Engine(TOP_PASS, _own12())
     await _select(monkeypatch, engine, komi=0.5)
-    assert len(engine.calls) == 2 and len(engine.reads()) == 1
+    assert len(engine.reads()) == 1
     read = engine.reads()[0]
     assert read["max_visits"] == 1 and read["komi"] == 0.5
     assert read["moves"][-1] == ["B", "D8"] and read["initial_stones"] == []
-    assert [c.get("komi") for c in engine.calls] == [0.5, 0.5]
+    # then the qualifying moves and the pass, scored once each at 4 visits
+    assert sorted(engine.scored()) == ["A6", "A7", "A8", "pass"]
+    assert {c["max_visits"] for c in engine.calls if c["player"] == "B"} == {ms.BORDER_SCORE_VISITS} == {4}
+    assert [c.get("komi") for c in engine.calls] == [0.5] * 6
 
 
 async def test_a_move_that_does_not_pass_makes_no_read(monkeypatch):
@@ -198,7 +210,7 @@ async def test_select_ai_move_hands_the_komi_to_the_read(monkeypatch):
     board, moves = _replay(GAME_12K)
     move = await ms.select_ai_move(board, Color.WHITE, "9k", engine_moves=moves, engine_setup=[], komi=6.5)
     assert move == _pt("A8")
-    assert [c.get("komi") for c in engine.calls] == [6.5, 6.5]
+    assert [c.get("komi") for c in engine.calls] == [6.5] * 6
 
 
 @pytest.mark.parametrize("rung", ["9k", "6k"])

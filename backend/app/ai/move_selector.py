@@ -82,7 +82,7 @@ def _is_eye_fill(board: Board, color: Color, point: Point) -> bool:
     return friendly_diags >= required
 
 
-from app.katago.engine import get_engine, MoveCandidate, PositionAnalysis, point_to_gtp
+from app.katago.engine import get_engine, MoveCandidate, PositionAnalysis, gtp_to_point, point_to_gtp
 from app.ai.profile_loader import get_profile
 from app.game.scoring import dead_stones_from_ownership, remove_dead_and_count
 
@@ -460,11 +460,22 @@ async def _select_ai_move_inner(
 # of the pass (the largest gain; ties to the human net's probability). It
 # must not be self-atari or an own-eye fill, and with `human_loss_cap` set it
 # must lose no more than the cap against the best move the main net scored
-# (moves not yet scored are scored at `human_score_visits`). The standard
-# path runs the same check (_close_border) before each of its passes.
+# and no more than its own count gain against the pass (moves not yet scored
+# are scored at `human_score_visits`, at most BORDER_MAX_QUERIES of them). The
+# standard path runs the same check (_close_border) before each of its passes.
 HUMAN_TILT_LOSS_CAP = 15.0
 HUMAN_PASS_POLICY = 0.5
 HUMAN_BORDER_GAIN = 1.0
+# At most this many border moves are scored in one decision, the largest
+# count gains first (ties to the likelier move): the pick is the largest gain
+# among those that pass the loss checks, so the moves left out are the ones it
+# would take last. Eight plus the pass is the scoring the human path already
+# does for its candidates (human_cand_max 8), so a pass decision costs at most
+# what a move does; a synthetic 9x9 board reached 69 qualifying moves.
+BORDER_MAX_QUERIES = 8
+# The standard path scores its border moves at the human path's default
+# human_score_visits.
+BORDER_SCORE_VISITS = 4
 # The human path's whole allowance for one move. Past it the move goes to
 # the standard selector, which still has time inside the client's request
 # timeout (each engine query alone may wait KATAGO_QUERY_TIMEOUT).
@@ -525,8 +536,11 @@ async def _close_border(
     """The border check both paths run before a pass: (gain, index) of the move
     to play instead, or None to pass. `prob(index)` breaks ties between equal
     gains. `score(moves)` returns the mover's value after each GTP move (and
-    "pass"), filling `scored`; None plays on the count alone. With `cap` set a
-    move must lose no more than the cap against the best scored move."""
+    "pass"), filling `scored`; None plays on the count alone. When scored, at
+    most BORDER_MAX_QUERIES moves are (the largest gains first), and a move is
+    played only if it loses no more than its own count gain against the pass
+    (the gain is what it is played for), and, with `cap` set, no more than the
+    cap against the best scored move."""
     if not ownership or len(ownership) < board.size * board.size:
         return None
     found = _border_moves(board, color, ownership, min_gain)
@@ -535,15 +549,19 @@ async def _close_border(
     size = board.size
     gtp = lambda i: point_to_gtp(i // size, i % size, size)  # noqa: E731
     if score is not None:
+        found = sorted(found, key=lambda t: (-t[0], -prob(t[1])))[:BORDER_MAX_QUERIES]
         scored = {} if scored is None else scored
         todo = [m for m in [gtp(i) for _, i in found] + ["pass"] if m not in scored]
         for m, v in zip(todo, await score(todo)):
             scored[m] = v
         top = max(scored.values())
-        if cap is not None:
-            found = [(g, i) for g, i in found if top - scored[gtp(i)] <= float(cap)]
+        found = [
+            (g, i) for g, i in found
+            if scored["pass"] - scored[gtp(i)] <= g
+            and (cap is None or top - scored[gtp(i)] <= float(cap))
+        ]
         if not found:
-            logger.info(f"{where} PASS: every border move loses more than {cap}")
+            logger.info(f"{where} PASS: every border move loses more than its gain or the cap ({cap})")
             return None
     return max(found, key=lambda t: (t[0], prob(t[1])))
 
@@ -874,10 +892,34 @@ async def _select_with_katago(
             the human path's border check (_close_border), behind the same
             `human_border_gain` knob (.inf switches it off). The ownership is
             one extra 1-visit read, made only here, so a move that does not
-            pass pays nothing. A failed read or check leaves the pass."""
+            pass pays nothing; when a move qualifies, it and the pass are
+            scored at BORDER_SCORE_VISITS, and with no loss cap on this path
+            the rule is the gain against the pass alone. A failed read or
+            check leaves the pass."""
             min_gain = float(profile.get("human_border_gain", HUMAN_BORDER_GAIN))
             if min_gain == math.inf:
                 return None
+            opp = "W" if player == "B" else "B"
+            sign = 1.0 if color == Color.BLACK else -1.0
+
+            def _after(move: str):
+                if engine_moves is not None:
+                    return engine.analyze(
+                        board_2d, opp, max_visits=BORDER_SCORE_VISITS, size=size,
+                        moves=engine_moves + [[player, move]], initial_stones=engine_setup,
+                        priority=10, **_komi_kw(komi),
+                    )
+                after = board.clone()
+                if move != "pass":
+                    after.try_play(color, Point(*gtp_to_point(move, size)))
+                return engine.analyze(
+                    after.to_2d(), opp, max_visits=BORDER_SCORE_VISITS, size=size,
+                    priority=10, **_komi_kw(komi),
+                )
+
+            async def _score(todo: list[str]) -> list[float]:
+                return [sign * r.score_lead for r in await asyncio.gather(*(_after(m) for m in todo))]
+
             try:
                 read = await engine.analyze(
                     board_2d, player, max_visits=1, size=size,
@@ -892,7 +934,7 @@ async def _select_with_katago(
                 }
                 pick = await _close_border(
                     board, color, getattr(read, "ownership", None), min_gain,
-                    lambda i: priors.get(i, 0.0), where=where,
+                    lambda i: priors.get(i, 0.0), _score, where=where,
                 )
             except Exception as e:
                 logger.warning(f"{where} border check failed ({e!r}), passing")
