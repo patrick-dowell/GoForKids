@@ -108,9 +108,12 @@ async def test_active_play_does_NOT_pass_on_territory_fills(monkeypatch):
         assert move is not None, "bot passed mid-game on a territory-fill candidate"
 
 
+# The bot is White and leads are Black's: White's gain on the pass is
+# pass lead minus move lead.
+
 async def test_settle_passes_under_075_margin(monkeypatch):
     engine = FakeEngine([
-        FakeCand(4, 4, 0.5, 5.4, visits=60),
+        FakeCand(4, 4, 0.5, 4.6, visits=60),  # White gains 0.4
         FakeCand(-1, -1, 0.1, 5.0, visits=30),  # pass candidate
     ])
     board = Board(9)
@@ -120,7 +123,7 @@ async def test_settle_passes_under_075_margin(monkeypatch):
 
 async def test_settle_still_plays_two_point_move(monkeypatch):
     engine = FakeEngine([
-        FakeCand(4, 4, 0.5, 7.0, visits=60),
+        FakeCand(4, 4, 0.5, 3.0, visits=60),  # White gains 2
         FakeCand(-1, -1, 0.1, 5.0, visits=30),
     ])
     board = Board(9)
@@ -130,7 +133,7 @@ async def test_settle_still_plays_two_point_move(monkeypatch):
 
 async def test_settle_passes_on_unplayable_honest_top(monkeypatch):
     engine = FakeEngine([
-        FakeCand(4, 2, 0.7, 9.0, visits=60),  # own-territory fill "beats pass"
+        FakeCand(4, 2, 0.7, 1.0, visits=60),  # own-territory fill "beats pass" by 4
         FakeCand(-1, -1, 0.1, 5.0, visits=30),
     ])
     for _ in range(10):

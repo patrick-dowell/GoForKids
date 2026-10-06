@@ -1,16 +1,60 @@
 import Foundation
 import WebKit
 import UIKit
+import CoreML
+import MachO
 
 final class KataGoBridge: NSObject, WKScriptMessageHandler {
     static let shared = KataGoBridge()
 
+    // MARK: The bot check at cold start
+
+    /// The device plays the on-device bots (`capabilities().localBots`) when
+    /// the probe's search runs at this many network evaluations a second or
+    /// more. PROVISIONAL: set between the two cases on record (an M-series
+    /// iPad at roughly 80 a second, an older iPad at about a minute a move);
+    /// to be set from real devices.
+    static let localBotsMinEvalsPerSecond = 10.0
+    /// The probe's method. A stored reading is trusted only under the same
+    /// version: 1 timed one 16-visit search; 2 takes the median of up to
+    /// three after an untimed warm-up search.
+    static let probeVersion = 2
+    /// The probe: searches of this many visits on an empty 9x9 board (the
+    /// size of the bots' own searches)...
+    static let probeVisits = 16
+    /// ...an untimed warm-up search first (the first search after the start
+    /// pays one-time costs), stopped here at the latest...
+    static let probeWarmUpMaxSeconds = 1.0
+    /// ...then up to this many timed searches; the reading is their median,
+    /// so one search slowed by other work at cold start does not set it...
+    static let probeTimedSearches = 3
+    /// ...inside this many seconds in all, so a slow device is sorted in
+    /// seconds rather than a minute (a search is cut at what is left).
+    static let probeMaxSeconds = 4.0
+    /// UserDefaults keys; each value carries the app version it was measured
+    /// under and is measured again when the version changes.
+    private static let probeDefaultsKey = "GoForKids.engineProbe"
+    private static let humanPackageDefaultsKey = "GoForKids.humanPackageCheck"
+
     private weak var webView: WKWebView?
+    /// Every engine command runs here, one at a time, behind the engine's start.
     private let workQueue = DispatchQueue(label: "com.goforkids.katago.bridge")
+    /// Commands that never touch the engine (ping, log, shareSGF) answer here,
+    /// so they do not wait behind the engine's start.
+    private let miscQueue = DispatchQueue(label: "com.goforkids.katago.bridge.misc")
     private var enginePumpStarted = false
     /// Monotonic counter so [perf] log lines can be cross-referenced with JS
     /// and grepped per-call. Reset on engine restart (not on new game).
     private var analyzeCallCount = 0
+
+    // Engine state. Set on workQueue at start; the stop reason also comes
+    // from the engine thread, hence the lock.
+    private var engineUp = false
+    private var humanModelLoaded = false
+    private var evalsPerSecond = 0.0
+    private let stopLock = NSLock()
+    private var engineGeneration = 0
+    private var stopReason: String? = nil
 
     func attach(to webView: WKWebView) {
         print("[Bridge] attach() called — registering 'katago' handler + starting engine")
@@ -25,11 +69,195 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
             return
         }
         enginePumpStarted = true
-        print("[Bridge] Spawning KataGo GTP thread")
-        Thread {
-            KataGoHelper.runGtp()
-            print("[Bridge] KataGoHelper.runGtp() returned (engine exited)")
+        // The first job on the engine queue: every engine command the page
+        // sends waits behind it.
+        workQueue.async { [weak self] in
+            guard let self else { return }
+            self.bootEngine()
+            self.resolveProbe()
+        }
+    }
+
+    /// Start the engine with the human SL net when it is in the bundle; if
+    /// it does not come up with it, start it without and remember that the
+    /// human net is absent. Either way the standard bots are as before: no
+    /// search evaluates the human net unless humanSLProfile is set, and only
+    /// humanPolicy sets it (and unsets it before it returns).
+    private func bootEngine() {
+        if KataGoHelper.humanModelInBundle() {
+            // The pre-check and the engine's load run inside the crash-loop
+            // guard's window: if the app dies there, a later launch starts
+            // without the human net (HumanLoadGuard).
+            let loadGuard = HumanLoadGuard(url: HumanLoadGuard.defaultURL(), version: Self.appVersion())
+            if !loadGuard.shouldTryHumanNet() {
+                print("[Bridge] A launch stopped while loading the human SL net; starting the engine without it")
+            } else {
+                loadGuard.willLoad()
+                if humanPackageCompiles(), let models = launchEngine(withHumanModel: true) {
+                    loadGuard.didFinishLoad()
+                    engineUp = true
+                    humanModelLoaded = Self.modelsIncludeHumanNet(models)
+                    print("[Bridge] Engine up, human SL net loaded: \(humanModelLoaded)")
+                    return
+                }
+                loadGuard.didFinishLoad()
+                print("[Bridge] Engine did not come up with the human SL net; starting it without")
+                KataGoHelper.discardPendingInput()
+            }
+        } else {
+            print("[Bridge] Human SL net not in the bundle; starting the engine without it")
+        }
+        humanModelLoaded = false
+        engineUp = launchEngine(withHumanModel: false) != nil
+        print("[Bridge] Engine up (no human SL net): \(engineUp)")
+    }
+
+    /// Start the GTP thread and wait for the engine's first reply, which it
+    /// gives only once its nets are loaded. Returns the reply to
+    /// kata-get-models, or nil when the engine stopped instead.
+    private func launchEngine(withHumanModel human: Bool) -> String? {
+        stopLock.lock()
+        engineGeneration += 1
+        let generation = engineGeneration
+        stopReason = nil
+        stopLock.unlock()
+        print("[Bridge] Spawning KataGo GTP thread (human SL net: \(human))")
+        Thread { [weak self] in
+            let reason = KataGoHelper.runGtp(withHumanModel: human)
+            print("[Bridge] KataGo engine stopped: \(reason)")
+            guard let self else { return }
+            self.stopLock.lock()
+            if self.engineGeneration == generation { self.stopReason = reason }
+            self.stopLock.unlock()
         }.start()
+        let reply = gtp("kata-get-models")
+        return reply.hasPrefix("=") ? reply : nil
+    }
+
+    /// kata-get-models answers a JSON list; the human SL net is the entry
+    /// that uses a humanSLProfile.
+    static func modelsIncludeHumanNet(_ reply: String) -> Bool {
+        let json = reply.drop(while: { $0 == "=" || $0 == " " })
+        guard let data = json.data(using: .utf8),
+              let models = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return false
+        }
+        return models.contains { ($0["usesHumanSLProfile"] as? Bool) == true }
+    }
+
+    /// The engine loads a CoreML package that fails to compile without an
+    /// error, and fails only when that net is first evaluated, which would
+    /// take the app down. So the human package is compiled and loaded once
+    /// per app version before the engine is given it (here, with CoreML
+    /// directly: the fork's KataGoSwift module targets iOS 17 and this app
+    /// 16.4). The engine compiles it again into its own cache, so the first
+    /// launch of a version pays the compile twice.
+    private func humanPackageCompiles() -> Bool {
+        let version = Self.appVersion()
+        if let stored = UserDefaults.standard.dictionary(forKey: Self.humanPackageDefaultsKey),
+           stored["appVersion"] as? String == version,
+           let ok = stored["ok"] as? Bool {
+            return ok
+        }
+        var ok = false
+        if let url = Bundle.main.url(forResource: "KataGoModel19x19fp16m1", withExtension: "mlpackage") {
+            do {
+                let tStart = Date()
+                let compiled = try MLModel.compileModel(at: url)
+                defer { try? FileManager.default.removeItem(at: compiled) }
+                let config = MLModelConfiguration()
+                config.computeUnits = .cpuAndNeuralEngine  // coremlDeviceToUse = 100
+                _ = try MLModel(contentsOf: compiled, configuration: config)
+                ok = true
+                print("[Bridge] Human SL package compiled and loaded in \(Int(Date().timeIntervalSince(tStart) * 1000))ms")
+            } catch {
+                print("[Bridge] Human SL package failed to compile or load: \(error)")
+            }
+        }
+        UserDefaults.standard.set(["appVersion": version, "ok": ok], forKey: Self.humanPackageDefaultsKey)
+        return ok
+    }
+
+    /// Read the probe for this app version from UserDefaults, or run it once
+    /// and keep it. A failed probe is not kept, so the next launch tries again.
+    private func resolveProbe() {
+        guard engineUp else { evalsPerSecond = 0; return }
+        let version = Self.appVersion()
+        // A reading stored by another app version or another probe method
+        // (version 1's records have no probeVersion) is measured again.
+        if let stored = UserDefaults.standard.dictionary(forKey: Self.probeDefaultsKey),
+           stored["appVersion"] as? String == version,
+           stored["probeVersion"] as? Int == Self.probeVersion,
+           let eps = stored["evalsPerSecond"] as? Double {
+            evalsPerSecond = eps
+            print("[Bridge] Probe v\(Self.probeVersion) (stored for \(version)): \(eps) evals/s")
+            return
+        }
+        do {
+            let reads = try runProbe()
+            let eps = Self.median(reads)
+            evalsPerSecond = eps
+            UserDefaults.standard.set([
+                "appVersion": version,
+                "probeVersion": Self.probeVersion,
+                "probeVisits": Self.probeVisits,
+                "reads": reads,
+                "evalsPerSecond": eps,
+                "measuredAt": ISO8601DateFormatter().string(from: Date()),
+            ], forKey: Self.probeDefaultsKey)
+            print("[Bridge] Probe v\(Self.probeVersion) (measured for \(version)): \(eps) evals/s, reads \(reads.map { ($0 * 10).rounded() / 10 })")
+        } catch {
+            evalsPerSecond = 0
+            print("[Bridge] Probe failed: \(error)")
+        }
+    }
+
+    /// One untimed evaluation and one untimed warm-up search first (each
+    /// pays one-time costs), then up to `probeTimedSearches` timed searches,
+    /// each from an empty cache, until `probeMaxSeconds` of timed search is
+    /// spent. Returns each search's visits a second; at least one.
+    private func runProbe() throws -> [Double] {
+        try setUpPosition(Position(boardSize: 9, komi: 7, rules: "tromp-taylor", moves: [], color: "B"))
+        try gtpOK("kata-raw-nn 0")
+        try gtpOK("clear_cache")
+        try setSearchParams(visits: Self.probeVisits, maxTime: Self.probeWarmUpMaxSeconds)
+        try gtpOK("kata-search_analyze B rootInfo true")
+        var reads: [Double] = []
+        var spent = 0.0
+        while reads.count < Self.probeTimedSearches && spent < Self.probeMaxSeconds {
+            try gtpOK("clear_cache")
+            try setSearchParams(visits: Self.probeVisits, maxTime: Self.probeMaxSeconds - spent)
+            let t0 = Date()
+            let reply = try gtpOK("kata-search_analyze B rootInfo true")
+            let seconds = max(Date().timeIntervalSince(t0), 0.001)
+            spent += seconds
+            let visits = Self.parseRootInfo(reply)?["visits"] ?? 1
+            reads.append(visits / seconds)
+        }
+        return reads
+    }
+
+    /// The middle value; the mean of the middle two for an even count.
+    static func median(_ values: [Double]) -> Double {
+        let s = values.sorted()
+        guard !s.isEmpty else { return 0 }
+        let mid = s.count / 2
+        return s.count % 2 == 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2
+    }
+
+    private static func appVersion() -> String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let short = (info["CFBundleShortVersionString"] as? String) ?? "?"
+        let build = (info["CFBundleVersion"] as? String) ?? "?"
+        return "\(short) (\(build))"
+    }
+
+    private func requireEngine() throws {
+        stopLock.lock()
+        let reason = stopReason
+        stopLock.unlock()
+        if let reason { throw BridgeError.engineUnavailable(reason) }
+        if !engineUp { throw BridgeError.engineUnavailable("the engine did not start") }
     }
 
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -41,7 +269,8 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
             return
         }
         let params = (body["params"] as? [String: Any]) ?? [:]
-        workQueue.async { [weak self] in
+        let usesEngine = ["analyze", "humanPolicy", "scoreAfter", "capabilities"].contains(cmd)
+        (usesEngine ? workQueue : miscQueue).async { [weak self] in
             guard let self else { return }
             do {
                 let result = try self.handle(cmd: cmd, params: params)
@@ -57,6 +286,19 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
         switch cmd {
         case "analyze":
             return try analyze(params: params)
+        case "humanPolicy":
+            return try humanPolicy(params: params)
+        case "scoreAfter":
+            return try scoreAfter(params: params)
+        case "capabilities":
+            // Resolved once at cold start (bootEngine, resolveProbe), which
+            // this queue runs before any command from the page.
+            return [
+                "localBots": engineUp && evalsPerSecond >= Self.localBotsMinEvalsPerSecond,
+                "evalsPerSecond": (evalsPerSecond * 10).rounded() / 10,
+                "probeVersion": Self.probeVersion,
+                "humanModel": engineUp && humanModelLoaded,
+            ]
         case "ping":
             return ["pong": true]
         case "shareSGF":
@@ -84,6 +326,7 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
               let maxVisits = params["maxVisits"] as? Int else {
             throw BridgeError.invalidParams
         }
+        try requireEngine()
         let rules = (params["rules"] as? String) ?? "tromp-taylor"
         // Phase D commit 2: optional ownership mode for end-of-game scoring.
         // When true, append `ownership true` to kata-genmove_analyze and
@@ -172,6 +415,10 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
                 if includeOwnership, let extracted = parseOwnership(line, expectedCount: boardSize * boardSize) {
                     ownershipFlat = extracted
                 }
+            } else if line.hasPrefix("?") {
+                // An error reply (or the engine stopped): without this the
+                // loop would wait forever for a `play` line.
+                throw BridgeError.engine("\(analyzeCmd): \(line)")
             } else if playedMove != nil && line.isEmpty {
                 break
             } else if rawLines > 50000 {
@@ -286,28 +533,285 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
         return out
     }
 
+    // MARK: The human SL path (frontend/src/ai/humanNetSelector.ts)
+
+    /// The position every engine command starts from: the keys `analyze`
+    /// takes.
+    struct Position {
+        let boardSize: Int
+        let komi: Double
+        let rules: String
+        let moves: [(color: String, point: String)]
+        /// The side to move: "B" or "W".
+        let color: String
+
+        init(boardSize: Int, komi: Double, rules: String, moves: [(color: String, point: String)], color: String) {
+            self.boardSize = boardSize
+            self.komi = komi
+            self.rules = rules
+            self.moves = moves
+            self.color = color
+        }
+
+        init(params: [String: Any]) throws {
+            guard let boardSize = KataGoBridge.intParam(params["boardSize"]),
+                  (2...19).contains(boardSize),  // COMPILE_MAX_BOARD_LEN
+                  let komi = (params["komi"] as? NSNumber)?.doubleValue,
+                  let rawMoves = params["moves"] as? [[String: Any]],
+                  let color = (params["color"] as? String)?.uppercased(),
+                  color == "B" || color == "W" else {
+                throw BridgeError.invalidParams
+            }
+            var moves: [(color: String, point: String)] = []
+            for move in rawMoves {
+                guard let mc = (move["color"] as? String)?.uppercased(), mc == "B" || mc == "W",
+                      let mp = move["point"] as? String, !mp.contains(" ") else {
+                    throw BridgeError.invalidParams
+                }
+                moves.append((mc, mp))
+            }
+            let rules = (params["rules"] as? String) ?? "tromp-taylor"
+            guard !rules.isEmpty, !rules.contains(" ") else { throw BridgeError.invalidParams }
+            self.init(boardSize: boardSize, komi: komi, rules: rules, moves: moves, color: color)
+        }
+    }
+
+    /// `humanPolicy(params)` → HumanPolicyAnswer: the human net's policy under
+    /// the profile and the main net's raw policy, each size² + 1 values
+    /// row-major from the top-left, pass last, illegal points negative; and
+    /// the root lead from Black's side. `humanPolicy` is null when the engine
+    /// runs without the human net.
+    ///
+    /// Params: the position (as `analyze`), the profile (`profile` or
+    /// `profileName`, e.g. "rank_20k") and the visits (`visits` or `maxVisits`)
+    /// of the search that reads the root lead.
+    private func humanPolicy(params: [String: Any]) throws -> [String: Any] {
+        let pos = try Position(params: params)
+        guard let profile = (params["profile"] as? String) ?? (params["profileName"] as? String),
+              !profile.isEmpty, !profile.contains(" "),
+              let visits = Self.intParam(params["visits"] ?? params["maxVisits"]), visits >= 1 else {
+            throw BridgeError.invalidParams
+        }
+        try requireEngine()
+        let tStart = Date()
+        try setUpPosition(pos)
+        // The search comes first: like analyze's genmove it makes `color` the
+        // side to move (KataGo clears the history if that differs from the
+        // move list), so the raw evaluations below see the same root. It runs
+        // with no human profile set, and reads the root lead.
+        try setSearchParams(visits: visits, maxTime: 60)
+        let search = try gtpOK("kata-search_analyze \(pos.color) rootInfo true")
+        var human: Any = NSNull()
+        if humanModelLoaded {
+            try gtpOK("kata-set-param humanSLProfile \(profile)")
+            let humanReply = Result { try gtpOK("kata-raw-human-nn 0") }
+            // Unset at once: with a profile set, every search would also
+            // evaluate the human net at its root.
+            try gtpOK("kata-set-param humanSLProfile")
+            human = try Self.parseRawPolicy(humanReply.get(), boardSize: pos.boardSize)
+        }
+        let mainReply = try gtpOK("kata-raw-nn 0")
+        let policy = try Self.parseRawPolicy(mainReply, boardSize: pos.boardSize)
+        let lead: Double
+        if let root = Self.parseRootInfo(search), let sideLead = root["scoreLead"] {
+            lead = pos.color == "B" ? sideLead : -sideLead
+        } else if let whiteLead = Self.parseRawValues(mainReply)["whiteLead"] {
+            // A one-visit search prints no analysis line; its root is the
+            // raw net's evaluation.
+            lead = -whiteLead
+        } else {
+            throw BridgeError.engine("humanPolicy: no root lead in the engine's replies")
+        }
+        print("[Bridge] humanPolicy \(profile) board=\(pos.boardSize) moves=\(pos.moves.count) visits=\(visits) lead=\(String(format: "%.2f", lead)) human=\(humanModelLoaded) in \(Int(Date().timeIntervalSince(tStart) * 1000))ms")
+        return ["humanPolicy": human, "policy": policy, "scoreLead": lead]
+    }
+
+    /// `scoreAfter(params)` → ScoreAfterAnswer `{ scoreLead, winrate }`: the
+    /// main net's read, at the given visits, of the position after the side
+    /// to move plays the candidate, with no human profile and no root noise
+    /// shaping the search. Both from Black's side.
+    ///
+    /// Params: the position (as `analyze`), the candidate `move` (a GTP
+    /// coordinate such as "E5" or "pass", or `{row, col}` with row 0 at the
+    /// top) and the visits (`visits` or `maxVisits`).
+    private func scoreAfter(params: [String: Any]) throws -> [String: Any] {
+        let pos = try Position(params: params)
+        guard let move = Self.moveParam(params["move"], boardSize: pos.boardSize),
+              let visits = Self.intParam(params["visits"] ?? params["maxVisits"]), visits >= 1 else {
+            throw BridgeError.invalidParams
+        }
+        try requireEngine()
+        let tStart = Date()
+        try setUpPosition(pos)
+        try gtpOK("play \(pos.color) \(move)")
+        let next = pos.color == "B" ? "W" : "B"
+        try setSearchParams(visits: visits, maxTime: 60)
+        let search = try gtpOK("kata-search_analyze \(next) rootInfo true")
+        let lead: Double
+        let winrate: Double
+        if let root = Self.parseRootInfo(search), let sideLead = root["scoreLead"], let sideWinrate = root["winrate"] {
+            // rootInfo is from the side to move (reportAnalysisWinratesAs is
+            // left at SIDETOMOVE in default_gtp.cfg).
+            lead = next == "B" ? sideLead : -sideLead
+            winrate = next == "B" ? sideWinrate : 1 - sideWinrate
+        } else {
+            // A one-visit search prints no analysis line; read the root from
+            // the raw net (White's side).
+            let raw = Self.parseRawValues(try gtpOK("kata-raw-nn 0"))
+            guard let whiteLead = raw["whiteLead"], let whiteWin = raw["whiteWin"], let whiteLoss = raw["whiteLoss"] else {
+                throw BridgeError.engine("scoreAfter: no root values in the engine's replies")
+            }
+            lead = -whiteLead
+            winrate = 1 - 0.5 * (1 + whiteWin - whiteLoss)
+        }
+        print("[Bridge] scoreAfter \(pos.color) \(move) board=\(pos.boardSize) moves=\(pos.moves.count) visits=\(visits) lead=\(String(format: "%.2f", lead)) in \(Int(Date().timeIntervalSince(tStart) * 1000))ms")
+        return ["scoreLead": lead, "winrate": winrate]
+    }
+
+    private func setUpPosition(_ pos: Position) throws {
+        try gtpOK("clear_board")
+        try gtpOK("boardsize \(pos.boardSize)")
+        try gtpOK("komi \(pos.komi)")
+        try gtpOK("kata-set-rules \(pos.rules)")
+        for move in pos.moves {
+            try gtpOK("play \(move.color) \(move.point)")
+        }
+    }
+
+    /// Set on every search: the engine is long-lived and keeps what the last
+    /// command set (analyze sets a profile's wideRootNoise).
+    private func setSearchParams(visits: Int, maxTime: Double) throws {
+        try gtpOK("kata-set-param maxVisits \(visits)")
+        try gtpOK("kata-set-param maxTime \(maxTime)")
+        try gtpOK("kata-set-param wideRootNoise 0.0")
+    }
+
+    /// A whole number from JS (which sends every number as a double).
+    static func intParam(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber else { return nil }
+        let d = number.doubleValue
+        guard d.isFinite, d == d.rounded(), abs(d) < 1e9 else { return nil }
+        return Int(d)
+    }
+
+    /// The candidate as a GTP coordinate: "E5" / "pass" as given, or
+    /// `{row, col}` with row 0 at the top (frontend toGtp's convention).
+    static func moveParam(_ value: Any?, boardSize: Int) -> String? {
+        let letters = Array("ABCDEFGHJKLMNOPQRST")  // GTP skips I
+        if let text = value as? String {
+            let t = text.trimmingCharacters(in: .whitespaces).uppercased()
+            if t == "PASS" { return "pass" }
+            guard let letter = t.first, let col = letters.firstIndex(of: letter), col < boardSize,
+                  let number = Int(t.dropFirst()), (1...boardSize).contains(number) else {
+                return nil
+            }
+            return t
+        }
+        if let point = value as? [String: Any],
+           let row = intParam(point["row"]), let col = intParam(point["col"]),
+           (0..<boardSize).contains(row), (0..<boardSize).contains(col) {
+            return "\(letters[col])\(boardSize - row)"
+        }
+        return nil
+    }
+
+    /// The `policy` grid and `policyPass` of a kata-raw-nn / kata-raw-human-nn
+    /// reply: rows from the top, pass last; NAN (illegal) becomes -1.
+    static func parseRawPolicy(_ reply: String, boardSize: Int) throws -> [Double] {
+        var values: [Double] = []
+        var inGrid = false
+        for rawLine in reply.split(separator: "\n", omittingEmptySubsequences: false) {
+            var line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("=") { line = String(line.dropFirst()).trimmingCharacters(in: .whitespaces) }
+            if line == "policy" { inGrid = true; continue }
+            if line.hasPrefix("policyPass") {
+                let tokens = line.split(separator: " ")
+                guard tokens.count >= 2 else { break }
+                values.append(Self.policyValue(tokens[1]))
+                inGrid = false
+                break
+            }
+            if inGrid {
+                for token in line.split(separator: " ") { values.append(Self.policyValue(token)) }
+            }
+        }
+        guard values.count == boardSize * boardSize + 1, !values.contains(where: { $0.isNaN }) else {
+            throw BridgeError.engine("policy has \(values.count) values, expected \(boardSize * boardSize + 1)")
+        }
+        return values
+    }
+
+    private static func policyValue(_ token: Substring) -> Double {
+        if token.uppercased().hasPrefix("NAN") { return -1 }
+        return Double(token) ?? .nan
+    }
+
+    /// The scalar lines of a kata-raw-nn reply (whiteWin, whiteLoss,
+    /// whiteLead, ...): White's side.
+    static func parseRawValues(_ reply: String) -> [String: Double] {
+        var out: [String: Double] = [:]
+        for rawLine in reply.split(separator: "\n") {
+            var line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("=") { line = String(line.dropFirst()).trimmingCharacters(in: .whitespaces) }
+            let tokens = line.split(separator: " ")
+            if tokens.count == 2, let v = Double(tokens[1]) { out[String(tokens[0])] = v }
+        }
+        return out
+    }
+
+    /// The key/value pairs after ` rootInfo ` on a kata-search_analyze info
+    /// line (visits, winrate, scoreLead, ...: the side to move's view). Nil
+    /// when the reply has no analysis line (a one-visit search).
+    static func parseRootInfo(_ reply: String) -> [String: Double]? {
+        guard let range = reply.range(of: " rootInfo ") else { return nil }
+        let tokens = reply[range.upperBound...].split(whereSeparator: { $0 == " " || $0 == "\n" })
+        var out: [String: Double] = [:]
+        var i = 0
+        while i + 1 < tokens.count, let v = Double(tokens[i + 1]) {
+            out[String(tokens[i])] = v
+            i += 2
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    // MARK: GTP
+
+    /// Send one command and return its whole reply (every line of it).
     @discardableResult
     private func gtp(_ command: String) -> String {
         KataGoHelper.sendCommand(command)
         let response = readResponse()
-        // Truncate long responses so the log isn't a wall of text
-        let preview = response.count > 80 ? String(response.prefix(80)) + "…" : response
+        // Log the first line only, truncated, so the log isn't a wall of text
+        let first = response.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
+        let lines = response.split(separator: "\n", omittingEmptySubsequences: false).count
+        let preview = (first.count > 80 ? String(first.prefix(80)) + "…" : first) + (lines > 1 ? " (+\(lines - 1) lines)" : "")
         print("[Bridge] GTP > \(command)  <  \(preview)")
         return response
     }
 
+    /// `gtp`, throwing on an error reply (`? ...`).
+    @discardableResult
+    private func gtpOK(_ command: String) throws -> String {
+        let response = gtp(command)
+        if response.hasPrefix("?") { throw BridgeError.engine("\(command): \(response)") }
+        return response
+    }
+
+    /// A GTP reply runs from its first non-empty line to the next empty one.
     private func readResponse() -> String {
-        var firstNonEmpty = ""
+        var lines: [String] = []
         while true {
             let line = KataGoHelper.getMessageLine()
-            if firstNonEmpty.isEmpty {
+            if lines.isEmpty {
                 if line.isEmpty { continue }
-                firstNonEmpty = line
+                lines.append(line)
             } else if line.isEmpty {
                 break
+            } else {
+                lines.append(line)
             }
         }
-        return firstNonEmpty
+        return lines.joined(separator: "\n")
     }
 
     private func respond(id: Int, result: [String: Any]?, error: String?) {
@@ -324,10 +828,14 @@ final class KataGoBridge: NSObject, WKScriptMessageHandler {
     enum BridgeError: Error, CustomStringConvertible {
         case unknownCommand(String)
         case invalidParams
+        case engine(String)
+        case engineUnavailable(String)
         var description: String {
             switch self {
             case .unknownCommand(let c): return "Unknown bridge command: \(c)"
             case .invalidParams: return "Invalid bridge params"
+            case .engine(let m): return "Engine error: \(m)"
+            case .engineUnavailable(let m): return "Engine unavailable: \(m)"
             }
         }
     }
@@ -377,6 +885,134 @@ extension KataGoBridge {
     }
 }
 
+// MARK: HumanLoadGuard (Foundation and MachO only; the macOS test harness compiles this block as it stands)
+
+/// The crash-loop guard for the human SL net. The pre-check compiles the
+/// package with CoreML, but the engine's own load can still take the app
+/// down (a crash, or the system ending an app that needs too much memory),
+/// and every later launch would try again. So a record is written before
+/// the load and closed after it: a launch that finds it still open knows
+/// the last one died loading, starts without the human net (the bridge then
+/// answers `humanModel: false`) and counts it. The launch after that tries
+/// again: a second load in a row that never finished leaves the human net
+/// off for this build. A load that finishes, with the net or without it,
+/// clears the count.
+///
+/// The record belongs to one build, not one version: the app's version
+/// string stays the same from one Xcode build to the next, and a kill while
+/// loading (Xcode's stop, a force-quit, the system ending the app) looks the
+/// same as a crash. Every new build starts with a clean count; two such
+/// kills in a row on one unchanged build do leave the net off until a new
+/// build is installed (any code or frontend change), the app is deleted, or
+/// the version changes. A file, written whole, so the record is on disk
+/// before the load starts.
+struct HumanLoadGuard {
+    static let maxCrashes = 2
+
+    struct Record: Codable, Equatable {
+        var appVersion: String
+        var build: String
+        var loading: Bool
+        var crashes: Int
+    }
+
+    let url: URL
+    let version: String
+    let build: String
+
+    init(url: URL, version: String, build: String = HumanLoadGuard.currentBuild()) {
+        self.url = url
+        self.version = version
+        self.build = build
+    }
+
+    static func defaultURL() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("GoForKids", isDirectory: true)
+            .appendingPathComponent("human-net-load.json")
+    }
+
+    /// What tells one build installed from the next: the UUID the linker
+    /// gave the binary this code is in (under Xcode's debug dylib, that
+    /// dylib), which changes when the code changes, and the modification
+    /// date of the bundled web app's index.html, which the frontend phase
+    /// rewrites on every build (a frontend-only build does not relink).
+    /// Both are fixed for the life of one install.
+    static func currentBuild() -> String {
+        let uuid = imageUUID(#dsohandle) ?? "?"
+        var web = "-"
+        if let index = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "web"),
+           let date = (try? FileManager.default.attributesOfItem(atPath: index.path))?[.modificationDate] as? Date {
+            web = String(date.timeIntervalSince1970)
+        }
+        return "\(uuid) \(web)"
+    }
+
+    /// The LC_UUID of the Mach-O image whose header is at `header`.
+    static func imageUUID(_ header: UnsafeRawPointer) -> String? {
+        let mh = header.load(as: mach_header_64.self)
+        guard mh.magic == MH_MAGIC_64 else { return nil }
+        var command = header + MemoryLayout<mach_header_64>.size
+        for _ in 0..<mh.ncmds {
+            let lc = command.load(as: load_command.self)
+            if lc.cmd == UInt32(LC_UUID) {
+                return UUID(uuid: command.load(as: uuid_command.self).uuid).uuidString
+            }
+            command += Int(lc.cmdsize)
+        }
+        return nil
+    }
+
+    /// This build's record; one from another build or version counts as none.
+    func read() -> Record? {
+        guard let data = try? Data(contentsOf: url),
+              let record = try? JSONDecoder().decode(Record.self, from: data),
+              record.appVersion == version, record.build == build else { return nil }
+        return record
+    }
+
+    private func write(_ record: Record) {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(record) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    private func fresh() -> Record {
+        Record(appVersion: version, build: build, loading: false, crashes: 0)
+    }
+
+    /// At launch, before any load: whether to give the engine the human net.
+    func shouldTryHumanNet() -> Bool {
+        guard var record = read() else { return true }
+        if record.loading {
+            // The last launch died between willLoad and didFinishLoad.
+            record.loading = false
+            record.crashes += 1
+            write(record)
+            return false
+        }
+        return record.crashes < Self.maxCrashes
+    }
+
+    /// Just before the pre-check and the engine's load.
+    func willLoad() {
+        var record = read() ?? fresh()
+        record.loading = true
+        write(record)
+    }
+
+    /// After the load returned, with the net or without it (the pre-check
+    /// said no, or the engine stopped): not a crash, so the count clears.
+    func didFinishLoad() {
+        write(fresh())
+    }
+}
+
+// MARK: HumanLoadGuard end
+
 enum KataGoJSShim {
     static let source: String = """
     (function() {
@@ -400,6 +1036,9 @@ enum KataGoJSShim {
       window.kataGo = {
         ping: () => call('ping', {}),
         analyze: (params) => call('analyze', params),
+        humanPolicy: (params) => call('humanPolicy', params),
+        scoreAfter: (params) => call('scoreAfter', params),
+        capabilities: () => call('capabilities', {}),
         shareSGF: (params) => call('shareSGF', params)
       };
 
