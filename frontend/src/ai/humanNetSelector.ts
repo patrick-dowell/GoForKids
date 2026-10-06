@@ -158,7 +158,7 @@ export interface HumanNetOptions {
 
 const HUMAN_TILT_LOSS_CAP = 15.0;
 const HUMAN_PASS_POLICY = 0.5;
-const HUMAN_BORDER_GAIN = 1.0;
+export const HUMAN_BORDER_GAIN = 1.0;
 /** At most this many border moves are scored in one pass decision, the
  *  largest count gains first (ties to the likelier move): the Python's
  *  BORDER_MAX_QUERIES. Eight plus the pass is what a move's candidates cost
