@@ -10,18 +10,35 @@
  * dead stones, finishMove).
  */
 
-import { boardToMoves, fromGtp, getKataGoBridge, type KataGoBridge } from './nativeKataGo';
+import {
+  boardToMoves,
+  fromGtp,
+  getHumanRung,
+  getKataGoBridge,
+  getNativeBridge,
+  toGtp,
+  type KataGoBridge,
+} from './nativeKataGo';
 import {
   selectAiMove,
   boardFromGrid,
   pickLegalNonEyeMove,
   type AnalyzeOpts,
+  type HumanRoute,
   type PositionAnalysis,
   type MoveCandidate,
 } from '../ai/moveSelector';
+import {
+  movesPlayedExcludingHandicap,
+  selectWithHumanNet,
+  type HumanNetEngine,
+  type HumanNetEval,
+} from '../ai/humanNetSelector';
 import { Color, type Stone, type Point } from '../engine/types';
+import type { Board } from '../engine/Board';
 import { recordSelectorLog } from '../ai/selectorLog';
-import { localGameRouter } from './localGameRouter';
+import { whenBotRoutingKnown } from '../store/capabilitiesStore';
+import { localGameRouter, ownershipViaBridge } from './localGameRouter';
 import type { SavedGame } from '../store/libraryStore';
 import type {
   AIMoveDTO,
@@ -30,7 +47,24 @@ import type {
   PointDTO,
 } from './types';
 
-export const API_BASE = `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'}/api`;
+const SERVER_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+export const API_BASE = `${SERVER_BASE}/api`;
+
+/** Whether the server answers its health route (`GET /health`, outside
+ *  /api) within `timeoutMs`. Never throws, never retries, and stays out of
+ *  `inFlight`: leaving a screen must not turn an answer into "no answer". */
+export async function serverAnswers(timeoutMs: number): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${SERVER_BASE}/health`, { signal: controller.signal, cache: 'no-store' });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** A non-OK HTTP response. Keeps the status and the parsed JSON body so a
  *  caller can act on them (sync reads the 409 body and tells 404 from 429);
@@ -135,12 +169,65 @@ export async function requestWithStatus<T>(
   throw lastError;
 }
 
-/** True when the iPad's native KataGo bridge is injected; we then run game
- *  state on-device. Recomputed on every call (cheap) so a developer can
- *  toggle the bridge without restarting. */
+/** True when the bots play on this device (getKataGoBridge: the bridge is
+ *  injected and neither the device's lock nor the setting sends them online);
+ *  we then run game state on-device. Recomputed on every call (cheap) so a
+ *  developer can toggle the bridge without restarting. */
 function useLocal(): boolean {
   return getKataGoBridge() !== null;
 }
+
+/** A game's own calls go where the game lives, decided when it was created:
+ *  a game started on the device stays there even if the device's late
+ *  capabilities answer, or the setting, sends the next games online. */
+function onDevice(gameId: string): boolean {
+  return getNativeBridge() !== null && localGameRouter.has(gameId);
+}
+
+/** The game with this id lives on the device (see onDevice): its bot, and
+ *  its Finish Game, play there whatever the routing says now. */
+export function gameLivesOnDevice(gameId: string | null): boolean {
+  return gameId !== null && onDevice(gameId);
+}
+
+/** How long one device bot move, or one Finish Game step, may wait on the
+ *  engine before it counts as failed. Generous: an old native build plays
+ *  its own bots at up to about a minute a move. */
+export const DEVICE_MOVE_DEADLINE_MS = 90_000;
+
+/** The bridge for one device move, with a deadline over every engine call.
+ *  A failure is noted when the deadline passes or the move's own search
+ *  fails (`fail`), even where a selector swallows it, and `check` throws it
+ *  before the move commits anything: an engine that hangs or breaks yields
+ *  an error, never a guessed move, and a late answer can no longer commit. */
+function guardEngine(bridge: KataGoBridge) {
+  let failure: unknown = null;
+  let expire: (e: Error) => void = () => {};
+  const expired = new Promise<never>((_, reject) => (expire = reject));
+  const timer = setTimeout(() => {
+    failure = new Error(`the engine did not answer in ${DEVICE_MOVE_DEADLINE_MS}ms`);
+    expire(failure as Error);
+  }, DEVICE_MOVE_DEADLINE_MS);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const race = <F extends (...a: any[]) => Promise<unknown>>(fn: F | undefined): F | undefined =>
+    fn && ((async (...a: Parameters<F>) => Promise.race([fn.apply(bridge, a), expired])) as F);
+  const guarded: KataGoBridge = {
+    ...bridge,
+    analyze: race(bridge.analyze)!,
+    humanPolicy: race(bridge.humanPolicy),
+    scoreAfter: race(bridge.scoreAfter),
+  };
+  return {
+    bridge: guarded,
+    fail: (e: unknown) => void (failure ??= e),
+    check: () => {
+      if (failure) throw failure;
+    },
+    done: () => clearTimeout(timer),
+  };
+}
+
+type GuardedEngine = ReturnType<typeof guardEngine>;
 
 /** Wrap the local-router's `{ error }` discriminated union to match the
  *  HTTP client's "throw on failure" contract. Keeps callers oblivious. */
@@ -162,6 +249,9 @@ localGameRouter.setRenderScorePositionFn((board) =>
 
 export const api = {
   createGame: async (options: CreateGameOptions = {}): Promise<GameStateDTO> => {
+    // Where a game lives decides where its bot plays, so it waits for the
+    // device's capabilities answer at cold start (bounded; see the store).
+    await whenBotRoutingKnown();
     if (useLocal()) return localGameRouter.createGame(options);
     return request<GameStateDTO>('/games', {
       method: 'POST',
@@ -180,18 +270,15 @@ export const api = {
   },
 
   getGame: async (gameId: string): Promise<GameStateDTO> => {
-    if (useLocal()) {
-      const local = localGameRouter.getGame(gameId);
-      if (local) return local;
-      // Not in local storage — game might predate this commit, or was created
-      // on the web and the user is opening it on iPad. Fall back to Render.
-      return request<GameStateDTO>(`/games/${gameId}`);
-    }
+    // Not on the device: a game played online, or one that predates the
+    // local router. Render has it.
+    const local = onDevice(gameId) ? localGameRouter.getGame(gameId) : null;
+    if (local) return local;
     return request<GameStateDTO>(`/games/${gameId}`);
   },
 
   playMove: async (gameId: string, row: number, col: number): Promise<GameStateDTO> => {
-    if (useLocal()) return unwrap(localGameRouter.playMove(gameId, row, col));
+    if (onDevice(gameId)) return unwrap(localGameRouter.playMove(gameId, row, col));
     return request<GameStateDTO>(`/games/${gameId}/move`, {
       method: 'POST',
       body: JSON.stringify({ row, col }),
@@ -199,17 +286,17 @@ export const api = {
   },
 
   pass: async (gameId: string): Promise<GameStateDTO> => {
-    if (useLocal()) return unwrap(await localGameRouter.pass(gameId));
+    if (onDevice(gameId)) return unwrap(await localGameRouter.pass(gameId));
     return request<GameStateDTO>(`/games/${gameId}/pass`, { method: 'POST' });
   },
 
   resign: async (gameId: string): Promise<GameStateDTO> => {
-    if (useLocal()) return unwrap(localGameRouter.resign(gameId));
+    if (onDevice(gameId)) return unwrap(localGameRouter.resign(gameId));
     return request<GameStateDTO>(`/games/${gameId}/resign`, { method: 'POST' });
   },
 
   undo: async (gameId: string): Promise<GameStateDTO> => {
-    if (useLocal()) return unwrap(localGameRouter.undo(gameId));
+    if (onDevice(gameId)) return unwrap(localGameRouter.undo(gameId));
     return request<GameStateDTO>(`/games/${gameId}/undo`, { method: 'POST' });
   },
 
@@ -224,9 +311,14 @@ export const api = {
        *  then can't see the ko ban and suggests illegal recaptures. See
        *  buildBridgeMovesFromGame in gameStore for the canonical builder. */
       movesForBridge?: Array<{ color: 'B' | 'W'; point: string }>;
+      /** How many handicap stones head movesForBridge (as Black moves), so
+       *  the human path counts moves played as the server does. Stones
+       *  placed, not the handicap number: a handicap of 1 places none. */
+      handicap?: number;
     },
   ): Promise<AIMoveDTO> => {
-    const bridge = getKataGoBridge();
+    await whenBotRoutingKnown();
+    const bridge = onDevice(gameId) ? getNativeBridge() : null;
     if (bridge) return getAIMoveViaBridge(gameId, bridge, targetRank ?? '15k', options);
     // Web path: backend /ai-move doesn't know about neverPass yet — that
     // would need a body. Tutorial games typically run on iPad anyway; if
@@ -253,7 +345,8 @@ export const api = {
     gameId: string,
     options?: { movesForBridge?: Array<{ color: 'B' | 'W'; point: string }> },
   ): Promise<AIMoveDTO> => {
-    const bridge = getKataGoBridge();
+    await whenBotRoutingKnown();
+    const bridge = onDevice(gameId) ? getNativeBridge() : null;
     if (bridge) return finishMoveViaBridge(gameId, bridge, options);
     return request<AIMoveDTO>(`/games/${gameId}/finish-move`, { method: 'POST' });
   },
@@ -312,8 +405,28 @@ async function getAIMoveViaBridge(
   options?: {
     neverPass?: boolean;
     movesForBridge?: Array<{ color: 'B' | 'W'; point: string }>;
+    handicap?: number;
   },
 ): Promise<AIMoveDTO> {
+  const engine = guardEngine(bridge);
+  try {
+    return await moveViaBridge(gameId, engine, targetRank, options);
+  } finally {
+    engine.done();
+  }
+}
+
+async function moveViaBridge(
+  gameId: string,
+  engine: GuardedEngine,
+  targetRank: string,
+  options?: {
+    neverPass?: boolean;
+    movesForBridge?: Array<{ color: 'B' | 'W'; point: string }>;
+    handicap?: number;
+  },
+): Promise<AIMoveDTO> {
+  const bridge = engine.bridge;
   // [perf-js] Outer envelope — sums GET state + selector + analyze(s) +
   // commit POST. Compare against the Swift [perf] total to isolate the
   // non-engine cost of an AI move.
@@ -354,6 +467,8 @@ async function getAIMoveViaBridge(
     // [perf-js] Measure JS-perceived bridge round-trip. Difference vs the
     // Swift-side [perf] total = pure bridge marshaling cost. Should be <20ms.
     const tAnalyzeStart = performance.now();
+    // The selector answers a failed search with a random legal move; the
+    // failure is noted so the move fails instead (engine.check below).
     const result = await bridge.analyze({
       boardSize: state.board_size,
       // Real komi + japanese rules, matching the backend engine the b28
@@ -371,6 +486,9 @@ async function getAIMoveViaBridge(
       // bridge ALWAYS applies this via kata-set-param (0 when absent) so the
       // long-lived GTP engine never carries a stale value between calls.
       wideRootNoise: opts?.wideRootNoise ?? 0,
+    }).catch((e: unknown) => {
+      engine.fail(e);
+      throw e;
     });
     const analyzeMs = Math.round(performance.now() - tAnalyzeStart);
     console.log(`[perf-js] bridge.analyze visits=${visits} jsRT=${analyzeMs}ms`);
@@ -432,12 +550,53 @@ async function getAIMoveViaBridge(
   // stone. Routes the selector through its "settle cleanly" path.
   const opponentPassed = state.last_move == null && moves.length >= state.board_size;
 
+  // Human-style bots: the human-set rung for this rank, when the setting and
+  // the device allow it (getHumanRung). Like the server, a game sent without
+  // its move history stays with the standard selector; so does a lesson
+  // game's never-pass move, since the human path may pass.
+  const humanRung =
+    options?.movesForBridge && !options.neverPass
+      ? getHumanRung(targetRank, state.board_size)
+      : undefined;
+  const humanEval: HumanNetEval = { scoreLeadBefore: null, candidates: null };
+  let human: HumanRoute | undefined;
+  if (humanRung) {
+    const engine = humanNetEngine(
+      bridge,
+      {
+        boardSize: state.board_size,
+        komi: state.komi,
+        rules: 'japanese',
+        moves,
+        color: colorChar,
+      },
+      board,
+    );
+    const movesPlayed = movesPlayedExcludingHandicap(moves, options?.handicap ?? 0);
+    human = {
+      select: () =>
+        selectWithHumanNet(engine, board, color, humanRung, movesPlayed, {
+          opponentPassed,
+          evalOut: humanEval,
+          log: logHuman,
+        }),
+      log: logHuman,
+    };
+  }
+
   const tBeforeSelect = performance.now();
   const chosen = await selectAiMove(board, color, targetRank, lastOpponentMove, analyze, {
     neverPass: options?.neverPass,
     opponentPassed,
+    human,
   });
   const tAfterSelect = performance.now();
+  engine.check();
+
+  // A move from the human path read the position without `analyze`: its
+  // root lead and scored candidates feed the score graph instead.
+  if (cachedScoreLead === null) cachedScoreLead = humanEval.scoreLeadBefore;
+  if (lastCandidates === null && humanEval.candidates?.length) lastCandidates = humanEval.candidates;
 
   if (chosen === null) {
     // Selector returned pass.
@@ -520,6 +679,54 @@ async function getAIMoveViaBridge(
   };
 }
 
+/** The human path's diagnostics: the console and the game's selector log. */
+function logHuman(line: string): void {
+  const tagged = `[human] ${line}`;
+  console.log(tagged);
+  recordSelectorLog(tagged);
+}
+
+/** The human path's engine calls (humanNetSelector.ts HumanNetEngine) over
+ *  the bridge, bound to one position. Points go over as GTP; nothing else is
+ *  reshaped. A native build without humanPolicy or scoreAfter throws, and
+ *  the selector hands the move to the standard path. The ownership read,
+ *  asked only when the path is about to pass, is the one the device's
+ *  scorer makes of `board` (localGameRouter ownershipViaBridge: one analyze
+ *  at its visits); if it fails the path passes as before. */
+function humanNetEngine(
+  bridge: KataGoBridge,
+  position: {
+    boardSize: number;
+    komi: number;
+    rules: string;
+    moves: Array<{ color: 'B' | 'W'; point: string }>;
+    color: 'B' | 'W';
+  },
+  board: Board,
+): HumanNetEngine {
+  return {
+    humanPolicy: async (profile, visits) => {
+      if (!bridge.humanPolicy) throw new Error('this native build has no humanPolicy');
+      return bridge.humanPolicy({ ...position, profile, maxVisits: visits });
+    },
+    scoreAfter: async (move, visits) => {
+      if (!bridge.scoreAfter) throw new Error('this native build has no scoreAfter');
+      return bridge.scoreAfter({
+        ...position,
+        move: move === 'pass' ? 'pass' : toGtp(move, position.boardSize),
+        maxVisits: visits,
+      });
+    },
+    ownership: () =>
+      ownershipViaBridge(
+        bridge,
+        board,
+        position.komi,
+        position.color === 'B' ? Color.Black : Color.White,
+      ),
+  };
+}
+
 /** Finish Game pass threshold. If KataGo's pass candidate has a scoreLead
  *  within this many points of the best move (from the player-to-move's
  *  perspective), we pass instead of playing — the game is settled enough
@@ -560,6 +767,19 @@ const FINISH_PASS_THRESHOLD = 0.5;
  * kept filling its own liberties. Switched to japanese + pass-threshold.
  */
 async function finishMoveViaBridge(
+  gameId: string,
+  rawBridge: KataGoBridge,
+  options?: { movesForBridge?: Array<{ color: 'B' | 'W'; point: string }> },
+): Promise<AIMoveDTO> {
+  const engine = guardEngine(rawBridge);
+  try {
+    return await finishStepViaBridge(gameId, engine.bridge, options);
+  } finally {
+    engine.done();
+  }
+}
+
+async function finishStepViaBridge(
   gameId: string,
   bridge: KataGoBridge,
   options?: { movesForBridge?: Array<{ color: 'B' | 'W'; point: string }> },

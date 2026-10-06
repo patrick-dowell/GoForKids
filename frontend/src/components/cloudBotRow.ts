@@ -1,0 +1,14 @@
+/** The sentence a tap on the locked "Bot plays online" row shows. */
+export const CLOUD_LOCKED_NOTE = 'The bot always plays online here.';
+
+/** A tap on the "Bot plays online" row. Locked (the web, or a device whose
+ *  engine is too slow), it stores nothing and shows the note; otherwise it
+ *  stores the person's choice. */
+export function tapCloudBotRow(
+  locked: boolean,
+  checked: boolean,
+  act: { setCloudBot: (v: boolean) => void; showNote: () => void },
+): void {
+  if (locked) act.showNote();
+  else act.setCloudBot(checked);
+}

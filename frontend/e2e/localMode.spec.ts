@@ -23,6 +23,11 @@ const SIZE = 9;
 // As in layout.spec.ts: sync requests never leave the test browser.
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/sync/**', (route) => route.abort());
+  // The game server's health route, answered up: nothing leaves the browser.
+  await page.route(
+    (url) => url.pathname === '/health',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }),
+  );
 });
 
 // Same seeding as layout.spec.ts — skip the first-run avatar picker.

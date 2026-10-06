@@ -26,8 +26,15 @@ interface PersistedSettings {
    *  older iPads where on-device analysis takes ~1 min/move vs ~2s on
    *  Render. Enforced inside getKataGoBridge() — when ON the getter returns
    *  null, so every bridge consumer uniformly behaves like the web build.
-   *  Default OFF: bridge behavior unchanged. */
+   *  Default OFF: bridge behavior unchanged. This is the person's stored
+   *  choice; on the web or a device that cannot play its own bots the
+   *  effective value is on whatever is stored (capabilitiesStore.ts). */
   cloudBot: boolean;
+  /** Human-style bots (2026-10-04): on a device whose engine has the human
+   *  SL net, a rank with a rung in b28_human.yaml plays on the human path
+   *  (getHumanRung in nativeKataGo.ts). The cloud toggle wins. Default OFF:
+   *  every bot plays from b28.yaml as before. */
+  humanBots: boolean;
 }
 
 const DEFAULTS: PersistedSettings = {
@@ -35,6 +42,7 @@ const DEFAULTS: PersistedSettings = {
   density: 'full',
   showScoreGraph: true,
   cloudBot: false,
+  humanBots: false,
 };
 
 function loadSettings(): PersistedSettings {
@@ -49,6 +57,8 @@ function loadSettings(): PersistedSettings {
       showScoreGraph: parsed.showScoreGraph !== false,
       // Default OFF: only an explicit true routes the bot online.
       cloudBot: parsed.cloudBot === true,
+      // Default OFF: only an explicit true plays the human set.
+      humanBots: parsed.humanBots === true,
     };
   } catch {
     return { ...DEFAULTS };
@@ -68,10 +78,12 @@ interface SettingsState {
   density: Density;
   showScoreGraph: boolean;
   cloudBot: boolean;
+  humanBots: boolean;
   setTheme: (id: ThemeId) => void;
   setDensity: (d: Density) => void;
   setShowScoreGraph: (v: boolean) => void;
   setCloudBot: (v: boolean) => void;
+  setHumanBots: (v: boolean) => void;
 }
 
 const initial = loadSettings();
@@ -83,6 +95,7 @@ function persistCurrent(get: () => SettingsState) {
     density: s.density,
     showScoreGraph: s.showScoreGraph,
     cloudBot: s.cloudBot,
+    humanBots: s.humanBots,
   });
 }
 
@@ -91,6 +104,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   density: initial.density,
   showScoreGraph: initial.showScoreGraph,
   cloudBot: initial.cloudBot,
+  humanBots: initial.humanBots,
 
   setTheme: (id: ThemeId) => {
     set({ themeId: id });
@@ -109,6 +123,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setCloudBot: (v: boolean) => {
     set({ cloudBot: v });
+    persistCurrent(get);
+  },
+
+  setHumanBots: (v: boolean) => {
+    set({ humanBots: v });
     persistCurrent(get);
   },
 }));

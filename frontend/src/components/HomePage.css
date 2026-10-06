@@ -476,3 +476,18 @@
   line-height: 1;
   box-shadow: 0 0 0 2px #0d1117;
 }
+
+/* Ranked Play while the online bots can't be reached (BotsAwayNote takes
+   the roster's place below). */
+.home-btn:disabled {
+  opacity: 0.4;
+  filter: grayscale(0.8);
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.home-bots-away {
+  width: 100%;
+  max-width: 520px;
+}

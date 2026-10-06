@@ -43,7 +43,7 @@ import {
   type GameResult,
   type Point,
 } from '../engine/types';
-import { boardToMoves, getKataGoBridge } from './nativeKataGo';
+import { boardToMoves, getKataGoBridge, type KataGoBridge } from './nativeKataGo';
 import type { CreateGameOptions, GameStateDTO, PointDTO } from './types';
 
 /** KataGo ownership threshold for "this stone is dead": opposite-side
@@ -378,6 +378,11 @@ export const localGameRouter = {
     return toDTO(lg);
   },
 
+  /** This game lives on the device (in memory or saved here). */
+  has(gameId: string): boolean {
+    return getOrLoad(gameId) !== null;
+  },
+
   getGame(gameId: string): GameStateDTO | null {
     const lg = getOrLoad(gameId);
     return lg ? toDTO(lg) : null;
@@ -508,7 +513,6 @@ let renderScorePosition:
  * final scoring.
  */
 async function deadStonesViaOwnership(lg: LocalActiveGame): Promise<Point[]> {
-  const size = lg.game.board.size;
   const bridge = getKataGoBridge();
   if (bridge) {
     try {
@@ -517,45 +521,15 @@ async function deadStonesViaOwnership(lg: LocalActiveGame): Promise<Point[]> {
       // move history with captures preserved (Game.moveHistory has it but
       // we can simplify by sending the current board as setup stones —
       // which is what boardToMoves does).
-      const moves = boardToMoves(boardTo2d(lg.game.board), size);
-      const colorChar: 'B' | 'W' = lg.game.currentColor === Color.Black ? 'B' : 'W';
       console.log(
-        `[localGameRouter] calling bridge.analyze ownership=true visits=${OWNERSHIP_VISITS} moves=${moves.length}`,
+        `[localGameRouter] calling bridge.analyze ownership=true visits=${OWNERSHIP_VISITS} ` +
+          `moves=${lg.game.board.grid.filter((c) => c !== Color.Empty).length}`,
       );
-      const result = await bridge.analyze({
-        boardSize: size,
-        komi: lg.game.komi,
-        rules: 'tromp-taylor',
-        moves,
-        color: colorChar,
-        maxVisits: OWNERSHIP_VISITS,
-        ownership: true,
-      });
+      const flipped = await ownershipViaBridge(bridge, lg.game.board, lg.game.komi, lg.game.currentColor);
       const elapsedMs = Math.round(performance.now() - t0);
-      if (!result.ownership) {
+      if (!flipped) {
         console.warn(`[localGameRouter] bridge returned no ownership in ${elapsedMs}ms — check Swift bridge build`);
       } else {
-        // KataGo's GTP `kata-genmove_analyze` emits ownership values from
-        // the player-to-move's perspective: positive = pla owns. Source:
-        // ios/KataGo/cpp/command/gtp.cpp:983 — when pla == BLACK the GTP
-        // layer outputs -whiteOwnerMap[pos], when pla == WHITE it outputs
-        // whiteOwnerMap[pos] raw. Net effect across both branches is the
-        // same convention: "+1 = the side we're asking-on-behalf-of owns".
-        //
-        // applyOwnership wants "+1 = Black owns" (its documented contract).
-        // So we negate iff we sent color: 'W'; for color: 'B' the values
-        // are already in the right frame.
-        //
-        // History: an earlier version negated unconditionally on the
-        // assumption that pla is always Black at scoring time (kid plays
-        // first, kid passes, AI passes → currentColor=Black). That holds
-        // when the move count before the two passes is odd, but not when
-        // it's even — see 19x19scoring.log (260 moves, pla=B, every Black
-        // stone marked dead, "removing 238 dead stones"). Fixed 2026-05-12.
-        const flipped =
-          colorChar === 'W'
-            ? result.ownership.map((v) => -v)
-            : result.ownership.slice();
         console.log(
           `[localGameRouter] bridge ownership received in ${elapsedMs}ms ` +
             `(${flipped.length} values, sample[0..3]=${flipped.slice(0, 4).map((v) => v.toFixed(2)).join(',')})`,
@@ -580,6 +554,51 @@ async function deadStonesViaOwnership(lg: LocalActiveGame): Promise<Point[]> {
     console.warn('[localGameRouter] no ownership source available (no bridge, no renderScorePosition)');
   }
   return [];
+}
+
+/**
+ * The ownership read the device scores a finished game by, of `board` with
+ * `color` to move, in Black's frame (+1 = Black owns), row-major; null when
+ * the bridge sends none. The board goes over as setup stones (boardToMoves),
+ * under Tromp-Taylor rules, at OWNERSHIP_VISITS. Also the human path's border
+ * check before it passes (client.ts humanNetEngine), so the bot counts a
+ * position the way this scorer will.
+ */
+export async function ownershipViaBridge(
+  bridge: KataGoBridge,
+  board: Board,
+  komi: number,
+  color: Color,
+): Promise<number[] | null> {
+  const colorChar: 'B' | 'W' = color === Color.Black ? 'B' : 'W';
+  const result = await bridge.analyze({
+    boardSize: board.size,
+    komi,
+    rules: 'tromp-taylor',
+    moves: boardToMoves(boardTo2d(board), board.size),
+    color: colorChar,
+    maxVisits: OWNERSHIP_VISITS,
+    ownership: true,
+  });
+  if (!result.ownership) return null;
+  // KataGo's GTP `kata-genmove_analyze` emits ownership values from
+  // the player-to-move's perspective: positive = pla owns. Source:
+  // ios/KataGo/cpp/command/gtp.cpp:983 — when pla == BLACK the GTP
+  // layer outputs -whiteOwnerMap[pos], when pla == WHITE it outputs
+  // whiteOwnerMap[pos] raw. Net effect across both branches is the
+  // same convention: "+1 = the side we're asking-on-behalf-of owns".
+  //
+  // applyOwnership wants "+1 = Black owns" (its documented contract).
+  // So we negate iff we sent color: 'W'; for color: 'B' the values
+  // are already in the right frame.
+  //
+  // History: an earlier version negated unconditionally on the
+  // assumption that pla is always Black at scoring time (kid plays
+  // first, kid passes, AI passes → currentColor=Black). That holds
+  // when the move count before the two passes is odd, but not when
+  // it's even — see 19x19scoring.log (260 moves, pla=B, every Black
+  // stone marked dead, "removing 238 dead stones"). Fixed 2026-05-12.
+  return colorChar === 'W' ? result.ownership.map((v) => -v) : result.ownership.slice();
 }
 
 /** Walk every stone on the board, compare to the matching ownership cell,

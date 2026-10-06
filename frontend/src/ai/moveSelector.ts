@@ -25,6 +25,7 @@ import {
 import { Board } from '../engine/Board';
 import { getProfile, type RankProfile } from './profileLoader';
 import { recordSelectorLog } from './selectorLog';
+import type { HumanNetResult } from './humanNetSelector';
 
 /** Single candidate from KataGo analysis — mirrors the Python MoveCandidate. */
 export interface MoveCandidate {
@@ -276,6 +277,21 @@ export interface SelectAiMoveOptions {
    *  mistake injection, so the bot passes at a settled position instead of
    *  filling its own territory. Mirrors the backend's `opponent_passed`. */
   opponentPassed?: boolean;
+  /** Human-style bots: the human SL path, tried first on every attempt at
+   *  this move. Built by the caller only when the human set plays this rank
+   *  (client.ts getAIMoveViaBridge); absent, the selector is exactly the
+   *  standard one. */
+  human?: HumanRoute;
+}
+
+/** The human SL path for one move, as the server routes it
+ *  (`_select_ai_move_inner`): `select` runs humanNetSelector.ts's
+ *  selectWithHumanNet bound to the position and the human-set rung.
+ *  handled=true is its move (null = pass); handled=false, or a throw, hands
+ *  the move to the standard selector with the b28.yaml rung. */
+export interface HumanRoute {
+  select: () => Promise<HumanNetResult>;
+  log?: (line: string) => void;
 }
 
 /** Deep visit count for "settle cleanly" moves after the opponent passes.
@@ -349,6 +365,15 @@ async function selectAiMoveInner(
   // 30k bot: pure heuristic, no KataGo at all.
   if (profile.use_katago === false) {
     return selectBeginnerMove(board, color, profile);
+  }
+
+  if (options.human) {
+    try {
+      const { handled, move } = await options.human.select();
+      if (handled) return move;
+    } catch (e) {
+      options.human.log?.(`human net threw (${String(e)}), standard selector`);
+    }
   }
 
   try {

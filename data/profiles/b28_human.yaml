@@ -1,0 +1,192 @@
+# b28_human.yaml: the on-device rungs that play on the human path, in the same shape as b28.yaml.
+#
+# The app loads this file beside b28.yaml (frontend/src/ai/profileLoader.ts). A rung here plays
+# when the "human-style bots" setting is on and the device's engine has the human SL model: the
+# human net proposes the moves (`human_sl_profile` and the other human_* knobs) and b28 scores the
+# candidates and decides the pass. Every other rank, and a move the human path cannot produce,
+# plays from b28.yaml's rung, so this file has no fallback rows and no 19x19/15k.
+#
+# The rest of each rung's knobs are b28.yaml's values, kept so one loader reads both files; the
+# app's standard selector reads them from b28.yaml, never from here. The two sets are calibrated
+# apart from here on.
+#
+# Started from the 9x9 18k, 15k and 12k of b28_human_candidate.yaml (2026-10-04), measured on 9x9
+# against the b20 twins: even games, komi 6.5, 40 games a rung with colours split 20/20. The 9x9 9k
+# and 6k (human_sl_profile rank_9k) followed from the same file the same evening, every knob as
+# there.
+
+profiles:
+  9x9:
+    18k:
+      max_point_loss: 30.0
+      mistake_freq: 0.8
+      policy_weight: 0.12
+      randomness: 0.78
+      random_move_chance: 0.3
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.03
+      policy_temp: 3.5
+      wide_root_noise: 0.8
+      first_line_chance: 0.0
+      visits: 16
+      min_candidates: 10
+      opening_moves: 3
+      # Human SL path (device twin of b20.yaml's 9x9 18k): the human net proposes,
+      # b28 scores the candidates and decides the pass. Knobs as the b20 twin's unless noted.
+      # human_tilt 8 -> 4 for b28 (the one knob changed): at the b20 twin's tilt 8 the b20 twin
+      # scored 30% against it (12/40), at tilt 4 52% (21/40). A second 40 of each: tilt 8 pooled 38%
+      # (30/80), tilt 4 pooled 55% (44/80).
+      human_sl_profile: rank_20k
+      human_tilt: 4.0
+      human_tilt_from: 12
+      human_cand_min: 0.03
+      human_cand_max: 8
+      human_score_visits: 4
+      human_pass_margin: 0.5
+      human_small_gain: 2.0
+      human_confirm_visits: 12
+      human_confirm_margin: 0.75
+      human_loss_cap: 10.0
+      pass_threshold: 0.1
+      clarity_prior: 0.95
+      clarity_score_gap: 25.0
+    15k:
+      max_point_loss: 28.0
+      mistake_freq: 0.75
+      policy_weight: 0.12
+      randomness: 0.78
+      random_move_chance: 0.1
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.05
+      policy_temp: 2.6
+      wide_root_noise: 0.7
+      sample_lapse: 0.45
+      sample_loss_cap: 7.0
+      first_line_chance: 0.0
+      visits: 16
+      min_candidates: 10
+      opening_moves: 3
+      # Human SL path (device twin of b20.yaml's 9x9 15k): the human net proposes,
+      # b28 scores the candidates and decides the pass. Knobs as the b20 twin's unless noted.
+      # Unchanged: the b20 twin scored 65% (26/40); a second 40, 40%; pooled 52% (42/80).
+      human_sl_profile: rank_20k
+      human_tilt: -8.0
+      human_tilt_from: 12
+      human_cand_min: 0.03
+      human_cand_max: 8
+      human_score_visits: 4
+      human_pass_margin: 0.5
+      human_small_gain: 2.0
+      human_confirm_visits: 12
+      human_confirm_margin: 0.75
+      human_loss_cap: 10.0
+      pass_threshold: 0.1
+      clarity_prior: 0.9
+      clarity_score_gap: 18.0
+    12k:
+      max_point_loss: 27.0
+      mistake_freq: 0.74
+      policy_weight: 0.12
+      randomness: 0.78
+      random_move_chance: 0.08
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.072
+      policy_temp: 2.45
+      wide_root_noise: 0.7
+      sample_lapse: 0.375
+      sample_loss_cap: 6.5
+      first_line_chance: 0.0
+      visits: 16
+      min_candidates: 10
+      opening_moves: 3
+      # Human SL path (device twin of b20.yaml's 9x9 12k): the human net proposes,
+      # b28 scores the candidates and decides the pass. Knobs as the b20 twin's unless noted.
+      # Unchanged: the b20 twin scored 52% (21/40).
+      human_sl_profile: rank_20k
+      human_tilt: -4.0
+      human_tilt_from: 12
+      human_cand_min: 0.03
+      human_cand_max: 8
+      human_score_visits: 4
+      human_pass_margin: 0.5
+      human_small_gain: 2.0
+      human_confirm_visits: 12
+      human_confirm_margin: 0.75
+      human_loss_cap: 4.0
+      pass_threshold: 0.1
+      clarity_prior: 0.885
+      clarity_score_gap: 16.5
+    9k:
+      max_point_loss: 26.0
+      mistake_freq: 0.72
+      policy_weight: 0.12
+      randomness: 0.78
+      random_move_chance: 0.06
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.08
+      policy_temp: 2.3
+      wide_root_noise: 0.7
+      sample_lapse: 0.35
+      sample_loss_cap: 6.0
+      first_line_chance: 0.0
+      visits: 16
+      min_candidates: 10
+      opening_moves: 3
+      # Human SL path (device twin of b20.yaml's 9x9 9k): the human net proposes,
+      # b28 scores the candidates and decides the pass. Knobs as the b20 twin's: the b20 twin
+      # scored 50% against it (20/40).
+      human_sl_profile: rank_9k
+      human_tilt: -4.0
+      human_tilt_from: 12
+      human_cand_min: 0.03
+      human_cand_max: 8
+      human_score_visits: 4
+      human_pass_margin: 0.5
+      human_small_gain: 2.0
+      human_confirm_visits: 12
+      human_confirm_margin: 0.75
+      human_loss_cap: 4.0
+      pass_threshold: 0.1
+      clarity_prior: 0.87
+      clarity_score_gap: 15.0
+    6k:
+      max_point_loss: 25.0
+      mistake_freq: 0.7
+      policy_weight: 0.12
+      randomness: 0.78
+      random_move_chance: 0.045
+      local_bias: 0.0
+      local_bias_in_opening: false
+      local_bias_from_candidates: false
+      reading_rate: 0.21
+      policy_temp: 1.95
+      wide_root_noise: 0.58
+      first_line_chance: 0.0
+      visits: 16
+      min_candidates: 10
+      opening_moves: 3
+      # Human SL path (device twin of b20.yaml's 9x9 6k): the human net proposes,
+      # b28 scores the candidates and decides the pass. Knobs as the b20 twin's: the b20 twin
+      # scored 40% against it (16/40).
+      human_sl_profile: rank_9k
+      human_tilt: -0.5
+      human_tilt_from: 12
+      human_cand_min: 0.03
+      human_cand_max: 8
+      human_score_visits: 4
+      human_pass_margin: 0.5
+      human_small_gain: 2.0
+      human_confirm_visits: 12
+      human_confirm_margin: 0.75
+      human_loss_cap: 1.0
+      pass_threshold: 0.1
+      clarity_prior: 0.86
+      clarity_score_gap: 13.0

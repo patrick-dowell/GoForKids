@@ -19,7 +19,9 @@ import { FeedbackButton } from './components/FeedbackButton';
 import { abortPendingRequests, api } from './api/client';
 import { PrivacyTermsModal } from './components/PrivacyTermsModal';
 import { ScoringInProgressModal } from './components/ScoringInProgressModal';
-import { useGameStore } from './store/gameStore';
+import { GameStartingCard } from './components/GameStartingCard';
+import { BotTroubleCard } from './components/BotTroubleCard';
+import { gameLeft, useGameStore } from './store/gameStore';
 import { useLearnStore } from './store/learnStore';
 import { useLibraryStore, type SavedGame } from './store/libraryStore';
 import { useReplayStore } from './store/replayStore';
@@ -148,6 +150,7 @@ function App() {
   const botVsBotPaused = useGameStore((s) => s.botVsBotPaused);
   const botVsBotSpeed = useGameStore((s) => s.botVsBotSpeed);
   const scoringInProgress = useGameStore((s) => s.scoringInProgress);
+  const startingGame = useGameStore((s) => s.startingGame);
   const autoplayContext = useGameStore((s) => s.autoplayContext);
   const result = useGameStore((s) => s.result);
   const togglePause = useGameStore((s) => s.toggleBotVsBotPause);
@@ -238,6 +241,9 @@ function App() {
     useGlossaryStore.getState().close();
     useGameReviewStore.getState().close();
     useGameStore.getState().dismissGameEnd();
+    // The game on the board is left as it is: not ended, not scored,
+    // nothing recorded, and a bot still thinking about it stops there.
+    useGameStore.getState().leaveGame();
     setActiveGameLessonId(null);
     setShowNewGame(false);
     setShowAutoPlay(false);
@@ -667,6 +673,12 @@ function App() {
       {showNewGame && (
         <NewGameDialog
           onClose={() => setShowNewGame(false)}
+          // The game under the dialog was left on the way home (or none has
+          // started): Cancel goes back home, never to a board nobody plays.
+          onCancel={() => {
+            setShowNewGame(false);
+            if (gameLeft()) setShowHome(true);
+          }}
           onOpenProfile={handleStartProfile}
         />
       )}
@@ -692,6 +704,8 @@ function App() {
       <GlossaryView />
       {showPrivacy && <PrivacyTermsModal onClose={() => setShowPrivacy(false)} />}
       {scoringInProgress && <ScoringInProgressModal onGoHome={goHome} />}
+      {startingGame && <GameStartingCard />}
+      <BotTroubleCard onLeave={goHome} />
     </div>
   );
 }
