@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useSettingsStore, type Density } from '../store/settingsStore';
 import { useHumanBotsAvailability, useOnlineBotsOnly, type HumanBotsAvailability } from '../store/capabilitiesStore';
-import { CLOUD_LOCKED_NOTE, tapCloudBotRow } from './cloudBotRow';
+import { CLOUD_LOCKED_NOTE, NEXT_GAME_NOTE, tapCloudBotRow } from './cloudBotRow';
+import { useGameInProgress } from '../store/gameStore';
 import { HUMAN_BOTS_NOTE } from './humanBotsRow';
 import { THEMES, type ThemeId } from '../theme/themes';
 
@@ -25,6 +26,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   // shows on and stays on; the stored choice underneath is left alone.
   const cloudLocked = useOnlineBotsOnly();
   const [lockNote, setLockNote] = useState(false);
+  // A game being played keeps the bots it started with (client.ts onDevice).
+  const gameInProgress = useGameInProgress();
 
   const options: ThemeId[] = ['cosmic', 'classic'];
   const densityOptions: { value: Density; label: string; desc: string }[] = [
@@ -104,6 +107,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
             checked={cloudLocked || cloudBot}
             locked={cloudLocked}
             noteShown={cloudLocked && lockNote}
+            nextGameNote={!cloudLocked && gameInProgress}
             onToggle={(v) => tapCloudBotRow(cloudLocked, v, { setCloudBot, showNote: () => setLockNote(true) })}
           />
 
@@ -112,7 +116,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               launch); it opens once the engine reports the human SL net and
               the device may play its own bots. A rank with a rung in
               b28_human.yaml then plays on the human path; "Bot plays online"
-              still wins. Never on the web. */}
+              still wins. Never on the web. Read on every bot move, so a change
+              reaches the game in progress: no next-game line. */}
           {humanBotsAvailability !== 'none' && (
             <HumanBotsRow availability={humanBotsAvailability} checked={humanBots} onToggle={setHumanBots} />
           )}
@@ -128,11 +133,14 @@ export function CloudBotRow({
   checked,
   locked,
   noteShown,
+  nextGameNote = false,
   onToggle,
 }: {
   checked: boolean;
   locked: boolean;
   noteShown: boolean;
+  /** A game is being played: a change waits for the next one. */
+  nextGameNote?: boolean;
   onToggle: (v: boolean) => void;
 }) {
   return (
@@ -142,6 +150,7 @@ export function CloudBotRow({
         {' '}Bot plays online
       </label>
       {noteShown && <p className="settings-note">{CLOUD_LOCKED_NOTE}</p>}
+      {nextGameNote && <p className="settings-note">{NEXT_GAME_NOTE}</p>}
     </div>
   );
 }

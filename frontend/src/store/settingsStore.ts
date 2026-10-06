@@ -28,7 +28,8 @@ interface PersistedSettings {
    *  null, so every bridge consumer uniformly behaves like the web build.
    *  Default OFF: bridge behavior unchanged. This is the person's stored
    *  choice; on the web or a device that cannot play its own bots the
-   *  effective value is on whatever is stored (capabilitiesStore.ts). */
+   *  effective value is on whatever is stored (capabilitiesStore.ts). A
+   *  change governs the next game: a game being played keeps its bots. */
   cloudBot: boolean;
   /** Human-style bots (2026-10-04): on a device whose engine has the human
    *  SL net, a rank with a rung in b28_human.yaml plays on the human path

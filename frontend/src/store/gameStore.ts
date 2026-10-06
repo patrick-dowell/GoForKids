@@ -324,6 +324,12 @@ export function gameLeft(): boolean {
   return leftGame === useGameStore.getState()._game;
 }
 
+/** A game with a bot is being played: started, not over, not left. */
+export function useGameInProgress(): boolean {
+  const playing = useGameStore((s) => s.phase === 'playing' && s.gameId !== null);
+  return playing && !gameLeft();
+}
+
 /** Work begun for `game` ends quietly when another game has replaced it on
  *  the board, or the player left it. */
 function gameGone(current: Game, game: Game): boolean {
