@@ -31,22 +31,40 @@ function installLocalStorage() {
   } as Storage;
 }
 
+const POINTS = ['C3', 'G7', 'C7', 'G3', 'E3', 'E7'];
+
+/** A 9×9 GTP point's index, row-major from the top-left (A9 is 0). */
+function gtpIndex(p: string): number {
+  const col = 'ABCDEFGHJ'.indexOf(p[0]);
+  return (9 - Number(p.slice(1))) * 9 + col;
+}
+
 /** The device's engine: every analyze offers the same few points, best first
- *  (the selector skips any already taken). */
-function installBridge() {
-  const points = ['C3', 'G7', 'C7', 'G3', 'E3', 'E7'];
+ *  (the selector skips any already taken); asked for ownership, it says Black
+ *  owns the whole board. With the human model, its human net spreads its
+ *  weight over the same points, the taken ones marked illegal. */
+function installBridge(humanModel = false) {
   const analyze = vi.fn(async (params: Record<string, unknown>) => ({
-    candidates: points.map((move, order) => ({ move, visits: 40 - order * 5, winrate: 0.5, scoreLead: 0.5, prior: 0.3 - order * 0.04, order })),
+    candidates: POINTS.map((move, order) => ({ move, visits: 40 - order * 5, winrate: 0.5, scoreLead: 0.5, prior: 0.3 - order * 0.04, order })),
     rootVisits: Number(params.maxVisits),
-    kataGoPlayedMove: points[0],
+    kataGoPlayedMove: POINTS[0],
+    // from the side to move's frame, as KataGo sends it
+    ...(params.ownership ? { ownership: Array(81).fill(params.color === 'W' ? -1 : 1) } : {}),
   }));
-  const capabilities = vi.fn(async () => ({ localBots: true, evalsPerSecond: 60, humanModel: false }));
+  const humanPolicy = vi.fn(async (params: { moves: Array<{ point: string }> }) => {
+    const pol = Array(82).fill(0);
+    for (const p of POINTS) pol[gtpIndex(p)] = 1 / POINTS.length;
+    for (const m of params.moves) if (m.point !== 'pass') pol[gtpIndex(m.point)] = -1;
+    return { humanPolicy: pol, policy: pol, scoreLead: 0.5 };
+  });
+  const scoreAfter = vi.fn(async () => ({ scoreLead: 0.5, winrate: 0.5 }));
+  const capabilities = vi.fn(async () => ({ localBots: true, evalsPerSecond: 60, humanModel }));
   (globalThis as { window?: unknown }).window = {
-    kataGo: { ping: async () => ({ pong: true }), analyze, capabilities },
+    kataGo: { ping: async () => ({ pong: true }), analyze, humanPolicy, scoreAfter, capabilities },
     setTimeout,
     clearTimeout,
   };
-  return { analyze };
+  return { analyze, humanPolicy };
 }
 
 /** The online bots: a 9×9 game, its moves, and its bot's replies. */
@@ -79,8 +97,8 @@ function installServer() {
   return { paths: () => fetchMock.mock.calls.map(([u]) => String(u).replace(/^.*\/api/, '')) };
 }
 
-async function boot(cloudBot: boolean) {
-  localStorage.setItem('goforkids_settings', JSON.stringify({ themeId: 'cosmic', cloudBot }));
+async function boot(cloudBot: boolean, humanBots = false) {
+  localStorage.setItem('goforkids_settings', JSON.stringify({ themeId: 'cosmic', cloudBot, humanBots }));
   const caps = await import('../capabilitiesStore');
   await caps.readDeviceCapabilities();
   const { useSettingsStore } = await import('../settingsStore');
@@ -161,5 +179,48 @@ describe('"Bot plays online" flipped mid-game', () => {
     expect(b.analyze).not.toHaveBeenCalled();
     expect(localGameRouter.has('srv00001')).toBe(false);
     expect(store.getState().gameId).toBe('srv00001');
+  });
+});
+
+describe('"Bot plays online" flipped mid-game, then the game ends or the human set plays', () => {
+  it('a device game scores its end on the device, not the server (offline here)', async () => {
+    const b = installBridge();
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError('Load failed');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    localStorage.setItem('goforkids_settings', JSON.stringify({ themeId: 'cosmic', cloudBot: false }));
+    const caps = await import('../capabilitiesStore');
+    await caps.readDeviceCapabilities();
+    const { api } = await import('../../api/client');
+    const { useSettingsStore } = await import('../settingsStore');
+    const id = (await api.createGame({ board_size: 9, target_rank: '15k', komi: 6.5 })).game_id;
+    await api.playMove(id, 4, 4); // Black E5
+    await api.playMove(id, 8, 0); // White A1, dead in Black's area
+    useSettingsStore.getState().setCloudBot(true);
+    await api.pass(id);
+    const end = await api.pass(id);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(b.analyze).toHaveBeenCalledWith(expect.objectContaining({ ownership: true }));
+    expect(end.board[8][0]).toBe(0); // A1 taken off as dead
+    expect(end.result).toMatchObject({ winner: 'black' });
+  });
+
+  it('a device game on the human set keeps it: the next bot move is human, and no "set changed" line', async () => {
+    const b = installBridge(true);
+    const server = installServer();
+    const { useSettingsStore, store, playAndAwaitBot, log } = await boot(false, true);
+    await playAndAwaitBot(4, 4);
+    const humanAsks = b.humanPolicy.mock.calls.length;
+    expect(humanAsks).toBeGreaterThan(0);
+    expect(b.analyze).not.toHaveBeenCalled();
+
+    useSettingsStore.getState().setCloudBot(true);
+    await playAndAwaitBot(4, 2);
+    expect(b.humanPolicy.mock.calls.length).toBeGreaterThan(humanAsks);
+    expect(b.analyze).not.toHaveBeenCalled();
+    expect(log.snapshotSelectorLog().filter((l) => l.includes('set changed'))).toEqual([]);
+    expect(server.paths()).toEqual([]);
+    expect(store.getState().gameId).toMatch(/^[0-9a-f]{8}$/);
   });
 });

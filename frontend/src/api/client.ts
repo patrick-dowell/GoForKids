@@ -556,7 +556,7 @@ async function moveViaBridge(
   // game's never-pass move, since the human path may pass.
   const humanRung =
     options?.movesForBridge && !options.neverPass
-      ? getHumanRung(targetRank, state.board_size)
+      ? getHumanRung(targetRank, state.board_size, true) // this game lives on the device
       : undefined;
   const humanEval: HumanNetEval = { scoreLeadBefore: null, candidates: null };
   let human: HumanRoute | undefined;

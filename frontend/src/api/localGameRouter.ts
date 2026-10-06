@@ -43,7 +43,7 @@ import {
   type GameResult,
   type Point,
 } from '../engine/types';
-import { boardToMoves, getKataGoBridge, type KataGoBridge } from './nativeKataGo';
+import { boardToMoves, getNativeBridge, type KataGoBridge } from './nativeKataGo';
 import type { CreateGameOptions, GameStateDTO, PointDTO } from './types';
 
 /** KataGo ownership threshold for "this stone is dead": opposite-side
@@ -513,7 +513,9 @@ let renderScorePosition:
  * final scoring.
  */
 async function deadStonesViaOwnership(lg: LocalActiveGame): Promise<Point[]> {
-  const bridge = getKataGoBridge();
+  // The game lives on the device, so it is scored there whatever "Bot plays
+  // online" says now (a mid-game flip used to send this to the server).
+  const bridge = getNativeBridge();
   if (bridge) {
     try {
       const t0 = performance.now();

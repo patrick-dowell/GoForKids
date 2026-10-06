@@ -321,6 +321,37 @@ test('game screen, late-game worst case: full trays + graph + all buttons', asyn
   await expectGearUnderResign(page);
 });
 
+test('game screen, bot against bot: the gear stays on screen beside the spectator controls', async ({ page }) => {
+  // The spectator controls are the panel's tallest content; in portrait on
+  // the iPads they already ran past the fold (by 41-45px), and a gear at the
+  // panel's foot went with them. The bot-against-bot game is put in place
+  // through the dev store hook, paused, over a game the server answers.
+  await seedPickedProfile(page);
+  await page.route(
+    (url) => url.pathname === '/api/games',
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ game_id: 'e2e00001', move_number: 1, phase: 'playing' }) }),
+  );
+  await page.goto('/');
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.locator('.go-board-canvas').waitFor();
+  await page.evaluate(() => {
+    (window as unknown as { __gameStore: { setState: (s: object) => void } }).__gameStore.setState({
+      gameMode: 'botvsbot',
+      blackRank: '15k',
+      whiteRank: '12k',
+      botVsBotPaused: true,
+    });
+  });
+  await page.getByRole('button', { name: 'Resume' }).waitFor();
+  await sweep(page, 'game-bot-vs-bot', {
+    strict: ['.go-board-canvas', '.settings-gear'],
+    square: ['.go-board-canvas'],
+    apart: [{ el: '.settings-gear', within: '.side-panel' }],
+  });
+});
+
 test('replay: board fits, controls reachable at every viewport', async ({ page }) => {
   await seedPickedProfile(page);
   await page.goto('/?replay=demo');

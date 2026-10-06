@@ -4,6 +4,7 @@ import { Board } from '../engine/Board';
 import { Color, type Point, type GameResult, MoveResult, BOARD_SIZE } from '../engine/types';
 import { api, type AIMoveDTO } from '../api/client';
 import { getHumanRung, getKataGoBridge, getNativeBridge, toGtp } from '../api/nativeKataGo';
+import { localGameRouter } from '../api/localGameRouter';
 import { botRoutingKnown, capabilitiesLogLine, onlineBotsOnly, whenBotRoutingKnown } from './capabilitiesStore';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
@@ -1222,7 +1223,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       );
       // The set this move plays from, as client.ts routes it; a line when it
       // is not the one the log last named.
-      const moveSet = botSetStamp(neverPass ? undefined : getHumanRung(targetRank, _game.board.size));
+      // As client.ts onDevice: the game's own bot plays where the game lives.
+      const onDevice = getNativeBridge() !== null && localGameRouter.has(gameId);
+      const moveSet = botSetStamp(neverPass ? undefined : getHumanRung(targetRank, _game.board.size, onDevice));
       if (moveSet !== loggedBotSet) {
         recordSelectorLog(`[game] set changed at move ${_game.moveHistory.length + 1}: ${moveSet}`);
         loggedBotSet = moveSet;

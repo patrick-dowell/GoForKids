@@ -154,13 +154,15 @@ export function getNativeBridge(): KataGoBridge | null {
  * The human-set rung (b28_human.yaml) that plays this rank and board size on
  * the device right now, or undefined, in which case the standard b28.yaml
  * rung plays exactly as before. All four must hold: the bridge is in use
- * (getKataGoBridge: inside the app, "Bot plays online" off), the setting
+ * (getKataGoBridge: inside the app, "Bot plays online" off; for a game that
+ * lives on the device, `gameOnDevice`, the injected bridge, since a mid-game
+ * flip of the setting leaves that game where it is), the setting
  * "Human-style bots" is on, the bridge reported the human model at start,
- * and the human set has a rung for this rank and size. Read per move, like
- * the cloud toggle, so flipping the setting takes effect on the next move.
+ * and the human set has a rung for this rank and size. Read per move, so
+ * flipping "Human-style bots" takes effect on the next move.
  */
-export function getHumanRung(rank: string, size: number): HumanRankProfile | undefined {
-  if (!getKataGoBridge()) return undefined;
+export function getHumanRung(rank: string, size: number, gameOnDevice = false): HumanRankProfile | undefined {
+  if (!(gameOnDevice ? getNativeBridge() : getKataGoBridge())) return undefined;
   if (!useSettingsStore.getState().humanBots) return undefined;
   if (!hasHumanModel()) return undefined;
   return getHumanProfile(rank, size);

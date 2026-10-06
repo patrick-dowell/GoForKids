@@ -1156,6 +1156,11 @@ button:active {
   flex: none;
   align-self: flex-end;
 }
+/* Beside bot-against-bot's spectator controls, at the top: those run past
+   the fold in portrait on the iPads, and the panel's foot goes with them. */
+.side-panel:has(.spectator-controls) > .settings-gear {
+  align-self: flex-start;
+}
 
 /* Theme picker cards */
 .theme-picker {
