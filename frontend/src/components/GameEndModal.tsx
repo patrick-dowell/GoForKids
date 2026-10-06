@@ -1,6 +1,7 @@
 import { useGameStore } from '../store/gameStore';
 import { Color } from '../engine/types';
 import { Avatar, BOT_AVATARS, type AvatarType } from './Avatar';
+import { marginPoints, marginPts } from './marginText';
 // Shares the lesson-end-* styles. Same overlay/card/scoreboard look; nothing
 // in the CSS is lesson-specific. If we split LessonGameEndModal out further
 // later, factor the CSS into a generic GameEndModal.css and have both modals
@@ -137,7 +138,7 @@ export function GameEndModal({ onQuit }: GameEndModalProps) {
               />
             </div>
             <p className="lesson-end-body">
-              Final margin: {margin.toFixed(margin % 1 === 0 ? 0 : 1)} points
+              Final margin: {marginPoints(margin)}
             </p>
           </>
         )}
@@ -203,7 +204,7 @@ export function GameEndPanel() {
       <div className="lesson-end-panel-text">
         <div className="lesson-end-panel-title">{title}</div>
         <div className="lesson-end-panel-margin">
-          {isResignation ? 'by resignation' : `by ${margin.toFixed(margin % 1 === 0 ? 0 : 1)} pts`}
+          {isResignation ? 'by resignation' : `by ${marginPts(margin)}`}
         </div>
       </div>
       <button className="lesson-end-panel-btn" onClick={reopen}>

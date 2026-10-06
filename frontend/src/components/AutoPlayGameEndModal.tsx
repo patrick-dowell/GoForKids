@@ -4,6 +4,7 @@ import { Color } from '../engine/types';
 import { winsToPromote, lossSetbackActive, nextRung } from '../autoplay/matchmaker';
 import { useGameReviewStore } from '../store/gameReviewStore';
 import { EndHeroAvatar, ScoreSide } from './GameEndModal';
+import { marginPoints, marginPts } from './marginText';
 import './AutoPlayGameEndModal.css';
 // Pulls in the shared lesson-end-* close button, scoreboard, and panel styles.
 import './LessonGameEndModal.css';
@@ -133,7 +134,7 @@ export function AutoPlayGameEndModal({ onNextMatch, onHome }: AutoPlayGameEndMod
               />
             </div>
             <p className="autoplay-end-margin">
-              {winnerName} won by {margin.toFixed(margin % 1 === 0 ? 0 : 1)} points
+              {winnerName} won by {marginPoints(margin)}
             </p>
           </>
         )}
@@ -204,7 +205,7 @@ export function AutoPlayGameEndPanel() {
       <div className="lesson-end-panel-text">
         <div className="lesson-end-panel-title">{userWon ? 'You won!' : 'Bot won'}</div>
         <div className="lesson-end-panel-margin">
-          {isResignation ? 'by resignation' : `by ${margin.toFixed(margin % 1 === 0 ? 0 : 1)} pts`}
+          {isResignation ? 'by resignation' : `by ${marginPts(margin)}`}
         </div>
       </div>
       <button className="lesson-end-panel-btn" onClick={reopen}>

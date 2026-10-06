@@ -1,5 +1,6 @@
 import { useGameStore } from '../store/gameStore';
 import { Color } from '../engine/types';
+import { marginPoints, marginPts } from './marginText';
 import './LessonGameEndModal.css';
 
 interface LessonGameEndModalProps {
@@ -91,8 +92,8 @@ export function LessonGameEndModal({ onMoveOn, onNextLesson, onAdvancedMenu }: L
             </div>
             <p className="lesson-end-body">
               {userWon
-                ? `You won by ${margin.toFixed(margin % 1 === 0 ? 0 : 1)} points. Nice game!`
-                : `The bot won by ${margin.toFixed(margin % 1 === 0 ? 0 : 1)} points — try again!`}
+                ? `You won by ${marginPoints(margin)}. Nice game!`
+                : `The bot won by ${marginPoints(margin)} — try again!`}
             </p>
           </>
         )}
@@ -149,7 +150,7 @@ export function LessonGameEndPanel() {
       <div className="lesson-end-panel-text">
         <div className="lesson-end-panel-title">{userWon ? 'You won!' : 'Bot won'}</div>
         <div className="lesson-end-panel-margin">
-          {isResignation ? 'by resignation' : `by ${margin.toFixed(margin % 1 === 0 ? 0 : 1)} pts`}
+          {isResignation ? 'by resignation' : `by ${marginPts(margin)}`}
         </div>
       </div>
       <button className="lesson-end-panel-btn" onClick={reopen}>
