@@ -1137,6 +1137,26 @@ button:active {
   }
 }
 
+/* A game's gear sits in its side panel's flow (App.tsx): right of the
+   panel's controls, level with the last one, or on its own line under them
+   on a phone held upright (narrow block). Fixed in the corner it sat on
+   Resign wherever the panel reached the bottom: every portrait size, and a
+   phone held sideways late in a game. Never on a control, by construction;
+   it costs the controls 44px of width, not the board any size. */
+.app:not(.app-replay) .side-panel {
+  display: flex;
+  gap: 8px;
+}
+.side-panel-main {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.side-panel > .settings-gear {
+  position: static;
+  flex: none;
+  align-self: flex-end;
+}
+
 /* Theme picker cards */
 .theme-picker {
   display: flex;
@@ -1680,7 +1700,10 @@ button:active {
   }
   .app:not(.app-replay) .control-buttons .btn {
     flex: 1 1 auto;
-    min-width: 100px;
+    /* Two to a row beside the gear's 44px column (Finish Game included). */
+    min-width: 90px;
+    padding-left: 10px;
+    padding-right: 10px;
   }
   .app:not(.app-replay) .prisoner-stones {
     display: none;
@@ -1859,9 +1882,25 @@ button:active {
     gap: 6px;
   }
 
+  /* Narrower sides than the 16px touch padding, so Pass, Undo, Finish Game
+     and Resign share one row: the gear's line below fits under them. */
   .control-buttons .btn {
     flex: 1 1 auto;
-    min-width: 80px;
+    min-width: 0;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  /* The game's gear: on its own line under Resign, at the right. Beside
+     the taller bot-vs-bot controls, which have no line to spare. */
+  .app:not(.app-replay) .side-panel:not(:has(.spectator-controls)) {
+    flex-wrap: wrap;
+  }
+  .side-panel:not(:has(.spectator-controls)) > .side-panel-main {
+    flex-basis: 100%;
+  }
+  .side-panel > .settings-gear {
+    margin-left: auto;
   }
 
   /* The avatar strip already shows whose turn it is (glow + status text +

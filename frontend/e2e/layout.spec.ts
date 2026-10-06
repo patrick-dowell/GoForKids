@@ -35,6 +35,9 @@ const VIEWPORTS = [
   { name: 'iPhone Pro landscape', width: 852, height: 393, insets: PHONE_LANDSCAPE },
   { name: 'iPhone Pro Max portrait', width: 430, height: 932, insets: PHONE_PORTRAIT },
   { name: 'iPhone Pro Max landscape', width: 932, height: 430, insets: PHONE_LANDSCAPE },
+  // The gear sat on Resign here in portrait (device pass, 2026-10-05).
+  { name: 'iPhone 16 Pro Max portrait', width: 440, height: 956, insets: PHONE_PORTRAIT },
+  { name: 'iPhone 16 Pro Max landscape', width: 956, height: 440, insets: PHONE_LANDSCAPE },
   { name: 'iPad mini portrait', width: 744, height: 1133, insets: IPAD },
   { name: 'iPad mini landscape', width: 1133, height: 744, insets: IPAD },
   { name: 'iPad 10.2 portrait', width: 810, height: 1080, insets: IPAD_HOMEBUTTON },
@@ -65,11 +68,15 @@ interface ProbeSpec {
    *  clientHeight): a dialog that scrolls its own rows breaks the layout
    *  policy even when each row is on screen at the top of the scroll. */
   noOverflow?: string[];
+  /** An element that must not overlap any tappable control inside `within`
+   *  (itself aside): a floating button over Resign passes every visibility
+   *  check above (the Settings gear, iPhone 16 Pro Max portrait). */
+  apart?: { el: string; within: string }[];
 }
 
 /** Returns [] when clean, else human-readable issue strings. */
 async function probe(page: Page, spec: ProbeSpec): Promise<string[]> {
-  return page.evaluate(({ strict = [], reachable = [], noBodyScroll = false, square = [], noOverflow = [] }) => {
+  return page.evaluate(({ strict = [], reachable = [], noBodyScroll = false, square = [], noOverflow = [], apart = [] }) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const issues: string[] = [];
@@ -141,29 +148,53 @@ async function probe(page: Page, spec: ProbeSpec): Promise<string[]> {
       if (over > 1) issues.push(`${sel}: content overflows by ${over}px (it would scroll)`);
     }
 
+    for (const { el: sel, within } of apart) {
+      const el = find(sel);
+      if (!el) {
+        issues.push(`${sel}: MISSING`);
+        continue;
+      }
+      const a = el.getBoundingClientRect();
+      const controls = document.querySelectorAll(`${within} :is(button, a[href], input, select, textarea, [role="button"])`);
+      for (const c of controls) {
+        if (c === el || el.contains(c) || c.contains(el)) continue;
+        const b = c.getBoundingClientRect();
+        if (b.width === 0 || b.height === 0) continue;
+        if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) {
+          const name = (c.textContent || c.getAttribute('aria-label') || c.tagName).trim();
+          issues.push(`${sel}: OVERLAPS "${name}" by ${Math.round(Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top))}px`);
+        }
+      }
+    }
+
     return issues;
-  }, spec as { strict?: string[]; reachable?: string[]; noBodyScroll?: boolean; square?: string[]; noOverflow?: string[] });
+  }, spec as { strict?: string[]; reachable?: string[]; noBodyScroll?: boolean; square?: string[]; noOverflow?: string[]; apart?: { el: string; within: string }[] });
+}
+
+/** Resize to a viewport of the matrix, with its safe-area insets. */
+async function applyViewport(page: Page, vp: (typeof VIEWPORTS)[number]) {
+  await page.setViewportSize({ width: vp.width, height: vp.height });
+  // Emulate the device's safe-area insets (Chromium's env() is always 0).
+  // Injected :root wins the cascade over App.css's declaration — same
+  // specificity, later in document order.
+  await page.evaluate((ins) => {
+    let el = document.getElementById('e2e-safe-area') as HTMLStyleElement | null;
+    if (!el) {
+      el = document.createElement('style');
+      el.id = 'e2e-safe-area';
+      document.head.appendChild(el);
+    }
+    el.textContent = `:root { --safe-top: ${ins.top}px; --safe-bottom: ${ins.bottom}px; --safe-left: ${ins.left}px; --safe-right: ${ins.right}px; }`;
+  }, vp.insets);
+  // Let media queries, container queries, and canvas resize settle.
+  await page.waitForTimeout(150);
 }
 
 /** Sweep all viewports on the current screen; fail with every issue listed. */
 async function sweep(page: Page, screen: string, spec: ProbeSpec) {
   const failures: string[] = [];
   for (const vp of VIEWPORTS) {
-    await page.setViewportSize({ width: vp.width, height: vp.height });
-    // Emulate the device's safe-area insets (Chromium's env() is always 0).
-    // Injected :root wins the cascade over App.css's declaration — same
-    // specificity, later in document order.
-    await page.evaluate((ins) => {
-      let el = document.getElementById('e2e-safe-area') as HTMLStyleElement | null;
-      if (!el) {
-        el = document.createElement('style');
-        el.id = 'e2e-safe-area';
-        document.head.appendChild(el);
-      }
-      el.textContent = `:root { --safe-top: ${ins.top}px; --safe-bottom: ${ins.bottom}px; --safe-left: ${ins.left}px; --safe-right: ${ins.right}px; }`;
-    }, vp.insets);
-    // Let media queries, container queries, and canvas resize settle.
-    await page.waitForTimeout(150);
+    await applyViewport(page, vp);
     const issues = await probe(page, spec);
     if (issues.length) failures.push(`[${screen} @ ${vp.name} ${vp.width}x${vp.height}] ${issues.join(' | ')}`);
   }
@@ -182,6 +213,22 @@ test.beforeEach(async ({ page }) => {
     (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok"}' }),
   );
 });
+
+/** On a phone held upright the game's gear sits under Resign, at its right
+ *  edge, where the panel has room (the overlap check above holds anywhere). */
+async function expectGearUnderResign(page: Page) {
+  for (const vp of VIEWPORTS.filter((v) => v.width < 700)) {
+    await applyViewport(page, vp);
+    const [gear, resign] = await page.evaluate(() =>
+      [
+        document.querySelector('.settings-gear')!,
+        [...document.querySelectorAll('button')].find((b) => (b.textContent || '').trim() === 'Resign')!,
+      ].map((el) => el.getBoundingClientRect().toJSON() as DOMRect),
+    );
+    expect(gear.top - resign.bottom, `${vp.name}: the gear under Resign`).toBeGreaterThanOrEqual(4);
+    expect(Math.abs(gear.right - resign.right), `${vp.name}: at Resign's right edge`).toBeLessThanOrEqual(1);
+  }
+}
 
 /** Mark the one-time avatar pick as done so tests land on their target
  *  screen instead of the ChooseAvatarScreen gate. (A picked avatar also
@@ -208,9 +255,11 @@ test('game screen: board and controls fit at every viewport', async ({ page }) =
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.locator('.go-board-canvas').waitFor();
   await sweep(page, 'game', {
-    strict: ['.go-board-canvas', 'btn:Pass', 'btn:Resign', '.avatar-panel'],
+    strict: ['.go-board-canvas', 'btn:Pass', 'btn:Resign', '.avatar-panel', '.settings-gear'],
     square: ['.go-board-canvas'],
+    apart: [{ el: '.settings-gear', within: '.side-panel' }],
   });
+  await expectGearUnderResign(page);
 });
 
 test('game screen, late-game worst case: full trays + graph + all buttons', async ({ page }) => {
@@ -257,9 +306,12 @@ test('game screen, late-game worst case: full trays + graph + all buttons', asyn
   });
   await page.getByRole('button', { name: 'Finish Game' }).waitFor();
   await sweep(page, 'game-late', {
-    strict: ['.go-board-canvas', 'btn:Pass', 'btn:Resign', 'btn:Finish Game', '.avatar-panel'],
+    strict: ['.go-board-canvas', 'btn:Pass', 'btn:Resign', 'btn:Finish Game', '.avatar-panel', '.settings-gear'],
     square: ['.go-board-canvas'],
+    apart: [{ el: '.settings-gear', within: '.side-panel' }],
   });
+  // All four buttons share one row on a phone, so the gear's line fits.
+  await expectGearUnderResign(page);
 });
 
 test('replay: board fits, controls reachable at every viewport', async ({ page }) => {
@@ -897,6 +949,40 @@ for (const where of ['the web', 'a device too slow for its own bots'] as const) 
     });
   });
 }
+
+test('settings during a game: the online row says a change waits for the next game, and the tallest Settings fits', async ({ page }) => {
+  // The tallest Settings: a game in progress (the next-game line under
+  // "Bot plays online") while the capabilities answer has not come, so the
+  // human-style row says the bots are starting. The game starts on the
+  // device once the wait for the answer runs out (10 s).
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    (window as unknown as { kataGo: object }).kataGo = { ping: async () => ({ pong: true }), capabilities: () => new Promise(() => {}) };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.locator('.settings-cloud-bot .settings-note')).toHaveCount(0); // no game yet
+  await page.getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('button', { name: /Custom Match/ }).click();
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await expect(page.locator('.game-starting')).toHaveCount(0, { timeout: 15_000 });
+  await page.getByRole('button', { name: 'Resign' }).waitFor();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.locator('.settings-cloud-bot .settings-note')).toHaveText('Takes effect from your next game.');
+  await expect(page.locator('.settings-human-bots .settings-note')).toHaveText('Starting the bots…');
+  await sweep(page, 'settings-mid-game', {
+    strict: ['.dialog', 'btn:Close', '.settings-cloud-bot .settings-note', '.settings-human-bots .settings-note'],
+    noOverflow: ['.dialog'],
+    noBodyScroll: true,
+  });
+  // the line goes with the game
+  await page.getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('button', { name: 'Resign' }).click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click(); // the end card
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.locator('.settings-cloud-bot').waitFor();
+  await expect(page.locator('.settings-cloud-bot .settings-note')).toHaveCount(0);
+});
 
 test('a device too slow for its own bots: no Finish Game', async ({ page }) => {
   // The late-game state of the worst-case test above, on a device whose

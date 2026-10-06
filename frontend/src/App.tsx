@@ -557,7 +557,8 @@ function App() {
 
   return (
     <div className={'app' + (replayActive ? ' app-replay' : '')}>
-      <SettingsButton />
+      {/* A game's gear lives in its side panel (below). */}
+      {replayActive && <SettingsButton />}
       <header className="app-header">
         <h1 className="app-title">GoForKids</h1>
         <div className="header-controls">
@@ -633,38 +634,43 @@ function App() {
             <ReplayControls onClose={handleCloseReplay} />
           ) : (
             <>
-              <GameControls />
-              {/* Bot vs Bot spectator controls */}
-              {isBotVsBot && phase === 'playing' && (
-                <div className="spectator-controls">
-                  <button onClick={togglePause} className="btn btn-secondary">
-                    {botVsBotPaused ? 'Resume' : 'Pause'}
-                  </button>
-                  <div className="speed-control">
-                    <label>Speed</label>
-                    <div className="speed-buttons">
-                      <button
-                        className={`speed-btn ${botVsBotSpeed === 2000 ? 'active' : ''}`}
-                        onClick={() => setSpeed(2000)}
-                      >
-                        Slow
-                      </button>
-                      <button
-                        className={`speed-btn ${botVsBotSpeed === 800 ? 'active' : ''}`}
-                        onClick={() => setSpeed(800)}
-                      >
-                        Normal
-                      </button>
-                      <button
-                        className={`speed-btn ${botVsBotSpeed === 200 ? 'active' : ''}`}
-                        onClick={() => setSpeed(200)}
-                      >
-                        Fast
-                      </button>
+              <div className="side-panel-main">
+                <GameControls />
+                {/* Bot vs Bot spectator controls */}
+                {isBotVsBot && phase === 'playing' && (
+                  <div className="spectator-controls">
+                    <button onClick={togglePause} className="btn btn-secondary">
+                      {botVsBotPaused ? 'Resume' : 'Pause'}
+                    </button>
+                    <div className="speed-control">
+                      <label>Speed</label>
+                      <div className="speed-buttons">
+                        <button
+                          className={`speed-btn ${botVsBotSpeed === 2000 ? 'active' : ''}`}
+                          onClick={() => setSpeed(2000)}
+                        >
+                          Slow
+                        </button>
+                        <button
+                          className={`speed-btn ${botVsBotSpeed === 800 ? 'active' : ''}`}
+                          onClick={() => setSpeed(800)}
+                        >
+                          Normal
+                        </button>
+                        <button
+                          className={`speed-btn ${botVsBotSpeed === 200 ? 'active' : ''}`}
+                          onClick={() => setSpeed(200)}
+                        >
+                          Fast
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+              {/* In the panel's flow, beside or under its last control, so
+                  it never sits on one (App.css, .side-panel-main). */}
+              <SettingsButton />
             </>
           )}
         </aside>
