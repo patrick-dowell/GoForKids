@@ -24,6 +24,7 @@ import {
   boardFromGrid,
   pickLegalNonEyeMove,
   type AnalyzeOpts,
+  type BorderEngine,
   type HumanRoute,
   type PositionAnalysis,
   type MoveCandidate,
@@ -559,23 +560,27 @@ async function moveViaBridge(
       ? getHumanRung(targetRank, state.board_size, true) // this game lives on the device
       : undefined;
   const humanEval: HumanNetEval = { scoreLeadBefore: null, candidates: null };
+  // The position's engine calls: the human path's, and the standard path's
+  // border check before a pass (the scorer's ownership read and scoreAfter).
+  // A build without scoreAfter gets no border check and passes as before.
+  const positionEngine = humanNetEngine(
+    bridge,
+    {
+      boardSize: state.board_size,
+      komi: state.komi,
+      rules: 'japanese',
+      moves,
+      color: colorChar,
+    },
+    board,
+  );
+  const border: BorderEngine | undefined = bridge.scoreAfter ? positionEngine : undefined;
   let human: HumanRoute | undefined;
   if (humanRung) {
-    const engine = humanNetEngine(
-      bridge,
-      {
-        boardSize: state.board_size,
-        komi: state.komi,
-        rules: 'japanese',
-        moves,
-        color: colorChar,
-      },
-      board,
-    );
     const movesPlayed = movesPlayedExcludingHandicap(moves, options?.handicap ?? 0);
     human = {
       select: () =>
-        selectWithHumanNet(engine, board, color, humanRung, movesPlayed, {
+        selectWithHumanNet(positionEngine, board, color, humanRung, movesPlayed, {
           opponentPassed,
           evalOut: humanEval,
           log: logHuman,
@@ -589,6 +594,7 @@ async function moveViaBridge(
     neverPass: options?.neverPass,
     opponentPassed,
     human,
+    border,
   });
   const tAfterSelect = performance.now();
   engine.check();
