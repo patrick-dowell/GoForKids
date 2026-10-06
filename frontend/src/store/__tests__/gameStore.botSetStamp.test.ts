@@ -44,6 +44,7 @@ import { _resetDeviceCapabilities, readDeviceCapabilities, useCapabilitiesStore 
 import { clearSelectorLog, snapshotSelectorLog } from '../../ai/selectorLog';
 import { Color } from '../../engine/types';
 import { api } from '../../api/client';
+import { localGameRouter } from '../../api/localGameRouter';
 
 /**
  * Every game's first log line stamps the bot's knobs; it also says which
@@ -215,7 +216,8 @@ describe('a bot move tells the bridge path how many handicap stones lead the mov
 describe('the game log follows the set a bot move actually plays from', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(api.createGame).mockResolvedValue({ game_id: 'abcd1234' } as never);
+    // A game on the device, as the real client creates it with the bridge in use.
+    vi.mocked(api.createGame).mockImplementation(async (o) => localGameRouter.createGame(o ?? {}));
     vi.mocked(api.getAIMove).mockResolvedValue({ point: { row: -1, col: -1 }, captures: [] } as never);
     (globalThis as { window?: unknown }).window = { kataGo: { ping: async () => ({ pong: true }) } };
     useCapabilitiesStore.setState({ capabilities: null });
@@ -256,6 +258,16 @@ describe('the game log follows the set a bot move actually plays from', () => {
       gameMode: 'ai',
       playerColor: Color.Black,
     });
+    await useGameStore.getState().requestAIMove();
+    expect(snapshotSelectorLog().some((l) => l.includes('[game] set changed'))).toBe(false);
+  });
+
+  it('a game on the server stays standard whatever the device could play', async () => {
+    vi.mocked(api.createGame).mockResolvedValue({ game_id: 'srv00001' } as never);
+    useCapabilitiesStore.setState({ capabilities: { localBots: true, evalsPerSecond: 40, humanModel: true } });
+    useSettingsStore.getState().setCloudBot(true);
+    await useGameStore.getState().newGame({ boardSize: 9, targetRank: '15k', useBackend: true, gameMode: 'ai', playerColor: Color.Black });
+    useSettingsStore.getState().setCloudBot(false);
     await useGameStore.getState().requestAIMove();
     expect(snapshotSelectorLog().some((l) => l.includes('[game] set changed'))).toBe(false);
   });

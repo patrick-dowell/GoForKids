@@ -1223,9 +1223,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       );
       // The set this move plays from, as client.ts routes it; a line when it
       // is not the one the log last named.
-      // As client.ts onDevice: the game's own bot plays where the game lives.
+      // As client.ts onDevice: the game's bot plays where the game lives,
+      // and a server game's bot is always the standard set.
       const onDevice = getNativeBridge() !== null && localGameRouter.has(gameId);
-      const moveSet = botSetStamp(neverPass ? undefined : getHumanRung(targetRank, _game.board.size, onDevice));
+      const moveSet = botSetStamp(neverPass || !onDevice ? undefined : getHumanRung(targetRank, _game.board.size, true));
       if (moveSet !== loggedBotSet) {
         recordSelectorLog(`[game] set changed at move ${_game.moveHistory.length + 1}: ${moveSet}`);
         loggedBotSet = moveSet;

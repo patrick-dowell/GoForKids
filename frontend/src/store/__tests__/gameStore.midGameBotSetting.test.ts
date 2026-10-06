@@ -223,4 +223,16 @@ describe('"Bot plays online" flipped mid-game, then the game ends or the human s
     expect(server.paths()).toEqual([]);
     expect(store.getState().gameId).toMatch(/^[0-9a-f]{8}$/);
   });
+
+  it('a server game stays standard in the log after the setting turns off: the server plays it', async () => {
+    const b = installBridge(true);
+    const server = installServer();
+    const { useSettingsStore, playAndAwaitBot, log } = await boot(true, true);
+    await playAndAwaitBot(4, 4);
+    useSettingsStore.getState().setCloudBot(false);
+    await playAndAwaitBot(4, 2);
+    expect(server.paths().filter((p) => p.endsWith('/ai-move'))).toHaveLength(2);
+    expect(b.humanPolicy).not.toHaveBeenCalled();
+    expect(log.snapshotSelectorLog().filter((l) => l.includes('set changed'))).toEqual([]);
+  });
 });
