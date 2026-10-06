@@ -157,6 +157,18 @@ describe('the capabilities answer in the game log', () => {
     expect(lines()[1]).toBe('[capabilities] none: this build has no capabilities()');
   });
 
+  it('_resetDeviceCapabilities forgets the line and the read, for the next test', async () => {
+    const b = installBridge();
+    const { caps } = await load();
+    const read = caps.readDeviceCapabilities();
+    b.answer({ localBots: true, evalsPerSecond: 63.5, humanModel: true });
+    await read;
+    expect(caps.capabilitiesLogLine()).toMatch(/^\[capabilities\] evalsPerSecond=63.5 /);
+    caps._resetDeviceCapabilities();
+    expect(caps.capabilitiesLogLine()).toBeNull();
+    expect(caps.useCapabilitiesStore.getState().readDone).toBe(false);
+  });
+
   it('the web: no line', async () => {
     const { caps, lines, startGame } = await load();
     await caps.readDeviceCapabilities();

@@ -215,9 +215,10 @@ test.beforeEach(async ({ page }) => {
 });
 
 /** On a phone held upright the game's gear sits under Resign, at its right
- *  edge, where the panel has room (the overlap check above holds anywhere). */
+ *  edge, where the panel has room (the overlap check above holds anywhere);
+ *  elsewhere it sits level with Resign or lower, never up by the graph. */
 async function expectGearUnderResign(page: Page) {
-  for (const vp of VIEWPORTS.filter((v) => v.width < 700)) {
+  for (const vp of VIEWPORTS) {
     await applyViewport(page, vp);
     const [gear, resign] = await page.evaluate(() =>
       [
@@ -225,8 +226,12 @@ async function expectGearUnderResign(page: Page) {
         [...document.querySelectorAll('button')].find((b) => (b.textContent || '').trim() === 'Resign')!,
       ].map((el) => el.getBoundingClientRect().toJSON() as DOMRect),
     );
-    expect(gear.top - resign.bottom, `${vp.name}: the gear under Resign`).toBeGreaterThanOrEqual(4);
-    expect(Math.abs(gear.right - resign.right), `${vp.name}: at Resign's right edge`).toBeLessThanOrEqual(1);
+    if (vp.width < 700) {
+      expect(gear.top - resign.bottom, `${vp.name}: the gear under Resign`).toBeGreaterThanOrEqual(4);
+      expect(Math.abs(gear.right - resign.right), `${vp.name}: at Resign's right edge`).toBeLessThanOrEqual(1);
+    } else {
+      expect(gear.bottom, `${vp.name}: the gear level with Resign or lower`).toBeGreaterThanOrEqual(resign.bottom - 1);
+    }
   }
 }
 
@@ -258,6 +263,7 @@ test('game screen: board and controls fit at every viewport', async ({ page }) =
     strict: ['.go-board-canvas', 'btn:Pass', 'btn:Resign', '.avatar-panel', '.settings-gear'],
     square: ['.go-board-canvas'],
     apart: [{ el: '.settings-gear', within: '.side-panel' }],
+    noOverflow: ['html'], // the page itself never scrolls
   });
   await expectGearUnderResign(page);
 });
@@ -309,6 +315,7 @@ test('game screen, late-game worst case: full trays + graph + all buttons', asyn
     strict: ['.go-board-canvas', 'btn:Pass', 'btn:Resign', 'btn:Finish Game', '.avatar-panel', '.settings-gear'],
     square: ['.go-board-canvas'],
     apart: [{ el: '.settings-gear', within: '.side-panel' }],
+    noOverflow: ['html'], // the page itself never scrolls
   });
   // All four buttons share one row on a phone, so the gear's line fits.
   await expectGearUnderResign(page);
@@ -322,7 +329,7 @@ test('replay: board fits, controls reachable at every viewport', async ({ page }
   // Policy: replay is NOT one of the two sanctioned scroll screens — the
   // board and the full control panel must fit outright.
   await sweep(page, 'replay', {
-    strict: ['.go-board-canvas', '.replay-controls', 'btn:Download SGF'],
+    strict: ['.go-board-canvas', '.replay-controls', 'btn:Download SGF', '.settings-gear'],
     square: ['.go-board-canvas'],
   });
 });
