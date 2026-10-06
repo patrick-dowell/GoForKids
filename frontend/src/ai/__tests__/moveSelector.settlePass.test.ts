@@ -129,12 +129,14 @@ describe('territory passing is SETTLE-only (DX4QAWTT)', () => {
   });
 });
 
+// The bot is White and leads are Black's: White's gain on the pass is the
+// pass's lead minus the move's.
 describe('settle path (opponent passed)', () => {
   it('passes when the best move beats pass by less than 0.75', async () => {
     holder.profile = { ...BASE };
     const board = boardFromGrid(emptyGrid(9), 9);
     const analyze = analyzeWith([
-      cand(4, 4, 0, 5.4, 0.5, 60),
+      cand(4, 4, 0, 4.6, 0.5, 60),
       passCand(1, 5.0, 30), // best beats pass by only 0.4
     ]);
     for (let run = 0; run < 10; run++) {
@@ -148,7 +150,7 @@ describe('settle path (opponent passed)', () => {
     holder.profile = { ...BASE };
     const board = boardFromGrid(emptyGrid(9), 9);
     const analyze = analyzeWith([
-      cand(4, 4, 0, 7.0, 0.5, 60),
+      cand(4, 4, 0, 3.0, 0.5, 60), // White gains 2
       passCand(1, 5.0, 30),
     ]);
     for (let run = 0; run < 10; run++) {
@@ -162,7 +164,7 @@ describe('settle path (opponent passed)', () => {
     holder.profile = { ...BASE };
     const board = settledBoard();
     const analyze = analyzeWith([
-      cand(4, 2, 0, 9.0, 0.7, 60), // own-territory fill, "beats pass" on paper
+      cand(4, 2, 0, 1.0, 0.7, 60), // own-territory fill, "beats pass" by 4 on paper
       passCand(1, 5.0, 30),
     ]);
     for (let run = 0; run < 10; run++) {

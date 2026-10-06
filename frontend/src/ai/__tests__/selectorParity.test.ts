@@ -17,6 +17,10 @@
  * already in the file (never an unexplained disagreement), and the file's diff
  * is the review.
  *
+ * The engine's answers are fed in the order recorded, and each request must
+ * match: on the standard path the analysis, then (when it is about to pass)
+ * the border check's ownership read and its scoring queries.
+ *
  * How the draws are fed (backend/tests/selector_parity_harness.py has the
  * Python half): `u` is one uniform per Math.random() call (the injected
  * RandomSource's `random`); `g` is one standard normal per gaussian() call
@@ -36,6 +40,7 @@ import {
   _setRandomSource,
   _setReadCooldown,
   type AnalyzeOpts,
+  type BorderEngine,
   type PositionAnalysis,
 } from '../moveSelector';
 import { selectWithHumanNet, type HumanNetEngine, type HumanNetProfile } from '../humanNetSelector';
@@ -138,23 +143,33 @@ interface Outcome {
   problems: string[];
 }
 
+/** The case's recorded answers, in order; a request that differs from the
+ *  recorded one (or runs past them) is a problem, and throws. */
+function answerFeed(c: BaseCase, problems: string[]) {
+  let asked = 0;
+  const next = (kind: string, req: Record<string, unknown>): Answer => {
+    const a = c.answers[asked];
+    const want = a ? Object.fromEntries(Object.keys(req).map((k) => [k, a[k]])) : null;
+    if (!a || a.kind !== kind || JSON.stringify(want) !== JSON.stringify(req)) {
+      problems.push(`asked ${kind} ${JSON.stringify(req)}, recorded ${a ? `${a.kind} ${JSON.stringify(want)}` : 'nothing'}`);
+      throw new Error('answer mismatch');
+    }
+    asked += 1;
+    return a;
+  };
+  return { next, asked: () => asked };
+}
+
+const ownershipOf = (a: Answer) => [...(a.own as string)].map((ch) => OWN_LEVELS[Number(ch)]);
+
 async function runStandard(c: StandardCase): Promise<Outcome & { cls: string; ts: Pick }> {
   const color = colorOf(c);
   const u = new Feed(c.u);
   const g = new Feed(c.g);
-  const analyses = c.answers.filter((a) => a.kind === 'analysis');
   const problems: string[] = [];
-  let asked = 0;
+  const feed = answerFeed(c, problems);
   const analyze = async (visits: number, opts?: AnalyzeOpts): Promise<PositionAnalysis> => {
-    const a = analyses[asked++];
-    if (!a) {
-      problems.push('asked for an analysis past the recorded ones');
-      throw new Error('no recorded analysis');
-    }
-    const wrn = opts?.wideRootNoise ?? null;
-    if (a.visits !== visits || a.wrn !== wrn) {
-      problems.push(`analysis at visits ${visits} wrn ${wrn}, recorded ${a.visits} ${a.wrn}`);
-    }
+    const a = feed.next('analysis', { visits, wrn: opts?.wideRootNoise ?? null });
     const rows = a.cands as [number, number, number, number, number, number][];
     return {
       rootVisits: 0,
@@ -162,6 +177,13 @@ async function runStandard(c: StandardCase): Promise<Outcome & { cls: string; ts
         move: { row, col }, visits: v, winrate: w, scoreLead: s, prior: p, order,
       })),
     };
+  };
+  const border: BorderEngine = {
+    ownership: async () => ownershipOf(feed.next('ownership', {})),
+    scoreAfter: async (move, visits) => {
+      const a = feed.next('score', { move: move === 'pass' ? 'pass' : gtp(move, c.size), visits });
+      return { scoreLead: a.lead as number, winrate: 0.5 };
+    },
   };
   mocked.profile = profileOf(c) as unknown as RankProfile;
   _setRandomSource({ random: u.next, gaussian: g.next });
@@ -172,6 +194,7 @@ async function runStandard(c: StandardCase): Promise<Outcome & { cls: string; ts
     const last = c.last_opp ? { row: c.last_opp[0], col: c.last_opp[1] } : null;
     ts = pickOf(await selectAiMove(boardOf(c), color, c.rung, last, analyze, {
       opponentPassed: c.opponent_passed,
+      border,
     }));
   } finally {
     _setRandomSource(null);
@@ -183,7 +206,7 @@ async function runStandard(c: StandardCase): Promise<Outcome & { cls: string; ts
   }
   if (!u.exact) problems.push(`uniforms used ${u.used + u.overrun} of ${c.u.length}`);
   if (!g.exact) problems.push(`normals used ${g.used + g.overrun} of ${c.g.length}`);
-  if (asked !== analyses.length) problems.push(`analyses asked ${asked} of ${analyses.length}`);
+  if (feed.asked() !== c.answers.length) problems.push(`answers asked ${feed.asked()} of ${c.answers.length}`);
   const ok = problems.length === 0;
   return {
     id: c.id,
@@ -191,21 +214,14 @@ async function runStandard(c: StandardCase): Promise<Outcome & { cls: string; ts
     ok,
     problems,
     ts,
-    cls: ok ? '' : classifyStandard(c, ts),
+    cls: ok ? '' : classifyStandard(c),
   };
 }
 
-/** The cause of a standard-path disagreement, from what the Python's run saw
- *  and what the TypeScript returned. */
-function classifyStandard(c: StandardCase, ts: Pick): string {
-  const border = c.trace.includes('border-closed');
+/** The cause of a standard-path disagreement, from what the Python's run saw. */
+function classifyStandard(c: StandardCase): string {
   if (c.trace.includes('no-candidates')) return 'no-candidates';
-  if (c.trace.includes('top-pass')) {
-    // The TypeScript passed too: only the border check is missing.
-    if (border && ts === null) return 'border';
-    return border ? 'top-pass-then-border' : 'top-pass';
-  }
-  if (border && ts === null) return 'border';
+  if (c.trace.includes('top-pass')) return 'top-pass';
   return 'unexplained';
 }
 
@@ -226,19 +242,8 @@ async function runHuman(c: HumanCase): Promise<Outcome> {
   const u = new Feed(c.u);
   const problems: string[] = [];
   const n = c.size * c.size;
-  let asked = 0;
-  const next = (kind: string, req: Record<string, unknown>): Answer => {
-    const a = c.answers[asked];
-    const want = a ? Object.fromEntries(Object.keys(req).map((k) => [k, a[k]])) : null;
-    if (!a || a.kind !== kind || JSON.stringify(want) !== JSON.stringify(req)) {
-      problems.push(`asked ${kind} ${JSON.stringify(req)}, recorded ${a ? `${a.kind} ${JSON.stringify(want)}` : 'nothing'}`);
-      throw new Error('answer mismatch');
-    }
-    asked += 1;
-    return a;
-  };
-  const first = c.answers[0];
-  const own = [...(first.own as string)].map((ch) => OWN_LEVELS[Number(ch)]);
+  const { next, asked } = answerFeed(c, problems);
+  const own = ownershipOf(c.answers[0]);
   const engine: HumanNetEngine = {
     humanPolicy: async (name, visits) => {
       const a = next('human', { name, visits });
@@ -262,7 +267,7 @@ async function runHuman(c: HumanCase): Promise<Outcome> {
   const want = JSON.stringify([c.handled, c.pick]);
   if (got !== want) problems.push(`got ${got}, the Python ${want}`);
   if (!u.exact) problems.push(`uniforms used ${u.used + u.overrun} of ${c.u.length}`);
-  if (asked !== c.answers.length) problems.push(`answers asked ${asked} of ${c.answers.length}`);
+  if (asked() !== c.answers.length) problems.push(`answers asked ${asked()} of ${c.answers.length}`);
   return {
     id: c.id,
     label: `${c.id} ${c.rung} ${c.variant} ${c.color}${c.opponent_passed ? ' after a pass' : ''}`,
@@ -315,6 +320,36 @@ describe('selector parity: standard path (moveSelector.ts against _select_with_k
       entry.cases = results.filter((r) => !r.ok && r.cls === cls).map((r) => r.id);
     }
     writeFileSync(EXPECTED_URL, `${JSON.stringify(EXPECTED, null, 1)}\n`);
+  });
+});
+
+describe('the parity harness itself', () => {
+  const fake = { answers: [{ kind: 'analysis', visits: 16, wrn: null }, { kind: 'ownership' }] } as unknown as BaseCase;
+
+  it('answers a request that matches the recorded one, and refuses one that does not', () => {
+    for (const [kind, req] of [
+      ['ownership', {}],
+      ['analysis', { visits: 17, wrn: null }],
+      ['analysis', { visits: 16, wrn: 0.5 }],
+    ] as Array<[string, Record<string, unknown>]>) {
+      const problems: string[] = [];
+      expect(() => answerFeed(fake, problems).next(kind, req)).toThrow();
+      expect(problems).toHaveLength(1);
+    }
+    const problems: string[] = [];
+    const feed = answerFeed(fake, problems);
+    expect(feed.next('analysis', { visits: 16, wrn: null }).kind).toBe('analysis');
+    expect(feed.next('ownership', {}).kind).toBe('ownership');
+    expect(() => feed.next('score', { move: 'pass', visits: 4 })).toThrow(); // past the recorded ones
+    expect([feed.asked(), problems.length]).toEqual([2, 1]);
+  });
+
+  it('a disagreement outside the pinned causes is unexplained', () => {
+    const cls = (trace: string[]) => classifyStandard({ trace } as StandardCase);
+    expect(cls([])).toBe('unexplained');
+    expect(cls(['border-closed'])).toBe('unexplained');
+    expect(cls(['border-closed', 'top-pass'])).toBe('top-pass');
+    expect(cls(['border-closed', 'no-candidates'])).toBe('no-candidates');
   });
 });
 

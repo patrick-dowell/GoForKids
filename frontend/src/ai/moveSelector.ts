@@ -12,6 +12,8 @@
  * bridge) — it does NOT call KataGo itself. That keeps the selector pure-
  * synchronous logic with one async escape hatch: if we discover we need a
  * fresh analysis after an eye-fill rejection, the caller can re-invoke us.
+ * The exception is the border check before a pass (passOrCloseBorder), which
+ * reads the position through the caller's `border` engine calls.
  */
 
 import {
@@ -25,7 +27,13 @@ import {
 import { Board } from '../engine/Board';
 import { getProfile, type RankProfile } from './profileLoader';
 import { recordSelectorLog } from './selectorLog';
-import type { HumanNetResult } from './humanNetSelector';
+import {
+  BORDER_MAX_QUERIES,
+  HUMAN_BORDER_GAIN,
+  borderMoves,
+  type HumanNetEngine,
+  type HumanNetResult,
+} from './humanNetSelector';
 
 /** Single candidate from KataGo analysis — mirrors the Python MoveCandidate. */
 export interface MoveCandidate {
@@ -302,7 +310,17 @@ export interface SelectAiMoveOptions {
    *  (client.ts getAIMoveViaBridge); absent, the selector is exactly the
    *  standard one. */
   human?: HumanRoute;
+  /** The border check's engine calls, bound to the position by the caller
+   *  (the human path's ownership read and scoreAfter). Absent, or a failed
+   *  call, leaves every pass a pass. */
+  border?: BorderEngine;
 }
+
+/** What the standard path's border check asks of the engine: the ownership
+ *  of the position (Black +, size² values; on the device the scorer's own
+ *  read, where the Python takes a 1-visit read) and the main net's lead
+ *  (Black's) after the side to move plays a move or passes. */
+export type BorderEngine = Pick<HumanNetEngine, 'ownership' | 'scoreAfter'>;
 
 /** The human SL path for one move, as the server routes it
  *  (`_select_ai_move_inner`): `select` runs humanNetSelector.ts's
@@ -319,6 +337,10 @@ export interface HumanRoute {
  *  search lets KataGo surface pass at a settled position. Matches the
  *  Python `SETTLE_VISITS`. */
 const SETTLE_VISITS = 100;
+
+/** The visits each border move and the pass are scored at: the Python's
+ *  BORDER_SCORE_VISITS (the human path's default human_score_visits). */
+const BORDER_SCORE_VISITS = 4;
 
 /** Extra analysis knobs the selector can request per call. */
 export interface AnalyzeOpts {
@@ -396,6 +418,8 @@ async function selectAiMoveInner(
     }
   }
 
+  let analysis: PositionAnalysis;
+  let move: SelectionResult;
   try {
     // Opponent passed → settle cleanly: deeper search so pass surfaces, and
     // selectWithKataGo skips mistake injection (see options.opponentPassed there).
@@ -405,12 +429,69 @@ async function selectAiMoveInner(
     const wrn = profile.wide_root_noise ?? 0;
     const analysisOpts: AnalyzeOpts | undefined =
       wrn > 0 && !options.opponentPassed ? { wideRootNoise: wrn } : undefined;
-    const analysis = await analyze(visits, analysisOpts);
-    return selectWithKataGo(board, color, profile, analysis, lastOpponentMove, options);
+    analysis = await analyze(visits, analysisOpts);
+    move = selectWithKataGo(board, color, profile, analysis, lastOpponentMove, options);
   } catch {
     // KataGo unreachable — fall back to a random legal move so the game
     // doesn't lock up. Same behavior as the Python's except-clause.
     return pickRandomLegal(board, color);
+  }
+  // Every null from selectWithKataGo is one of the Python's `_pass()` sites.
+  return move ?? passOrCloseBorder(board, color, profile, analysis, options.border);
+}
+
+/** The Python's `_pass()` on the standard path (its `_close_border` with no
+ *  loss cap): pass, unless a move closes a region the game's count gives to
+ *  nobody. The moves that raise the mover's count by `human_border_gain`
+ *  (default 1; Infinity switches it off) or more are taken largest gain
+ *  first, ties to the search's prior, at most BORDER_MAX_QUERIES of them;
+ *  they and the pass are scored at BORDER_SCORE_VISITS, and the largest gain
+ *  that loses no more than itself against the pass is played. A missing
+ *  engine, read or answer leaves the pass. */
+async function passOrCloseBorder(
+  board: Board,
+  color: Stone,
+  profile: RankProfile,
+  analysis: PositionAnalysis,
+  engine: BorderEngine | undefined,
+): Promise<SelectionResult> {
+  const minGain = profile.human_border_gain ?? HUMAN_BORDER_GAIN;
+  if (minGain === Infinity || !engine) return null;
+  const size = board.size;
+  const n = size * size;
+  const at = (i: number): Point => ({ row: Math.floor(i / size), col: i % size });
+  try {
+    const ownership = await engine.ownership?.();
+    if (!ownership || ownership.length < n) return null;
+    const priors = new Map<number, number>();
+    for (const c of analysis.candidates) {
+      if (c.move.row >= 0) priors.set(c.move.row * size + c.move.col, c.prior);
+    }
+    const prior = (i: number) => priors.get(i) ?? 0;
+    // Largest gain first, then the likelier move, then index order (stable).
+    const found = borderMoves(board, color, ownership, minGain)
+      .sort((a, b) => b[0] - a[0] || prior(b[1]) - prior(a[1]))
+      .slice(0, BORDER_MAX_QUERIES);
+    if (found.length === 0) return null;
+    const todo = [...found.map(([, i]) => i), n];
+    const answers = await Promise.all(
+      todo.map((i) => engine.scoreAfter(i === n ? 'pass' : at(i), BORDER_SCORE_VISITS)),
+    );
+    const sign = color === Color.Black ? 1 : -1;
+    const value = new Map(todo.map((i, j) => [i, sign * answers[j].scoreLead]));
+    const passed = value.get(n)!;
+    const pick = found.find(([g, i]) => passed - value.get(i)! <= g);
+    if (!pick) {
+      logPass('border-moves-lose-more-than-their-gain');
+      return null;
+    }
+    const line = `[selector] closed a border at (${at(pick[1]).row},${at(pick[1]).col}) instead of passing, +${pick[0]} by the game's count`;
+    console.log(line);
+    recordSelectorLog(line);
+    return at(pick[1]);
+  } catch (e) {
+    logPass(`border-check-failed (${String(e)})`);
+    return null;
   }
 }
 
@@ -633,12 +714,14 @@ export function selectWithKataGo(
   // we trust its score estimate. Below that, score_lead is just the value-
   // network prior with no search refinement.
   const minPassVisits = Math.max(4, Math.floor(best.visits / 10));
+  // Leads are Black's; `mover` turns a gap into the bot's own.
+  const mover = color === Color.Black ? 1 : -1;
   if (
     !isOpening &&
     !options.neverPass &&
     passCand !== null &&
     passCand.visits >= minPassVisits &&
-    best.scoreLead - passCand.scoreLead < effPassThreshold
+    mover * (best.scoreLead - passCand.scoreLead) < effPassThreshold
   ) {
     logPass('pass-threshold');
     return null;
@@ -748,7 +831,7 @@ export function selectWithKataGo(
   const nonPass = candidates.filter((c) => c.move.row >= 0);
   if (
     nonPass.length >= 2 &&
-    nonPass[0].scoreLead - nonPass[1].scoreLead >= clarityScoreGap
+    mover * (nonPass[0].scoreLead - nonPass[1].scoreLead) >= clarityScoreGap
   ) {
     return { row: nonPass[0].move.row, col: nonPass[0].move.col };
   }
@@ -851,7 +934,7 @@ export function selectWithKataGo(
   // user's priority is "bot keeps playing while the kid is playing,"
   // not "bot plays optimal endgame."
   if (!options.neverPass && passCand !== null && passCand.visits >= minPassVisits) {
-    filtered = filtered.filter((f) => f.c.scoreLead >= passCand!.scoreLead - passThreshold);
+    filtered = filtered.filter((f) => mover * f.c.scoreLead >= mover * passCand!.scoreLead - passThreshold);
   }
 
   if (filtered.length === 0) {
