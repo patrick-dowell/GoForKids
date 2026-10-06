@@ -4,7 +4,7 @@ import { Board } from '../engine/Board';
 import { Color, type Point, type GameResult, MoveResult, BOARD_SIZE } from '../engine/types';
 import { api, type AIMoveDTO } from '../api/client';
 import { getHumanRung, getKataGoBridge, getNativeBridge, toGtp } from '../api/nativeKataGo';
-import { botRoutingKnown, onlineBotsOnly, whenBotRoutingKnown } from './capabilitiesStore';
+import { botRoutingKnown, capabilitiesLogLine, onlineBotsOnly, whenBotRoutingKnown } from './capabilitiesStore';
 import { playPlaceSound, playCaptureSound, playPassSound, playGameEndSound, resumeAudio } from '../audio/SoundManager';
 import { useLibraryStore, type SavedGame } from './libraryStore';
 import { clearSelectorLog, recordSelectorLog, snapshotSelectorLog } from '../ai/selectorLog';
@@ -755,6 +755,9 @@ export const useGameStore = create<GameState>((set, get) => ({
         `rank=${options?.targetRank ?? '15k'} mode=${options?.gameMode ?? 'ai'} ` +
         `bridge=${onDevice ? 'yes' : 'no'}${movesStamp}`,
     );
+    // The device's capabilities answer, so a shared game carries it.
+    const capsLine = capabilitiesLogLine();
+    if (capsLine) recordSelectorLog(capsLine);
 
     const requestedSize = options?.boardSize ?? BOARD_SIZE;
     // 5 is supported for the lesson 5 first-game flow; the rest are full-game sizes.

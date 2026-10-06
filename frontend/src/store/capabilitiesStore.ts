@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { KataGoBridge } from '../api/nativeKataGo';
+import { recordSelectorLog } from '../ai/selectorLog';
 import { useSettingsStore } from './settingsStore';
 
 /**
@@ -25,11 +26,15 @@ interface CapabilitiesState {
    *  answer then governs every new game, and a game already running on the
    *  device stays there (client.ts routes a game's calls by where it lives). */
   settled: boolean;
+  /** The bridge's own read is over: it answered, failed, or lacks the call.
+   *  Unlike `settled`, a wait that runs out does not set it. */
+  readDone: boolean;
 }
 
 export const useCapabilitiesStore = create<CapabilitiesState>(() => ({
   capabilities: null,
   settled: false,
+  readDone: false,
 }));
 
 function injectedBridge(): KataGoBridge | undefined {
@@ -37,26 +42,52 @@ function injectedBridge(): KataGoBridge | undefined {
 }
 
 let reading: Promise<void> | null = null;
+/** When the read was asked and its game-log line once it is over, in ms
+ *  since the app started (performance.now()). */
+let askedAt: number | null = null;
+let readLine: string | null = null;
 
 /** Ask the bridge once; later calls return the first call's promise. */
 export function readDeviceCapabilities(): Promise<void> {
   if (!reading) {
     reading = (async () => {
+      const bridge = injectedBridge();
+      if (bridge) askedAt = performance.now();
       try {
-        const bridge = injectedBridge();
-        if (!bridge || typeof bridge.capabilities !== 'function') return;
+        if (!bridge) return;
+        if (typeof bridge.capabilities !== 'function') {
+          readLine = '[capabilities] none: this build has no capabilities()';
+          return;
+        }
         try {
           const caps = await bridge.capabilities();
           useCapabilitiesStore.setState({ capabilities: caps ?? null });
+          readLine =
+            `[capabilities] evalsPerSecond=${caps?.evalsPerSecond} localBots=${caps?.localBots} ` +
+            `humanModel=${caps?.humanModel} answered=${ms(performance.now())} after app start (asked at ${ms(askedAt!)})`;
         } catch (e) {
           console.warn('[capabilities] the bridge could not report them:', e);
+          readLine =
+            `[capabilities] failed at ${ms(performance.now())} after app start (asked at ${ms(askedAt!)}): ` +
+            `${e instanceof Error ? e.message : String(e)}`;
         }
       } finally {
-        useCapabilitiesStore.setState({ settled: true });
+        // A game in progress carries the line; later games write it again.
+        if (readLine) recordSelectorLog(readLine);
+        useCapabilitiesStore.setState({ settled: true, readDone: true });
       }
     })();
   }
   return reading;
+}
+
+const ms = (t: number) => `${Math.round(t)}ms`;
+
+/** The capabilities line for a game's log (under its start line), or null
+ *  on the web. Before the answer it says none has come yet. */
+export function capabilitiesLogLine(): string | null {
+  if (askedAt === null) return null;
+  return readLine ?? `[capabilities] no answer yet (asked at ${ms(askedAt)})`;
 }
 
 /** The bridge reported the human SL model loaded. */
@@ -81,6 +112,22 @@ export function onlineBotsOnly(): boolean {
 
 export function useOnlineBotsOnly(): boolean {
   return useCapabilitiesStore(onlineOnly);
+}
+
+/** What the "Human-style bots" row can be on this device: none (the web),
+ *  starting (no answer yet), online (held to the online bots), ready (the
+ *  human model is there), or unavailable (anything else). */
+export type HumanBotsAvailability = 'none' | 'starting' | 'online' | 'ready' | 'unavailable';
+
+function humanBotsAvailability(s: CapabilitiesState): HumanBotsAvailability {
+  if (!injectedBridge()) return 'none';
+  if (s.capabilities?.localBots === false) return 'online';
+  if (!s.readDone) return 'starting';
+  return s.capabilities?.humanModel === true ? 'ready' : 'unavailable';
+}
+
+export function useHumanBotsAvailability(): HumanBotsAvailability {
+  return useCapabilitiesStore(humanBotsAvailability);
 }
 
 /** The effective "Bot plays online": the device's lock, or the stored choice. */
@@ -132,5 +179,7 @@ export function whenBotRoutingKnown(): Promise<void> {
 export function _resetDeviceCapabilities(): void {
   reading = null;
   waiting = null;
-  useCapabilitiesStore.setState({ capabilities: null, settled: false });
+  askedAt = null;
+  readLine = null;
+  useCapabilitiesStore.setState({ capabilities: null, settled: false, readDone: false });
 }

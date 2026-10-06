@@ -803,7 +803,7 @@ test('settings: the human-style row turns the setting on, and it is kept', async
   await expect(page.getByRole('checkbox', { name: 'Human-style bots' })).toBeChecked();
 });
 
-test('settings without the human model: no human-style row', async ({ page }) => {
+test('settings without the human model: the human-style row stays, greyed, saying so', async ({ page }) => {
   await seedPickedProfile(page);
   await page.addInitScript(() => {
     (window as unknown as { kataGo: object }).kataGo = {
@@ -814,8 +814,35 @@ test('settings without the human model: no human-style row', async ({ page }) =>
   await page.goto('/');
   await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
   await page.getByRole('button', { name: 'Settings' }).click();
-  await page.locator('.settings-cloud-bot').waitFor();
-  await expect(page.locator('.settings-human-bots')).toHaveCount(0);
+  await expect(page.locator('.settings-human-bots .settings-note')).toHaveText('Not available on this device.');
+  await expect(page.getByRole('checkbox', { name: 'Human-style bots' })).toBeDisabled();
+  await expect(page.getByRole('checkbox', { name: 'Human-style bots' })).not.toBeChecked();
+});
+
+test('settings before the capabilities answer: the human-style row is there at once, greyed, until the answer', async ({ page }) => {
+  // A version's first launch: the answer waits on the engine's start. The
+  // fake bridge answers when the test says so.
+  await seedPickedProfile(page);
+  await page.addInitScript(() => {
+    const w = window as unknown as { kataGo: object; answerCaps: () => void };
+    let answer: (c: object) => void = () => {};
+    w.answerCaps = () => answer({ localBots: true, evalsPerSecond: 40, humanModel: true });
+    w.kataGo = { ping: async () => ({ pong: true }), capabilities: () => new Promise((r) => (answer = r)) };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: /Learn to Play/ }).waitFor();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const box = page.getByRole('checkbox', { name: 'Human-style bots' });
+  await expect(page.locator('.settings-human-bots .settings-note')).toHaveText('Starting the bots…');
+  await expect(box).toBeDisabled();
+  await sweep(page, 'settings-starting', {
+    strict: ['.dialog', 'btn:Close', '.settings-cloud-bot', '.settings-human-bots', '.settings-human-bots .settings-note'],
+    noOverflow: ['.dialog'],
+    noBodyScroll: true,
+  });
+  await page.evaluate(() => (window as unknown as { answerCaps: () => void }).answerCaps());
+  await expect(box).toBeEnabled();
+  await expect(page.locator('.settings-human-bots .settings-note')).toHaveCount(0);
 });
 
 // Where the bots can only play online (the web, or a device whose engine
@@ -839,24 +866,32 @@ for (const where of ['the web', 'a device too slow for its own bots'] as const) 
     await page.locator('.settings-cloud-bot.locked').waitFor();
     const box = page.getByRole('checkbox', { name: 'Bot plays online' });
     await expect(box).toBeChecked();
-    await expect(page.locator('.settings-note')).toHaveCount(0);
+    await expect(page.locator('.settings-cloud-bot .settings-note')).toHaveCount(0);
     await box.click();
     await expect(box).toBeChecked();
-    await expect(page.locator('.settings-note')).toHaveText('The bot always plays online here.');
+    await expect(page.locator('.settings-cloud-bot .settings-note')).toHaveText('The bot always plays online here.');
     // the person's own choice underneath is untouched
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('goforkids_settings') ?? '{}'));
     expect(saved.cloudBot).not.toBe(true);
-    // a device that cannot play its own bots has no use for the human-style row
-    await expect(page.locator('.settings-human-bots')).toHaveCount(0);
+    // the web has no human-style row; a device held to the online bots says why it is off
+    if (where === 'the web') {
+      await expect(page.locator('.settings-human-bots')).toHaveCount(0);
+    } else {
+      await expect(page.locator('.settings-human-bots .settings-note')).toHaveText('This device plays the online bots.');
+      await expect(page.getByRole('checkbox', { name: 'Human-style bots' })).toBeDisabled();
+    }
     // the sentence sits right under its label and ends the row
     const [labelBottom, noteTop, noteBottom, rowBottom] = await page.evaluate(() => {
       const r = (s: string) => document.querySelector(s)!.getBoundingClientRect();
-      return [r('.settings-cloud-bot label').bottom, r('.settings-note').top, r('.settings-note').bottom, r('.settings-cloud-bot').bottom];
+      return [r('.settings-cloud-bot label').bottom, r('.settings-cloud-bot .settings-note').top, r('.settings-cloud-bot .settings-note').bottom, r('.settings-cloud-bot').bottom];
     });
     expect(noteTop - labelBottom, 'label to sentence').toBeLessThanOrEqual(8);
     expect(rowBottom - noteBottom, 'sentence to row end').toBeLessThanOrEqual(1);
     await sweep(page, 'settings-locked', {
-      strict: ['.dialog', '.dialog h2', 'btn:Close', '.theme-picker', '.mode-picker', '.settings-cloud-bot', '.settings-note'],
+      strict: [
+        '.dialog', '.dialog h2', 'btn:Close', '.theme-picker', '.mode-picker', '.settings-cloud-bot', '.settings-cloud-bot .settings-note',
+        ...(where === 'the web' ? [] : ['.settings-human-bots .settings-note']),
+      ],
       noOverflow: ['.dialog'],
       noBodyScroll: true,
     });

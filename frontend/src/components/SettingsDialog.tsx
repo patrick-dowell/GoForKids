@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useSettingsStore, type Density } from '../store/settingsStore';
-import { useCapabilitiesStore, useOnlineBotsOnly } from '../store/capabilitiesStore';
+import { useHumanBotsAvailability, useOnlineBotsOnly, type HumanBotsAvailability } from '../store/capabilitiesStore';
 import { CLOUD_LOCKED_NOTE, tapCloudBotRow } from './cloudBotRow';
+import { HUMAN_BOTS_NOTE } from './humanBotsRow';
 import { THEMES, type ThemeId } from '../theme/themes';
 
 interface SettingsDialogProps {
@@ -19,7 +20,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const setCloudBot = useSettingsStore((s) => s.setCloudBot);
   const humanBots = useSettingsStore((s) => s.humanBots);
   const setHumanBots = useSettingsStore((s) => s.setHumanBots);
-  const humanModel = useCapabilitiesStore((s) => s.capabilities?.humanModel === true);
+  const humanBotsAvailability = useHumanBotsAvailability();
   // The web, or a device whose engine is too slow: online bots only. The row
   // shows on and stays on; the stored choice underneath is left alone.
   const cloudLocked = useOnlineBotsOnly();
@@ -106,21 +107,14 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
             onToggle={(v) => tapCloudBotRow(cloudLocked, v, { setCloudBot, showNote: () => setLockNote(true) })}
           />
 
-          {/* Human-style bots: only on a device whose engine reported the human
-              SL net at start and may play its own bots. A rank with a rung in
+          {/* Human-style bots: on any device with the bridge, from the first
+              moment (the answer can take half a minute on a version's first
+              launch); it opens once the engine reports the human SL net and
+              the device may play its own bots. A rank with a rung in
               b28_human.yaml then plays on the human path; "Bot plays online"
-              still wins. */}
-          {humanModel && !cloudLocked && (
-            <div className="dialog-field settings-human-bots">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={humanBots}
-                  onChange={(e) => setHumanBots(e.target.checked)}
-                />
-                {' '}Human-style bots
-              </label>
-            </div>
+              still wins. Never on the web. */}
+          {humanBotsAvailability !== 'none' && (
+            <HumanBotsRow availability={humanBotsAvailability} checked={humanBots} onToggle={setHumanBots} />
           )}
         </div>
       </div>
@@ -148,6 +142,36 @@ export function CloudBotRow({
         {' '}Bot plays online
       </label>
       {noteShown && <p className="settings-note">{CLOUD_LOCKED_NOTE}</p>}
+    </div>
+  );
+}
+
+/** The "Human-style bots" row: open when the device has the human model,
+ *  else greyed with a line saying why (the stored choice shows while the
+ *  bots start; off once the answer says they cannot play here). */
+export function HumanBotsRow({
+  availability,
+  checked,
+  onToggle,
+}: {
+  availability: HumanBotsAvailability;
+  checked: boolean;
+  onToggle: (v: boolean) => void;
+}) {
+  const open = availability === 'ready';
+  const note = HUMAN_BOTS_NOTE[availability];
+  return (
+    <div className="dialog-field settings-human-bots">
+      <label>
+        <input
+          type="checkbox"
+          disabled={!open}
+          checked={(open || availability === 'starting') && checked}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+        {' '}Human-style bots
+      </label>
+      {note && <p className="settings-note">{note}</p>}
     </div>
   );
 }
